@@ -119,6 +119,6 @@ scripts/    typecheck · make_icon · bundle_ffmpeg · qa_* · make_dist
 
 - اپ اندروید اصلی: <https://github.com/code3-dev/CCloud> (Kotlin/Compose)
 - نسخهٔ Flutter دسکتاپ (منبع بخش پخش زنده): `CCloud-GUI`
-- دادهٔ شبکه‌های زنده: <https://github.com/famelack/famelack-channels> (پیش‌تر TV Garden)
+- دادهٔ شبکه‌های زنده: <https://github.com/famelack/famelack-data> (پیش‌تر TV Garden)
   و فهرست مکمّل <https://github.com/iptv-org/iptv>
 - فونت وزیرمتن (SIL OFL) · FFmpeg (GPL، فقط فایل اجرایی همراه بسته)

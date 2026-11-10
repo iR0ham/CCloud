@@ -13,8 +13,8 @@ class LiveTvClient {
   static final LiveTvClient instance = LiveTvClient._();
 
   static const List<String> _bases = [
-    'https://raw.githubusercontent.com/famelack/famelack-channels/main/tv/raw',
-    'https://cdn.jsdelivr.net/gh/famelack/famelack-channels@main/tv/raw',
+    'https://raw.githubusercontent.com/famelack/famelack-data/main/tv',
+    'https://cdn.jsdelivr.net/gh/famelack/famelack-data@main/tv',
   ];
 
   final http.Client _client = http.Client();
@@ -124,7 +124,7 @@ class LiveTvClient {
             )
             .timeout(const Duration(seconds: 25));
         if (response.statusCode == 404) {
-          lastError = const ApiException('شبکه‌ای پیدا نشد');
+          lastError = const ApiException('داده‌های پخش زنده روی سرور پیدا نشد');
           continue;
         }
         if (response.statusCode < 200 || response.statusCode >= 300) {

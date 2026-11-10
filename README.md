@@ -130,7 +130,7 @@ ares-install --device <tv-name> dist/com.ccloud.tv_1.0.0_all.ipk
 - **کاتالوگ:** از API سرویس CCloud خوانده می‌شود. کلاینت‌ها سه میزبان جایگزین را به‌ترتیب امتحان
   می‌کنند و در صورت شکست، میزبان بعدی را انتخاب می‌کنند. صفحه‌ها ۰-based و هر صفحه ۳۰ آیتم است.
 - **پخش زنده:** فهرست کشورها و شبکه‌ها از مجموعهٔ باز
-  [Famelack Channels](https://github.com/famelack/famelack-channels) (جانشین TV Garden) و پلی‌لیست
+  [Famelack Data](https://github.com/famelack/famelack-data) (جانشین TV Garden) و پلی‌لیست
   مکمل [iptv-org](https://github.com/iptv-org/iptv) ساخته می‌شود. منبع اصلی famelack است و iptv-org
   فقط لینک‌های جاافتاده را اضافه می‌کند. فهرست ایران دقیقاً همان ۶۲ شبکهٔ famelack است.
 - منابع ویدیو با `http` روی CDNهای مختلف میزبانی می‌شوند؛ به همین دلیل macOS
@@ -175,7 +175,7 @@ ares-install --device <tv-name> dist/com.ccloud.tv_1.0.0_all.ipk
 ## 🙏 اعتبارها
 
 - اپ اندروید اصلی: [code3-dev/CCloud](https://github.com/code3-dev/CCloud)
-- دادهٔ شبکه‌های زنده: [Famelack Channels](https://github.com/famelack/famelack-channels) و
+- دادهٔ شبکه‌های زنده: [Famelack Data](https://github.com/famelack/famelack-data) و
   [iptv-org](https://github.com/iptv-org/iptv)
 - فونت [وزیرمتن](https://github.com/rastikerdar/vazirmatn) (SIL OFL)
 - [FFmpeg](https://ffmpeg.org) (GPL) برای پخش MKV در macOS

@@ -254,7 +254,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             style: Theme.of(context).textTheme.titleMedium,
                           ),
                           Text(
-                            'نسخهٔ اندروید • ۱.۰.۵',
+                            'نسخهٔ اندروید • ۱.۰.۶',
                             style: Theme.of(context).textTheme.bodySmall,
                           ),
                         ],

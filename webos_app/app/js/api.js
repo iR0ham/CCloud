@@ -262,8 +262,8 @@
 
   // ================= Live TV (Famelack dataset) =================
   var LIVE_BASES = [
-    'https://raw.githubusercontent.com/famelack/famelack-channels/main/tv/raw',
-    'https://cdn.jsdelivr.net/gh/famelack/famelack-channels@main/tv/raw'
+    'https://raw.githubusercontent.com/famelack/famelack-data/main/tv',
+    'https://cdn.jsdelivr.net/gh/famelack/famelack-data@main/tv'
   ];
   var liveCountries = null, liveCountriesAt = 0, liveCountriesPending = null;
   var liveChannels = {}, liveChannelsAt = {}, liveChannelsPending = {};
