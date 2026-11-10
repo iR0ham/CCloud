@@ -1,0 +1,10 @@
+{
+  "name": "ccloud-webos",
+  "version": "1.0.0",
+  "private": true,
+  "description": "CCloud for LG webOS TV",
+  "scripts": {
+    "start": "node server.js",
+    "package": "ares-package app service/com.ccloud.tv.service -o dist"
+  }
+}

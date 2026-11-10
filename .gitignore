@@ -1,0 +1,31 @@
+build/
+build-*/
+dist/
+qa/
+ccloud-images/
+.DS_Store
+*.log
+Resources/ffmpeg-bin/
+Tests/api/out/
+Tests/api/build/
+Tests/player/out/
+Tests/player/build/
+
+# Release binaries
+*.apk
+*.ipk
+
+# Android signing / local config
+flutter_app/android/keystore/
+flutter_app/android/key.properties
+flutter_app/android/local.properties
+flutter_app/android/.gradle/
+
+# Flutter artifacts
+flutter_app/.dart_tool/
+flutter_app/build/
+flutter_app/.flutter-plugins-dependencies
+flutter_app/.idea/
+*.iml
+.DS_Store
+webos_app/dist/

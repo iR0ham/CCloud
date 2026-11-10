@@ -1,0 +1,17 @@
+{
+  "id": "com.ccloud.tv",
+  "version": "1.0.0",
+  "vendor": "CCloud",
+  "type": "web",
+  "main": "index.html",
+  "title": "CCloud",
+  "icon": "icon.png",
+  "largeIcon": "largeIcon.png",
+  "iconColor": "#0a0b10",
+  "bgColor": "#0a0b10",
+  "disableBackHistoryAPI": true,
+  "handlesRelaunch": true,
+  "supportTouchMode": "full",
+  "requiredPermissions": [],
+  "requiredACG": []
+}

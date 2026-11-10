@@ -1,0 +1,14 @@
+{
+  "id": "com.ccloud.tv.service",
+  "description": "CCloud network proxy service",
+  "services": [
+    {
+      "name": "com.ccloud.tv.service",
+      "description": "Fetches remote JSON/text for the CCloud web app",
+      "commands": [
+        { "name": "fetch" },
+        { "name": "ping" }
+      ]
+    }
+  ]
+}
