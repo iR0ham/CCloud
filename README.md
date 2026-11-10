@@ -1,104 +1,183 @@
 <div dir="rtl" align="right">
 
-# CCloud برای مک
+<img src="Resources/logo.png" width="88" alt="CCloud">
 
-نسخهٔ دسکتاپ و بومی (**native**) اپلیکیشن استریم CCloud برای macOS؛ ساخته‌شده با SwiftUI و AppKit،
-بدون هیچ وابستگی خارجی. همان کاتالوگ زندهٔ نسخهٔ اندروید را مرور می‌کند و همان منابع را پخش می‌کند:
-فیلم‌ها، سریال‌ها، جست‌وجو، فیلتر کشورها، علاقه‌مندی‌ها، صفحه‌های جزئیات و پخش‌کنندهٔ داخلی.
+# CCloud — کلاینت استریم چندپلتفرمی
 
-![CCloud](Resources/AppIconMaster.png)
+مجموعهٔ **غیررسمی** کلاینت‌های CCloud برای macOS، اندروید (گوشی/تبلت/Android TV) و تلویزیون‌های LG webOS.
+هر سه نسخه همان کاتالوگ زنده را مرور و همان منابع را پخش می‌کنند: فیلم‌ها، سریال‌ها، جست‌وجو،
+فیلتر کشور و ژانر، پخش زنده، علاقه‌مندی‌ها و پخش‌کنندهٔ داخلی.
+
+> **English:** Unofficial multi-platform CCloud streaming clients — a native SwiftUI/AppKit app for
+> macOS, a Flutter app for Android phones, tablets and Android TV, and an HTML/JS client for LG webOS.
+> All share the same catalog, live-TV dataset and Persian RTL interface.
+
+## 📱 پلتفرم‌ها
+
+| پلتفرم | تکنولوژی | نسخه | مسیر |
+|---|---|---|---|
+| macOS | SwiftUI + AppKit (بدون وابستگی خارجی) | 2.0.0 | `Sources/` |
+| Android / Android TV | Flutter (Dart) + media_kit | 1.0.5 | `flutter_app/` |
+| LG webOS TV | HTML/CSS/JS + سرویس Node | 1.0.0 | `webos_app/` |
 
 ## ✨ امکانات
 
 - **کاتالوگ زنده:** فیلم‌ها و سریال‌ها با صفحه‌بندی بی‌پایان، فیلتر ژانر و مرتب‌سازی (جدیدترین / سال / IMDb)
-- **جست‌وجو** در کل کاتالوگ (فیلم و سریال)
-- **پخش زنده:** بیش از ۶٬۰۰۰ شبکهٔ تلویزیونی زنده از ۱۷۲ کشور، با جست‌وجوی کشور و شبکه (پخش مستقیم HLS در پخش‌کنندهٔ داخلی)
-- **کشورها:** مرور فیلم‌ها و سریال‌های هر کشور
-- **صفحهٔ جزئیات:** کاور تمام‌عرض، پوستر، سال، IMDb، مدت، ژانرها، توضیحات و فهرست منابع/کیفیت‌ها
+- **جست‌وجو** در کل کاتالوگ
+- **پخش زنده:** بیش از ۶٬۰۰۰ شبکهٔ تلویزیونی از ۱۷۲ کشور، با جست‌وجوی کشور و شبکه
+- **کشورها:** مرور فیلم‌ها و سریال‌ها و پخش زندهٔ هر کشور
+- **صفحهٔ جزئیات:** کاور، پوستر، سال، IMDb، مدت، ژانرها، توضیحات و فهرست کیفیت‌ها/منابع
 - **سریال‌ها:** انتخاب فصل و فهرست قسمت‌ها با پخش جداگانه
-- **پخش‌کنندهٔ داخلی:** کنترل‌های کامل (پخش/توقف، ±۱۰ ثانیه، نوار زمان، صدا، سرعت، انتخاب کیفیت، تمام‌صفحه)
-- **علاقه‌مندی‌ها:** ذخیرهٔ محلی فیلم‌ها و سریال‌ها
-- **تنظیمات:** حالت ظاهر (تیره/روشن/سیستم)، پاک‌کردن علاقه‌مندی‌ها و…
-- **رابط کاربری کامل فارسی و راست‌به‌چپ** با فونت وزیرمتن
-- پخش مستقیم `mp4` / `m3u8` و **پشتیبانی از `mkv`** (بیشتر کاتالوگ) با تبدیلِ سریع داخلی
+- **پخش‌کنندهٔ داخلی:** پخش/توقف، ±۱۰ ثانیه، نوار زمان، صدا، سرعت، انتخاب کیفیت و تمام‌صفحه
+- **علاقه‌مندی‌ها و تاریخچهٔ تماشا** (بسته به پلتفرم)
+- **رابط کامل فارسی و راست‌به‌چپ** با فونت وزیرمتن، تم تیره
+- پشتیبانی از `mp4`، `m3u8` و `mkv` (روش پخش در هر پلتفرم متفاوت است)
 
-## 📦 نصب
+## 🗂 ساختار مخزن
 
-۱. فایل `CCloud-macOS.zip` را دانلود و از حالت فشرده خارج کنید.
-۲. `CCloud.app` را به پوشهٔ **Applications** بکشید (نصب‌کنندهٔ جدا ندارد).
-۳. برای اولین اجرا روی آیکون **راست‌کلیک → Open** بزنید.
+<div dir="ltr">
 
-> **چرا این پیام می‌آید؟** این برنامه با امضای ad-hoc و بدون notarization اپل توزیع می‌شود
-> (ساخت آن به حساب Developer اپل نیاز ندارد). اگر پیام «برنامه از توسعه‌دهندهٔ شناسایی‌شده نیست»
-> دیدید، یک‌بار `Open` را بزنید یا در ترمینال اجرا کنید:
->
-> ```bash
-> xattr -dr com.apple.quarantine /Applications/CCloud.app
-> open /Applications/CCloud.app
-> ```
+```
+CCloudMac/
+├── Sources/        # macOS app (SwiftUI + AppKit)
+├── Resources/      # fonts, icons, logos
+├── Tests/          # macOS API and player test harnesses
+├── scripts/        # build, QA, icon, release scripts
+├── flutter_app/    # Android phone / tablet / Android TV
+├── webos_app/      # LG webOS TV client + Node service
+├── build.sh        # macOS build script
+├── Info.plist      # macOS bundle metadata
+├── PROJECT.md      # macOS architecture and interfaces
+└── BUILD.md        # macOS build guide (Persian)
+```
 
-**نیازمندی‌ها:** macOS 15 یا جدیدتر، مک با پردازندهٔ Apple Silicon (arm64).
+</div>
 
-## 🎬 دربارهٔ پخش‌کننده و ffmpeg
+پوشه‌های `build/`، `.dart_tool/`، `dist/`، `qa/`، `Resources/ffmpeg-bin/` و فایل‌های APK در مخزن
+نیستند (در `.gitignore`)؛ همه با اسکریپت‌های همین پروژه دوباره ساخته می‌شوند.
 
-- فایل‌های `mp4` و `m3u8` مستقیماً با AVPlayer پخش می‌شوند.
-- فایل‌های `mkv` را AVPlayer نمی‌تواند بخواند؛ برنامه به‌صورت خودکار روی همان دستگاه با **ffmpeg**
-  آن‌ها را به HLS (fMP4) تبدیل می‌کند و پخش می‌کند؛ همین کار پرش سریع (seek) را هم ممکن می‌کند.
-- نسخهٔ خودکفای ffmpeg (به‌همراه همهٔ کتابخانه‌های لازم) داخل بسته قرار دارد:
-  `CCloud.app/Contents/Resources/ffmpeg-bin/`. به نصب Homebrew یا هیچ چیز دیگری نیاز نیست.
-- اگر می‌خواهید از ffmpeg سیستم استفاده شود، کافی است پوشهٔ بالا را پاک کنید؛ برنامه به‌ترتیب
-  `ffmpeg` موجود در Homebrew یا `PATH` را پیدا می‌کند.
+## 🛠 ساخت و اجرا
 
-**دربارهٔ مجوز ffmpeg:** این برنامه فایل اجرایی ffmpeg (پروژهٔ [FFmpeg](https://ffmpeg.org)) را
-همراه دارد که با کتابخانه‌های x264/x265 ساخته شده و تحت مجوز **GPL** توزیع می‌شود. کد این برنامه
-جداست و فقط آن فایل اجرایی را در زمان اجرا فراخوانی می‌کند.
+### macOS
 
-## 🌐 نکتهٔ منابع و ATS
+نیازمندی‌ها: macOS 15 یا جدیدتر، Apple Silicon، و Command Line Tools (`xcode-select --install`).
+نیازی به Xcode کامل نیست؛ پروژه با `swiftc` ساخته می‌شود.
 
-منابع ویدیوی این سرویس با `http` (نه `https`) ارائه می‌شوند و روی CDNهای مختلفی میزبانی می‌شوند.
-به همین دلیل این برنامه **App Transport Security** را برای دسترسی به بارهای دلخواه
-(`NSAllowsArbitraryLoads`) باز کرده است؛ در غیر این صورت هیچ منبعی پخش نمی‌شد. این یک تنظیم آگاهانه
-است، نه سهل‌انگاری: برنامه هیچ داده‌ای جز درخواست‌های خود سرویس ارسال نمی‌کند.
+<div dir="ltr">
 
-- ممکن است بعضی منابع روی بعضی شبکه‌ها/کشورها در دسترس نباشند (محدودیت جغرافیایی یا از کار افتادن CDN).
-  در این حالت پیام خطای فارسی و گزینهٔ «باز کردن در VLC / کپی لینک» نمایش داده می‌شود.
-- بعضی منابع IP ایران را مسدود می‌کنند؛ در صورت نیاز از تغییر DNS یا اتصال دیگر استفاده کنید.
+```bash
+./build.sh          # → build/CCloud.app (ad-hoc signed)
+./build.sh --run    # build + open
+```
 
-## 📺 پخش زنده
+</div>
 
-بخش «پخش زنده» (آیکون امواج در نوار کنار) همان مفهومی است که در نسخهٔ Flutter دسکتاپ
-(`CCloud-GUI`) وجود داشت: انتخاب کشور ← انتخاب شبکه ← پخش.
+برای پخش `mkv`، ffmpeg لازم است: یا نصب‌شده در Homebrew/`PATH`، یا نسخهٔ همراه بسته:
 
-- فهرست کشورها و شبکه‌ها از مجموعهٔ دادهٔ باز Famelack/TV Garden خوانده می‌شود
-  (مسیرهای `tv/raw/countries_metadata.json` و `tv/raw/countries/{cc}.json`, با CDN جایگزین jsDelivr)
-  و با پلی‌لیست پروژهٔ iptv-org (`countries/ir.m3u` و `languages/fas.m3u`) ادغام می‌شود؛ famelack
-  منبع اصلی است و iptv-org شبکه‌ها و لینک‌های جاافتاده را اضافه می‌کند (حذف تکراری روی نام یکسان).
-- شبکه‌های ایران دقیقاً همان ۶۲ شبکهٔ خود famelack هستند. پلی‌لیست‌های iptv-org فقط لینک یدک
-  به همان شبکه‌ها اضافه می‌کنند و شبکهٔ تازه‌ای وارد فهرست نمی‌شود؛ فهرست iptv-org بیشتر
-  شامل شبکه‌های خارج از ایران و لینک‌های مرده است.
-- اکثر شبکه‌ها HLS (`m3u8`) هستند و مستقیماً در پخش‌کنندهٔ داخلی پخش می‌شوند؛ نوار زمان طلایی
-  «پخش زنده» جای نوار جست‌وجو را می‌گیرد.
-- بعضی شبکه‌ها روی بعضی شبکه‌های اینترنتی/کشورها باز نمی‌شوند یا برچسب «محدود جغرافیایی» دارند؛
-  خطای پخش با گزینهٔ «تلاش دوباره / باز کردن در VLC / کپی لینک» نمایش داده می‌شود.
+<div dir="ltr">
 
-## 🛠 عیب‌یابی
+```bash
+./scripts/bundle_ffmpeg.sh   # copies ffmpeg + libs into Resources/ffmpeg-bin/
+```
 
-| مشکل | راه‌حل |
+</div>
+
+جزئیات بیشتر (تست‌ها، اسکرین‌شات QA، ساخت بستهٔ توزیع) در [BUILD.md](BUILD.md).
+
+### Android / Android TV
+
+نیازمندی‌ها: Flutter SDK با Dart 3.13 یا جدیدتر، Android SDK.
+
+<div dir="ltr">
+
+```bash
+cd flutter_app
+flutter pub get
+flutter run                        # debug on a device / emulator
+flutter build apk --release        # → build/app/outputs/flutter-apk/app-release.apk
+flutter build apk --release --split-per-abi
+```
+
+</div>
+
+- اپ روی گوشی، تبلت و Android TV اجرا می‌شود (لانچر leanback و بنر TV در `AndroidManifest.xml`).
+- اگر فایل `flutter_app/android/key.properties` وجود داشته باشد، بیلد release با همان کلید امضا می‌شود؛
+  در غیر این صورت امضای debug استفاده می‌شود. **کلید امضا و رمزهای آن در این مخزن نیستند.**
+- گزینهٔ `usesCleartextTraffic` برای پخش منابع `http` روشن است. پخش با media_kit (libmpv) انجام می‌شود.
+
+### LG webOS
+
+نیازمندی‌ها: LG webOS TV در حالت Developer Mode، و ابزارهای webOS CLI (`ares-*`) از
+`@webos-tools/cli`.
+
+<div dir="ltr">
+
+```bash
+cd webos_app
+npm start            # local dev server → http://localhost:8080
+npm run package      # ares-package app service/com.ccloud.tv.service -o dist
+ares-install --device <tv-name> dist/com.ccloud.tv_1.0.0_all.ipk
+```
+
+</div>
+
+اپ یک سرویس Node همراه دارد (`service/com.ccloud.tv.service`) که درخواست‌های کاتالوگ و دادهٔ پخش زنده را
+برای مرورگر تلویزیون fetch می‌کند و مشکل CORS را دور می‌زند. `npm start` همین کار را با یک پروکسی
+محلی برای تست در مرورگر دسکتاپ انجام می‌دهد.
+
+## 🌐 داده‌ها و شبکه
+
+- **کاتالوگ:** از API سرویس CCloud خوانده می‌شود. کلاینت‌ها سه میزبان جایگزین را به‌ترتیب امتحان
+  می‌کنند و در صورت شکست، میزبان بعدی را انتخاب می‌کنند. صفحه‌ها ۰-based و هر صفحه ۳۰ آیتم است.
+- **پخش زنده:** فهرست کشورها و شبکه‌ها از مجموعهٔ باز
+  [Famelack Channels](https://github.com/famelack/famelack-channels) (جانشین TV Garden) و پلی‌لیست
+  مکمل [iptv-org](https://github.com/iptv-org/iptv) ساخته می‌شود. منبع اصلی famelack است و iptv-org
+  فقط لینک‌های جاافتاده را اضافه می‌کند. فهرست ایران دقیقاً همان ۶۲ شبکهٔ famelack است.
+- منابع ویدیو با `http` روی CDNهای مختلف میزبانی می‌شوند؛ به همین دلیل macOS
+  (`NSAllowsArbitraryLoads`) و اندروید (`usesCleartextTraffic`) دسترسی آزاد دارند.
+  بعضی منابع ممکن است در بعضی شبکه‌ها/کشورها در دسترس نباشند یا IP ایران را مسدود کنند.
+
+## 🎬 پخش ویدیو
+
+| پلتفرم | روش |
 |---|---|
-| پیام «توسعه‌دهندهٔ شناسایی‌شده نیست» | راست‌کلیک → Open، یا `xattr -dr com.apple.quarantine /Applications/CCloud.app` |
-| «اتصال برقرار نشد» در نوار کنار | اتصال اینترنت را بررسی کنید؛ برنامه به‌طور خودکار میزبان‌های جایگزین را امتحان می‌کند |
-| پخش mkv شروع نمی‌شود | مطمئن شوید `Contents/Resources/ffmpeg-bin/ffmpeg` وجود دارد؛ در ترمینال با `-version` تست کنید |
-| ویدیو با تأخیر شروع می‌شود | برای mkv ابتدا چند ثانیه remux لازم است (نوار «در حال آماده‌سازی…») |
+| macOS | `mp4`/`m3u8` با AVPlayer؛ `mkv` با remux محلی ffmpeg به HLS (fMP4) و پخش از HTTP سرور داخلی |
+| Android | media_kit (libmpv) — پشتیبانی گسترده از فرمت‌ها و HLS |
+| webOS | تگ HTML5 `<video>` و کدک‌های خود تلویزیون (HLS/MP4/MKV) |
+
+در macOS نسخهٔ خودکفای ffmpeg به‌همراه همهٔ کتابخانه‌های لازم داخل بسته قرار می‌گیرد
+(`CCloud.app/Contents/Resources/ffmpeg-bin/`). این فایل اجرایی تحت مجوز **GPL** است و کد برنامه
+جدا از آن است.
+
+## 🧪 تست‌ها
+
+<div dir="ltr">
+
+```bash
+./Tests/api/run.sh              # 30 live API tests (network required)
+./Tests/player/run.sh           # 119 playback-engine tests with local media (ffmpeg required)
+./scripts/qa_snapshots.sh --all # 19 screenshots of all screens (output in qa/)
+./scripts/qa_smoke.sh           # bundle, icon, fonts, ffmpeg, signature, launch, API checks
+./scripts/typecheck.sh          # fast Swift type check
+```
+
+</div>
+
+## ⚠️ محدودیت‌ها و حقوق
+
+- این مخزن یک **پورت غیررسمی** است و هیچ وابستگی سازمانی به سازندهٔ اصلی یا سرویس CCloud ندارد.
+- همهٔ حقوق محتوا (فیلم، سریال، پوستر و پخش زنده) متعلق به صاحبان آن است؛ این پروژه فقط کلاینت است.
+  استفادهٔ شخصی و آموزشی، و مسئولیت دسترسی به منابع بر عهدهٔ کاربر است.
+- APKها، بستهٔ webOS، خروجی‌های بیلد و **کلید امضای اندروید** در مخزن نیستند.
+- این مخزن در حال حاضر فایل `LICENSE` ندارد؛ تا اضافه‌شدن مجوز، همهٔ حقوق محفوظ است.
+- ffmpeg (GPL) فقط به‌صورت فایل اجرایی در بستهٔ macOS توزیع می‌شود.
 
 ## 🙏 اعتبارها
 
-- پروژهٔ اصلی اندروید: [github.com/code3-dev/CCloud](https://github.com/code3-dev/CCloud)
-- کانال تلگرام سازندهٔ اصلی: [t.me/h3dev](https://t.me/h3dev)
-- دادهٔ شبکه‌های زنده از مجموعهٔ [Famelack Channels](https://github.com/famelack/famelack-channels) (جانشین پروژهٔ TV Garden)
-  و فهرست مکمّل [iptv-org](https://github.com/iptv-org/iptv)
+- اپ اندروید اصلی: [code3-dev/CCloud](https://github.com/code3-dev/CCloud)
+- دادهٔ شبکه‌های زنده: [Famelack Channels](https://github.com/famelack/famelack-channels) و
+  [iptv-org](https://github.com/iptv-org/iptv)
 - فونت [وزیرمتن](https://github.com/rastikerdar/vazirmatn) (SIL OFL)
-- [FFmpeg](https://ffmpeg.org) (GPL) برای پخش mkv
-- این نسخهٔ مک یک پورت غیررسمی است؛ هیچ وابستگی سازمانی به سازندهٔ اصلی ندارد و همهٔ حقوق محتوا
-  متعلق به صاحبان آن است. صرفاً برای استفادهٔ شخصی و آموزشی.
+- [FFmpeg](https://ffmpeg.org) (GPL) برای پخش MKV در macOS
 
 </div>
