@@ -17,7 +17,7 @@
 | پلتفرم | تکنولوژی | نسخه | مسیر |
 |---|---|---|---|
 | macOS | SwiftUI + AppKit (بدون وابستگی خارجی) | 2.0.0 | `Sources/` |
-| Android / Android TV | Flutter (Dart) + media_kit | 1.0.5 | `flutter_app/` |
+| Android / Android TV | Flutter (Dart) + media_kit | 1.0.6 | `flutter_app/` |
 | LG webOS TV | HTML/CSS/JS + سرویس Node | 1.0.0 | `webos_app/` |
 
 ## ✨ امکانات
