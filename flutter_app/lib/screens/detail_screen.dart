@@ -62,18 +62,17 @@ class _DetailScreenState extends State<DetailScreen> {
             : api.movies(page: 1, genreId: genreId),
       ]);
       final settings = AppServices.instance.settings;
+      final hiding = ContentHiding(
+        origins: settings.hideRegionalOrigins,
+        anime: settings.hideAnime,
+      );
       final seen = <int>{item.id};
       final result = <MediaItem>[];
       for (final page in pages) {
         for (final candidate in page) {
           if (result.length >= 14) break;
           if (!seen.add(candidate.id)) continue;
-          if (settings.hideRegionalOrigins && OriginFilter.hides(candidate)) {
-            continue;
-          }
-          if (settings.hideAnime && OriginFilter.hidesAnime(candidate)) {
-            continue;
-          }
+          if (hiding.isHidden(candidate)) continue;
           result.add(candidate);
         }
       }

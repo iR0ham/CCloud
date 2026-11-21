@@ -3,9 +3,11 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../core/api_client.dart';
+import '../core/app_events.dart';
 import '../core/catalogue.dart';
 import '../core/description_text.dart';
 import '../core/models.dart';
+import '../core/origin_filter.dart';
 import '../core/playback.dart';
 import '../core/stores.dart';
 import '../ui/nav.dart';
@@ -37,19 +39,63 @@ class _HomeScreenState extends State<HomeScreen> {
   List<Genre> _genres = const [];
   int _slide = 0;
 
-  List<MediaItem> get _slides => mixHeroSlides(_latestMovies, _latestSeries);
+  late final AppSettings _settings;
+
+  ContentHiding get _hiding => ContentHiding(
+    origins: _settings.hideRegionalOrigins,
+    anime: _settings.hideAnime,
+  );
+
+  List<MediaItem> get _slides => mixHeroSlides(
+    _latestMovies,
+    _latestSeries,
+  ).where((item) => !_hiding.isHidden(item)).toList();
+
+  List<Genre> get _visibleGenres {
+    if (!_settings.hideRegionalOrigins) return _genres;
+    return _genres
+        .where((genre) => !OriginFilter.hidesGenre(genre.title))
+        .toList();
+  }
 
   @override
   void initState() {
     super.initState();
+    _settings = AppServices.instance.settings;
+    _settings.addListener(_onSettingsChanged);
+    AppEvents.refreshTick.addListener(_onRefreshTick);
     _load();
   }
 
   @override
   void dispose() {
     _autoPlay?.cancel();
+    _settings.removeListener(_onSettingsChanged);
+    AppEvents.refreshTick.removeListener(_onRefreshTick);
     _pageController.dispose();
     super.dispose();
+  }
+
+  void _onRefreshTick() {
+    if (mounted) _load();
+  }
+
+  void _onSettingsChanged() {
+    if (!mounted) return;
+    final needsJump = _slide >= _slides.length;
+    setState(() {
+      // Filtering a hero title out shrinks the PageView; never leave the
+      // controller pointing past the last slide.
+      if (needsJump) _slide = 0;
+    });
+    if (needsJump) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _pageController.hasClients) {
+          _pageController.jumpToPage(0);
+        }
+      });
+    }
+    _startAutoPlay();
   }
 
   Future<void> _load() async {
@@ -89,6 +135,11 @@ class _HomeScreenState extends State<HomeScreen> {
       _loading = false;
       _error = results.every((list) => list.isEmpty) ? firstError : null;
       _slide = 0;
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _pageController.hasClients) {
+        _pageController.jumpToPage(0);
+      }
     });
     _startAutoPlay();
   }
@@ -144,7 +195,29 @@ class _HomeScreenState extends State<HomeScreen> {
     }
 
     final history = AppServices.instance.history;
-    final recent = [for (final entry in history.entries.take(12)) entry.item];
+    final hiding = _hiding;
+    final recent = history.entries
+        .map((entry) => entry.item)
+        .where((item) => !hiding.isHidden(item))
+        .take(12)
+        .toList();
+    final latestMovies = _latestMovies
+        .where((item) => !hiding.isHidden(item))
+        .take(20)
+        .toList();
+    final latestSeries = _latestSeries
+        .where((item) => !hiding.isHidden(item))
+        .take(20)
+        .toList();
+    final topMovies = _topMovies
+        .where((item) => !hiding.isHidden(item))
+        .take(20)
+        .toList();
+    final topSeries = _topSeries
+        .where((item) => !hiding.isHidden(item))
+        .take(20)
+        .toList();
+    final genres = _visibleGenres;
 
     return SafeArea(
       bottom: false,
@@ -177,55 +250,55 @@ class _HomeScreenState extends State<HomeScreen> {
                               ShellScope.of(context).selectTab(AppTab.history),
                         ),
                       ),
-                    if (_latestMovies.isNotEmpty)
+                    if (_latestMovies.isNotEmpty && latestMovies.isNotEmpty)
                       Padding(
                         padding: const EdgeInsets.fromLTRB(16, 26, 16, 0),
                         child: MediaRail(
                           title: 'آخرین فیلم‌های اضافه‌شده',
                           subtitle: 'تازه‌ترین‌ها',
-                          items: _latestMovies.take(20).toList(),
+                          items: latestMovies,
                           onOpen: _open,
                           onSeeAll: () =>
                               ShellScope.of(context).selectTab(AppTab.movies),
                         ),
                       ),
-                    if (_latestSeries.isNotEmpty)
+                    if (_latestSeries.isNotEmpty && latestSeries.isNotEmpty)
                       Padding(
                         padding: const EdgeInsets.fromLTRB(16, 26, 16, 0),
                         child: MediaRail(
                           title: 'آخرین سریال‌ها',
                           subtitle: 'تازه‌ترین قسمت‌ها',
-                          items: _latestSeries.take(20).toList(),
+                          items: latestSeries,
                           onOpen: _open,
                           onSeeAll: () =>
                               ShellScope.of(context).selectTab(AppTab.series),
                         ),
                       ),
-                    if (_topMovies.isNotEmpty)
+                    if (_topMovies.isNotEmpty && topMovies.isNotEmpty)
                       Padding(
                         padding: const EdgeInsets.fromLTRB(16, 26, 16, 0),
                         child: MediaRail(
                           title: 'برترین فیلم‌ها',
                           subtitle: 'بر اساس IMDb',
-                          items: _topMovies.take(20).toList(),
+                          items: topMovies,
                           onOpen: _open,
                           onSeeAll: () =>
                               ShellScope.of(context).selectTab(AppTab.movies),
                         ),
                       ),
-                    if (_topSeries.isNotEmpty)
+                    if (_topSeries.isNotEmpty && topSeries.isNotEmpty)
                       Padding(
                         padding: const EdgeInsets.fromLTRB(16, 26, 16, 0),
                         child: MediaRail(
                           title: 'برترین سریال‌ها',
                           subtitle: 'بر اساس IMDb',
-                          items: _topSeries.take(20).toList(),
+                          items: topSeries,
                           onOpen: _open,
                           onSeeAll: () =>
                               ShellScope.of(context).selectTab(AppTab.series),
                         ),
                       ),
-                    if (_genres.isNotEmpty) ...[
+                    if (genres.isNotEmpty) ...[
                       const SizedBox(height: 30),
                       Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -244,7 +317,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           spacing: 8,
                           runSpacing: 8,
                           children: [
-                            for (final genre in _genres.take(18))
+                            for (final genre in genres.take(18))
                               AppFocusable(
                                 onTap: () => Navigator.of(context).push(
                                   appRoute(GenreBrowseScreen(genre: genre)),

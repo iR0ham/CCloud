@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../core/models.dart';
+import '../core/origin_filter.dart';
 import '../core/stores.dart';
 import '../ui/nav.dart';
 import '../ui/widgets.dart';
@@ -19,12 +20,18 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
   @override
   Widget build(BuildContext context) {
     final favorites = AppServices.instance.favorites;
+    final settings = AppServices.instance.settings;
     return SafeArea(
       bottom: false,
       child: ListenableBuilder(
-        listenable: favorites,
+        listenable: Listenable.merge([favorites, settings]),
         builder: (context, _) {
+          final hiding = ContentHiding(
+            origins: settings.hideRegionalOrigins,
+            anime: settings.hideAnime,
+          );
           final entries = favorites.entries.where((entry) {
+            if (hiding.isHidden(entry.item)) return false;
             if (_filter == 1) return !entry.isSeries;
             if (_filter == 2) return entry.isSeries;
             return true;
@@ -40,10 +47,12 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('علاقه‌مندی‌ها',
-                        style: Theme.of(context).textTheme.headlineMedium),
                     Text(
-                      '${faDigits(favorites.entries.length)} عنوان ذخیره‌شده',
+                      'علاقه‌مندی‌ها',
+                      style: Theme.of(context).textTheme.headlineMedium,
+                    ),
+                    Text(
+                      '${faDigits(entries.length)} عنوان ذخیره‌شده',
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
                   ],
@@ -67,14 +76,17 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
                     ? EmptyView(
                         message: favorites.entries.isEmpty
                             ? 'هنوز چیزی به علاقه‌مندی‌ها اضافه نکرده‌اید.'
+                            : hiding.isActive
+                            ? 'موارد ذخیره‌شده در دسته‌های پنهان‌شده قرار دارند.'
                             : 'در این بخش چیزی ذخیره نشده است.',
                         icon: Icons.favorite_border_rounded,
                       )
                     : PosterGrid(
                         items: items,
                         maxExtent: width >= 760 ? 180 : 150,
-                        onOpen: (item) => Navigator.of(context)
-                            .push(appRoute(DetailScreen(item: item))),
+                        onOpen: (item) =>
+                            Navigator.of(context)
+                                .push(appRoute(DetailScreen(item: item))),
                       ),
               ),
             ],

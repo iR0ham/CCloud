@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 
 import '../core/api_client.dart';
+import '../core/app_events.dart';
 import '../core/catalogue.dart';
+import '../core/media_filters.dart';
 import '../core/models.dart';
 import '../core/origin_filter.dart';
 import '../core/stores.dart';
+import '../ui/media_filter_panel.dart';
 import '../ui/nav.dart';
 import '../ui/theme.dart';
 import '../ui/widgets.dart';
@@ -29,22 +32,37 @@ class BrowseScreen extends StatefulWidget {
 }
 
 class _BrowseScreenState extends State<BrowseScreen> {
+  static const int _pageSize = 30;
+
   final ScrollController _scrollController = ScrollController();
 
   final List<MediaItem> _items = [];
   List<Genre> _genres = const [];
   late int _genreId = widget.initialGenreId;
   SortOption _sort = SortOption.newest;
+  MediaFilters _filters = const MediaFilters();
 
   int _page = 0;
   bool _loading = true;
   bool _loadingMore = false;
   bool _end = false;
+  bool _filterScanning = false;
+  bool _scanningMore = false;
+  int _scanGeneration = 0;
   String? _error;
+
+  late final AppSettings _settings;
+  late bool _lastHideOrigins;
+  late bool _lastHideAnime;
 
   @override
   void initState() {
     super.initState();
+    _settings = AppServices.instance.settings;
+    _lastHideOrigins = _settings.hideRegionalOrigins;
+    _lastHideAnime = _settings.hideAnime;
+    _settings.addListener(_onSettingsChanged);
+    AppEvents.refreshTick.addListener(_onRefreshTick);
     _scrollController.addListener(_onScroll);
     _loadGenres();
     _reload();
@@ -52,8 +70,37 @@ class _BrowseScreenState extends State<BrowseScreen> {
 
   @override
   void dispose() {
+    _scanGeneration += 1;
+    _settings.removeListener(_onSettingsChanged);
+    AppEvents.refreshTick.removeListener(_onRefreshTick);
     _scrollController.dispose();
     super.dispose();
+  }
+
+  void _onRefreshTick() {
+    if (mounted) _reload();
+  }
+
+  void _onSettingsChanged() {
+    final origins = _settings.hideRegionalOrigins;
+    final anime = _settings.hideAnime;
+    if (origins == _lastHideOrigins && anime == _lastHideAnime) return;
+    _lastHideOrigins = origins;
+    _lastHideAnime = anime;
+    if (!mounted) return;
+    // A hidden genre can no longer stay selected; macOS falls back to «همه».
+    Genre? selected;
+    for (final genre in _genres) {
+      if (genre.id == _genreId) selected = genre;
+    }
+    if (origins &&
+        selected != null &&
+        OriginFilter.hidesGenre(selected.title)) {
+      _genreId = 0;
+      _reload();
+      return;
+    }
+    _startFilterScan();
   }
 
   Future<void> _loadGenres() async {
@@ -68,6 +115,8 @@ class _BrowseScreenState extends State<BrowseScreen> {
     final position = _scrollController.position;
     if (position.pixels >= position.maxScrollExtent - 500 &&
         !_loadingMore &&
+        !_filterScanning &&
+        !_scanningMore &&
         !_end &&
         !_loading) {
       _loadMore();
@@ -75,11 +124,14 @@ class _BrowseScreenState extends State<BrowseScreen> {
   }
 
   Future<void> _reload() async {
+    _scanGeneration += 1;
     setState(() {
       _loading = true;
       _error = null;
       _end = false;
       _page = 0;
+      _filterScanning = false;
+      _scanningMore = false;
       _items.clear();
     });
     try {
@@ -90,9 +142,10 @@ class _BrowseScreenState extends State<BrowseScreen> {
           ..clear()
           ..addAll(items);
         _loading = false;
-        _end = items.length < 30;
+        _end = items.length < _pageSize;
         _page = 0;
       });
+      _startFilterScan();
     } catch (error) {
       if (!mounted) return;
       setState(() {
@@ -109,17 +162,122 @@ class _BrowseScreenState extends State<BrowseScreen> {
       final items = await _fetch(nextPage);
       if (!mounted) return;
       setState(() {
-        _items.addAll(items
-            .where((item) => !_items.any((existing) =>
-                existing.id == item.id && existing.isSeries == item.isSeries))
-            .toList());
+        _append(items);
         _page = nextPage;
-        _end = items.length < 30;
+        _end = items.length < _pageSize;
         _loadingMore = false;
       });
     } catch (_) {
       if (mounted) setState(() => _loadingMore = false);
     }
+  }
+
+  /// Appends [items], dropping titles already in the feed.
+  void _append(List<MediaItem> items) {
+    _items.addAll(
+      items.where(
+        (item) => !_items.any(
+          (existing) =>
+              existing.id == item.id && existing.isSeries == item.isSeries,
+        ),
+      ),
+    );
+  }
+
+  bool get _isPostFiltering =>
+      _filters.isActive || _settings.hideRegionalOrigins || _settings.hideAnime;
+
+  /// Walks the feed forward (bounded) until enough visible titles exist.
+  Future<void> _startFilterScan() async {
+    final token = ++_scanGeneration;
+    if (!_isPostFiltering) {
+      if (_filterScanning || _scanningMore) {
+        setState(() {
+          _filterScanning = false;
+          _scanningMore = false;
+        });
+      }
+      return;
+    }
+    setState(() {
+      _filterScanning = true;
+      _scanningMore = false;
+    });
+    var scanned = 0;
+    try {
+      while (mounted && token == _scanGeneration) {
+        final matches = _visibleItems(_settings).length;
+        if (!shouldContinueFilterScan(
+          matches: matches,
+          pagesScanned: scanned,
+          hasMore: !_end,
+        )) {
+          break;
+        }
+        final next = _page + 1;
+        final fetched = await _fetch(next);
+        if (!mounted || token != _scanGeneration) return;
+        setState(() {
+          _append(fetched);
+          _page = next;
+          _end = fetched.length < _pageSize;
+        });
+        scanned += 1;
+      }
+    } catch (_) {
+      // The first page already loaded; a later page failing just ends the scan.
+    } finally {
+      if (mounted && token == _scanGeneration) {
+        setState(() => _filterScanning = false);
+      }
+    }
+  }
+
+  /// Footer action: at most four more pages, stopping at the first new match.
+  Future<void> _scanMore() async {
+    if (_scanningMore || _filterScanning || _end) return;
+    final token = _scanGeneration;
+    final baseline = _visibleItems(_settings).length;
+    setState(() => _scanningMore = true);
+    var scanned = 0;
+    try {
+      while (mounted && token == _scanGeneration) {
+        final added = _visibleItems(_settings).length - baseline;
+        if (!shouldContinueScanMore(
+          newMatches: added,
+          pagesScanned: scanned,
+          hasMore: !_end,
+        )) {
+          break;
+        }
+        final next = _page + 1;
+        final fetched = await _fetch(next);
+        if (!mounted || token != _scanGeneration) return;
+        setState(() {
+          _append(fetched);
+          _page = next;
+          _end = fetched.length < _pageSize;
+        });
+        scanned += 1;
+      }
+    } catch (_) {
+      // Best effort; the empty state keeps its «بررسی عناوین بیشتر» action.
+    } finally {
+      if (mounted && token == _scanGeneration) {
+        setState(() => _scanningMore = false);
+      }
+    }
+  }
+
+  void _applyFilters(MediaFilters value) {
+    if (value == _filters) return;
+    setState(() => _filters = value);
+    _startFilterScan();
+  }
+
+  Future<void> _openFilters() async {
+    final result = await showMediaFilterPanel(context, _filters);
+    if (result != null) _applyFilters(result);
   }
 
   Future<List<MediaItem>> _fetch(int page) {
@@ -129,14 +287,21 @@ class _BrowseScreenState extends State<BrowseScreen> {
         : api.series(page: page, genreId: _genreId, sort: _sort);
   }
 
+  List<Genre> get _visibleGenres {
+    if (!_settings.hideRegionalOrigins) return _genres;
+    return _genres
+        .where((genre) => !OriginFilter.hidesGenre(genre.title))
+        .toList();
+  }
+
   List<MediaItem> _visibleItems(AppSettings settings) {
+    final hiding = ContentHiding(
+      origins: settings.hideRegionalOrigins,
+      anime: settings.hideAnime,
+    );
     return _items.where((item) {
-      if (settings.hideRegionalOrigins && OriginFilter.hides(item)) {
-        return false;
-      }
-      if (settings.hideAnime && OriginFilter.hidesAnime(item)) {
-        return false;
-      }
+      if (hiding.isHidden(item)) return false;
+      if (_filters.isActive && !_filters.matches(item)) return false;
       return true;
     }).toList();
   }
@@ -152,6 +317,9 @@ class _BrowseScreenState extends State<BrowseScreen> {
       child: ListenableBuilder(
         listenable: settings,
         builder: (context, _) {
+          // Recompute inside the listener so toggling hiding off restores the
+          // genre pills without waiting for another reload.
+          final genres = _visibleGenres;
           final items = _visibleItems(settings);
           return Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -189,22 +357,25 @@ class _BrowseScreenState extends State<BrowseScreen> {
                             shape: BoxShape.circle,
                             border: Border.all(color: context.palette.stroke),
                           ),
-                          child: Icon(Icons.refresh_rounded,
-                              size: 20, color: context.textSecondary),
+                          child: Icon(
+                            Icons.refresh_rounded,
+                            size: 20,
+                            color: context.textSecondary,
+                          ),
                         ),
                       ),
                     ],
                   ),
                 ),
-              if (widget.showChrome && _genres.isNotEmpty)
+              if (widget.showChrome && genres.isNotEmpty)
                 Padding(
                   padding: const EdgeInsets.only(top: 6),
                   child: FilterPills(
-                    values: [0, ..._genres.map((g) => g.id)],
+                    values: [0, ...genres.map((g) => g.id)],
                     selected: _genreId,
                     labelBuilder: (value) {
                       if (value == 0) return 'همه';
-                      for (final genre in _genres) {
+                      for (final genre in genres) {
                         if (genre.id == value) return genre.title;
                       }
                       return '';
@@ -220,8 +391,10 @@ class _BrowseScreenState extends State<BrowseScreen> {
                 padding: const EdgeInsets.fromLTRB(16, 10, 16, 6),
                 child: Row(
                   children: [
-                    Text('مرتب‌سازی:',
-                        style: Theme.of(context).textTheme.bodySmall),
+                    Text(
+                      'مرتب‌سازی:',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
                     const SizedBox(width: 8),
                     Expanded(
                       child: FilterPills(
@@ -238,12 +411,17 @@ class _BrowseScreenState extends State<BrowseScreen> {
                         },
                       ),
                     ),
+                    const SizedBox(width: 8),
+                    MediaFilterButton(filters: _filters, onTap: _openFilters),
                   ],
                 ),
               ),
-              Expanded(
-                child: _body(items, maxExtent),
-              ),
+              if (_filters.isActive)
+                ActiveMediaFilterChips(
+                  filters: _filters,
+                  onChange: _applyFilters,
+                ),
+              Expanded(child: _body(items, maxExtent, settings)),
             ],
           );
         },
@@ -251,14 +429,37 @@ class _BrowseScreenState extends State<BrowseScreen> {
     );
   }
 
-  Widget _body(List<MediaItem> items, double maxExtent) {
+  Widget _body(List<MediaItem> items, double maxExtent, AppSettings settings) {
     if (_loading && items.isEmpty) {
       return const LoadingView(message: 'در حال دریافت کاتالوگ…');
     }
     if (_error != null && items.isEmpty) {
       return ErrorView(message: _error!, onRetry: _reload);
     }
+    if (_filterScanning && items.isEmpty) {
+      return _filters.isActive
+          ? const MediaFilterScanningView()
+          : const LoadingView(message: 'در حال بررسی عناوین…');
+    }
     if (items.isEmpty) {
+      if (_filters.isActive) {
+        return MediaFilteredEmptyView(
+          hasMore: !_end,
+          scanningMore: _scanningMore,
+          onScanMore: _scanMore,
+          onClear: () => _applyFilters(const MediaFilters()),
+        );
+      }
+      final hiding = ContentHiding(
+        origins: settings.hideRegionalOrigins,
+        anime: settings.hideAnime,
+      );
+      if (hiding.isActive && _items.isNotEmpty) {
+        return const EmptyView(
+          message: 'همهٔ عنوان‌های این فهرست در دسته‌های پنهان‌شده قرار دارند. برای نمایش، گزینه‌های «پنهان‌کردن محتوا» را در تنظیمات تغییر دهید.',
+          icon: Icons.visibility_off_outlined,
+        );
+      }
       return EmptyView(
         message: _genreId == 0
             ? 'محتوایی برای نمایش پیدا نشد.'
@@ -293,8 +494,8 @@ class _BrowseScreenState extends State<BrowseScreen> {
           return MediaPosterCard(
             item: item,
             width: double.infinity,
-            onTap: () => Navigator.of(context)
-                .push(appRoute(DetailScreen(item: item))),
+            onTap: () =>
+                Navigator.of(context).push(appRoute(DetailScreen(item: item))),
           );
         },
       ),
@@ -388,9 +589,13 @@ class _CountryBrowseScreenState extends State<CountryBrowseScreen> {
   bool _end = false;
   String? _error;
 
+  late final AppSettings _settings;
+
   @override
   void initState() {
     super.initState();
+    _settings = AppServices.instance.settings;
+    AppEvents.refreshTick.addListener(_onRefreshTick);
     _scrollController.addListener(() {
       final position = _scrollController.position;
       if (position.pixels >= position.maxScrollExtent - 500 &&
@@ -405,8 +610,21 @@ class _CountryBrowseScreenState extends State<CountryBrowseScreen> {
 
   @override
   void dispose() {
+    AppEvents.refreshTick.removeListener(_onRefreshTick);
     _scrollController.dispose();
     super.dispose();
+  }
+
+  void _onRefreshTick() {
+    if (mounted) _reload();
+  }
+
+  List<MediaItem> get _visibleItems {
+    final hiding = ContentHiding(
+      origins: _settings.hideRegionalOrigins,
+      anime: _settings.hideAnime,
+    );
+    return _items.where((item) => !hiding.isHidden(item)).toList();
   }
 
   Future<void> _reload() async {
@@ -461,84 +679,92 @@ class _CountryBrowseScreenState extends State<CountryBrowseScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(widget.country.title),
-        leading: Padding(
-          padding: const EdgeInsets.all(8),
-          child: AppFocusable(
-            onTap: () => Navigator.of(context).maybePop(),
-            borderRadius: 999,
-            focusScale: 1.08,
-            child: const Icon(Icons.arrow_forward_rounded),
-          ),
-        ),
-      ),
-      body: SafeArea(
-        top: false,
-        child: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 4, 16, 6),
-              child: FilterPills(
-                values: SortOption.values.map((e) => e.index).toList(),
-                selected: _sort.index,
-                labelBuilder: (value) => SortOption.values[value].title,
-                onSelected: (value) {
-                  final option = SortOption.values[value];
-                  if (option == _sort) return;
-                  setState(() => _sort = option);
-                  _reload();
-                },
+    return ListenableBuilder(
+      listenable: _settings,
+      builder: (context, _) {
+        final items = _visibleItems;
+        return Scaffold(
+          appBar: AppBar(
+            title: Text(widget.country.title),
+            leading: Padding(
+              padding: const EdgeInsets.all(8),
+              child: AppFocusable(
+                onTap: () => Navigator.of(context).maybePop(),
+                borderRadius: 999,
+                focusScale: 1.08,
+                child: const Icon(Icons.arrow_forward_rounded),
               ),
             ),
-            Expanded(
-              child: _loading
-                  ? const LoadingView(message: 'در حال دریافت عنوان‌ها…')
-                  : _error != null
+          ),
+          body: SafeArea(
+            top: false,
+            child: Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 6),
+                  child: FilterPills(
+                    values: SortOption.values.map((e) => e.index).toList(),
+                    selected: _sort.index,
+                    labelBuilder: (value) => SortOption.values[value].title,
+                    onSelected: (value) {
+                      final option = SortOption.values[value];
+                      if (option == _sort) return;
+                      setState(() => _sort = option);
+                      _reload();
+                    },
+                  ),
+                ),
+                Expanded(
+                  child: _loading
+                      ? const LoadingView(message: 'در حال دریافت عنوان‌ها…')
+                      : _error != null
                       ? ErrorView(message: _error!, onRetry: _reload)
-                      : _items.isEmpty
-                          ? const EmptyView(
-                              message: 'برای این کشور عنوانی پیدا نشد.',
-                              icon: Icons.public_off_rounded,
-                            )
-                          : GridView.builder(
-                              controller: _scrollController,
-                              padding:
-                                  const EdgeInsets.fromLTRB(16, 8, 16, 30),
-                              gridDelegate:
-                                  const SliverGridDelegateWithMaxCrossAxisExtent(
+                      : items.isEmpty
+                      ? EmptyView(
+                          message: _items.isEmpty
+                              ? 'برای این کشور عنوانی پیدا نشد.'
+                              : 'همهٔ عنوان‌های این کشور پنهان شده‌اند.',
+                          icon: Icons.public_off_rounded,
+                        )
+                      : GridView.builder(
+                          controller: _scrollController,
+                          padding: const EdgeInsets.fromLTRB(16, 8, 16, 30),
+                          gridDelegate:
+                              const SliverGridDelegateWithMaxCrossAxisExtent(
                                 maxCrossAxisExtent: 160,
                                 mainAxisSpacing: 16,
                                 crossAxisSpacing: 12,
                                 childAspectRatio: 0.58,
                               ),
-                              itemCount:
-                                  _items.length + (_loadingMore ? 1 : 0),
-                              itemBuilder: (context, index) {
-                                if (index >= _items.length) {
-                                  return const Center(
-                                    child: SizedBox(
-                                      width: 22,
-                                      height: 22,
-                                      child: CircularProgressIndicator(
-                                          strokeWidth: 2),
-                                    ),
-                                  );
-                                }
-                                final item = _items[index];
-                                return MediaPosterCard(
-                                  item: item,
-                                  width: double.infinity,
-                                  onTap: () => Navigator.of(context).push(
-                                      appRoute(DetailScreen(item: item))),
-                                );
-                              },
-                            ),
+                          itemCount: items.length + (_loadingMore ? 1 : 0),
+                          itemBuilder: (context, index) {
+                            if (index >= items.length) {
+                              return const Center(
+                                child: SizedBox(
+                                  width: 22,
+                                  height: 22,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                ),
+                              );
+                            }
+                            final item = items[index];
+                            return MediaPosterCard(
+                              item: item,
+                              width: double.infinity,
+                              onTap: () =>
+                                  Navigator.of(context)
+                                      .push(appRoute(DetailScreen(item: item))),
+                            );
+                          },
+                        ),
+                ),
+              ],
             ),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 }

@@ -9,6 +9,7 @@ import '../core/downloads_store.dart';
 import '../core/models.dart';
 import '../core/platform_identity.dart';
 import '../core/stores.dart';
+import '../ui/about_sheet.dart';
 import '../ui/theme.dart';
 import '../ui/widgets.dart';
 
@@ -439,6 +440,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   Text(
                     PlatformIdentity.current.featureBlurb,
                     style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                  const Divider(height: 18),
+                  _ActionRow(
+                    icon: Icons.info_outline_rounded,
+                    title: 'درباره CCloud',
+                    onTap: () => showAboutSheet(context),
                   ),
                 ],
               ),

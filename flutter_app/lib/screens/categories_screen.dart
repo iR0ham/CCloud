@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 
+import '../core/app_events.dart';
 import '../core/catalogue.dart';
 import '../core/models.dart';
+import '../core/origin_filter.dart';
+import '../core/stores.dart';
 import '../ui/nav.dart';
 import '../ui/theme.dart';
 import '../ui/widgets.dart';
@@ -19,10 +22,31 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
   bool _loading = true;
   String? _error;
 
+  late final AppSettings _settings;
+
   @override
   void initState() {
     super.initState();
+    _settings = AppServices.instance.settings;
+    AppEvents.refreshTick.addListener(_onRefreshTick);
     _load();
+  }
+
+  @override
+  void dispose() {
+    AppEvents.refreshTick.removeListener(_onRefreshTick);
+    super.dispose();
+  }
+
+  void _onRefreshTick() {
+    if (mounted) _load();
+  }
+
+  List<Genre> get _visibleGenres {
+    if (!_settings.hideRegionalOrigins) return _genres;
+    return _genres
+        .where((genre) => !OriginFilter.hidesGenre(genre.title))
+        .toList();
   }
 
   Future<void> _load() async {
@@ -48,61 +72,83 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return SafeArea(
-      bottom: false,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('دسته‌بندی‌ها',
-                    style: Theme.of(context).textTheme.headlineMedium),
-                Text('بر اساس ژانر مرور کنید',
-                    style: Theme.of(context).textTheme.bodySmall),
-              ],
-            ),
-          ),
-          Expanded(
-            child: _loading
-                ? const LoadingView(message: 'در حال دریافت ژانرها…')
-                : _error != null
+    return ListenableBuilder(
+      listenable: _settings,
+      builder: (context, _) {
+        final genres = _visibleGenres;
+        return SafeArea(
+          bottom: false,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'دسته‌بندی‌ها',
+                      style: Theme.of(context).textTheme.headlineMedium,
+                    ),
+                    Text(
+                      'بر اساس ژانر مرور کنید',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ],
+                ),
+              ),
+              Expanded(
+                child: _loading
+                    ? const LoadingView(message: 'در حال دریافت ژانرها…')
+                    : _error != null
                     ? ErrorView(message: _error!, onRetry: _load)
+                    : genres.isEmpty
+                    ? EmptyView(
+                        message: _genres.isEmpty
+                            ? 'دسته‌بندی‌ای پیدا نشد.'
+                            : 'همهٔ دسته‌بندی‌ها پنهان شده‌اند.',
+                        icon: Icons.grid_off_rounded,
+                      )
                     : GridView.builder(
                         padding: const EdgeInsets.fromLTRB(16, 6, 16, 30),
                         gridDelegate:
                             const SliverGridDelegateWithMaxCrossAxisExtent(
-                          maxCrossAxisExtent: 220,
-                          mainAxisSpacing: 10,
-                          crossAxisSpacing: 10,
-                          childAspectRatio: 2.6,
-                        ),
-                        itemCount: _genres.length,
-                        itemBuilder: (context, index) {
-                          final genre = _genres[index];
-                          return AppFocusable(
-                            onTap: () => Navigator.of(context).push(
-                              appRoute(GenreBrowseScreen(genre: genre)),
+                              maxCrossAxisExtent: 220,
+                              mainAxisSpacing: 10,
+                              crossAxisSpacing: 10,
+                              childAspectRatio: 2.6,
                             ),
+                        itemCount: genres.length,
+                        itemBuilder: (context, index) {
+                          final genre = genres[index];
+                          return AppFocusable(
+                            onTap: () => Navigator.of(
+                              context,
+                            ).push(appRoute(GenreBrowseScreen(genre: genre))),
                             borderRadius: AppRadii.normal,
                             focusScale: 1.02,
                             child: Container(
                               alignment: Alignment.center,
                               padding: const EdgeInsets.symmetric(
-                                  horizontal: 14, vertical: 12),
+                                horizontal: 14,
+                                vertical: 12,
+                              ),
                               decoration: BoxDecoration(
                                 color: context.palette.card,
-                                borderRadius:
-                                    BorderRadius.circular(AppRadii.normal),
-                                border:
-                                    Border.all(color: context.palette.stroke),
+                                borderRadius: BorderRadius.circular(
+                                  AppRadii.normal,
+                                ),
+                                border: Border.all(
+                                  color: context.palette.stroke,
+                                ),
                               ),
                               child: Row(
                                 children: [
-                                  const Icon(Icons.grid_view_rounded,
-                                      size: 17, color: AppColors.accentBright),
+                                  const Icon(
+                                    Icons.grid_view_rounded,
+                                    size: 17,
+                                    color: AppColors.accentBright,
+                                  ),
                                   const SizedBox(width: 9),
                                   Expanded(
                                     child: Text(
@@ -114,18 +160,22 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
                                           .bodyLarge,
                                     ),
                                   ),
-                                  Icon(Icons.chevron_left_rounded,
-                                      size: 18,
-                                      color: context.palette.textTertiary),
+                                  Icon(
+                                    Icons.chevron_left_rounded,
+                                    size: 18,
+                                    color: context.palette.textTertiary,
+                                  ),
                                 ],
                               ),
                             ),
                           );
                         },
                       ),
+              ),
+            ],
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 }

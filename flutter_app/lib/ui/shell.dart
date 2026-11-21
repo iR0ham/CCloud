@@ -1,9 +1,16 @@
+import 'dart:async';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../core/api_client.dart';
+import '../core/app_events.dart';
+import '../core/catalogue.dart';
 import '../core/connectivity.dart';
 import '../core/platform_identity.dart';
 import '../core/platform_info.dart';
+import '../core/stores.dart';
 import '../screens/browse_screen.dart';
 import '../screens/categories_screen.dart';
 import '../screens/countries_screen.dart';
@@ -13,6 +20,8 @@ import '../screens/home_screen.dart';
 import '../screens/live_screen.dart';
 import '../screens/search_screen.dart';
 import '../screens/settings_screen.dart';
+import 'about_sheet.dart';
+import 'splash.dart';
 import 'theme.dart';
 import 'widgets.dart';
 
@@ -58,16 +67,48 @@ class AppShell extends StatefulWidget {
 }
 
 class _AppShellState extends State<AppShell> {
-  AppTab _tab = AppTab.home;
+  static const String _lastTabKey = 'ccloud.lastTab';
+  static const Duration _splashHold = Duration(milliseconds: 1500);
+  static const Duration _splashFade = Duration(milliseconds: 450);
+
+  /// Cmd/Ctrl+0…8 order, mirroring the macOS sidebar shortcuts. Settings is
+  /// the comma shortcut.
+  static const List<AppTab> _shortcutTabs = [
+    AppTab.home,
+    AppTab.movies,
+    AppTab.series,
+    AppTab.live,
+    AppTab.search,
+    AppTab.favorites,
+    AppTab.countries,
+    AppTab.categories,
+    AppTab.history,
+  ];
+
+  late AppTab _tab;
   final Map<AppTab, Widget> _pages = {};
   final Map<AppTab, FocusNode> _tabFocus = {};
 
   late final ConnectivityState _connectivity;
   bool _wasOffline = false;
 
+  Timer? _splashTimer;
+  bool _splashVisible = true;
+  bool _splashMounted = true;
+
+  /// Desktop keyboard shortcuts are only wired on macOS/Windows/Linux, never
+  /// on Android (including TV, where the D-pad must stay untouched).
+  bool get _desktopShortcuts {
+    if (PlatformInfo.isTv) return false;
+    return defaultTargetPlatform == TargetPlatform.macOS ||
+        defaultTargetPlatform == TargetPlatform.windows ||
+        defaultTargetPlatform == TargetPlatform.linux;
+  }
+
   @override
   void initState() {
     super.initState();
+    _tab = _restoreLastTab();
     _connectivity = ApiClient.instance.connectivity;
     _connectivity.addListener(_onConnectivityChanged);
     _wasOffline = _connectivity.isOffline;
@@ -78,10 +119,30 @@ class _AppShellState extends State<AppShell> {
         if (mounted) _showConnectivityToast(offline: true);
       });
     }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _splashTimer = Timer(_splashHold, _hideSplash);
+    });
+    HardwareKeyboard.instance.addHandler(_handleShortcut);
+  }
+
+  static AppTab _restoreLastTab() {
+    final saved = AppServices.instance.prefs.getString(_lastTabKey);
+    for (final tab in AppTab.values) {
+      if (tab.name == saved) return tab;
+    }
+    return AppTab.home;
+  }
+
+  void _hideSplash() {
+    if (!mounted) return;
+    setState(() => _splashVisible = false);
   }
 
   @override
   void dispose() {
+    _splashTimer?.cancel();
+    HardwareKeyboard.instance.removeHandler(_handleShortcut);
     _connectivity.removeListener(_onConnectivityChanged);
     for (final node in _tabFocus.values) {
       node.dispose();
@@ -154,11 +215,26 @@ class _AppShellState extends State<AppShell> {
   }
 
   void _select(AppTab tab) {
+    // Switching tabs always returns to the tab's root route, and selecting the
+    // already-active tab is a plain "reset this tab" action.
+    final navigator = Navigator.of(context);
+    if (navigator.canPop()) {
+      navigator.popUntil((route) => route.isFirst);
+    }
+    if (tab == _tab) {
+      if (PlatformInfo.isTv) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _tabFocusNode(tab).requestFocus();
+        });
+      }
+      return;
+    }
     // When the switch comes from a rail item, that item keeps focus and the
     // next D-pad press walks into the page. Programmatic switches (see-all
     // links, back-to-home) must move focus off the now-hidden page instead.
     final fromPage = _tabFocus.values.any((node) => node.hasFocus);
     setState(() => _tab = tab);
+    unawaited(AppServices.instance.prefs.setString(_lastTabKey, tab.name));
     if (PlatformInfo.isTv && fromPage) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) _tabFocusNode(tab).requestFocus();
@@ -173,6 +249,71 @@ class _AppShellState extends State<AppShell> {
         if (mounted) _tabFocusNode(AppTab.home).requestFocus();
       });
     }
+  }
+
+  /// Global desktop shortcuts (macOS Cmd, Windows/Linux Ctrl). Only the
+  /// combinations the macOS app binds are consumed; player keys (Space, Esc,
+  /// arrows, F/M/N without the modifier) fall through untouched.
+  bool _handleShortcut(KeyEvent event) {
+    if (!_desktopShortcuts || event is! KeyDownEvent) return false;
+    final keyboard = HardwareKeyboard.instance;
+    final primaryPressed = defaultTargetPlatform == TargetPlatform.macOS
+        ? keyboard.isMetaPressed
+        : keyboard.isControlPressed;
+    if (!primaryPressed || keyboard.isAltPressed) return false;
+    final key = event.logicalKey;
+    if (key == LogicalKeyboardKey.keyR) {
+      _refreshAll();
+      return true;
+    }
+    if (key == LogicalKeyboardKey.keyF) {
+      _focusSearchField();
+      return true;
+    }
+    final digit = _shortcutDigit(key);
+    if (digit != null) {
+      _select(_shortcutTabs[digit]);
+      return true;
+    }
+    if (key == LogicalKeyboardKey.comma) {
+      _select(AppTab.settings);
+      return true;
+    }
+    return false;
+  }
+
+  int? _shortcutDigit(LogicalKeyboardKey key) {
+    return switch (key) {
+      LogicalKeyboardKey.digit0 || LogicalKeyboardKey.numpad0 => 0,
+      LogicalKeyboardKey.digit1 || LogicalKeyboardKey.numpad1 => 1,
+      LogicalKeyboardKey.digit2 || LogicalKeyboardKey.numpad2 => 2,
+      LogicalKeyboardKey.digit3 || LogicalKeyboardKey.numpad3 => 3,
+      LogicalKeyboardKey.digit4 || LogicalKeyboardKey.numpad4 => 4,
+      LogicalKeyboardKey.digit5 || LogicalKeyboardKey.numpad5 => 5,
+      LogicalKeyboardKey.digit6 || LogicalKeyboardKey.numpad6 => 6,
+      LogicalKeyboardKey.digit7 || LogicalKeyboardKey.numpad7 => 7,
+      LogicalKeyboardKey.digit8 || LogicalKeyboardKey.numpad8 => 8,
+      _ => null,
+    };
+  }
+
+  void _refreshAll() {
+    ApiClient.instance.invalidateCache();
+    Catalogue.invalidate();
+    AppEvents.requestRefresh();
+    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+      const SnackBar(
+        content: Text('در حال تازه‌سازی…'),
+        duration: Duration(milliseconds: 1600),
+      ),
+    );
+  }
+
+  void _focusSearchField() {
+    _select(AppTab.search);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) AppEvents.focusSearch();
+    });
   }
 
   @override
@@ -193,8 +334,9 @@ class _AppShellState extends State<AppShell> {
       }).toList(),
     );
 
+    final Widget shell;
     if (wide) {
-      return ShellScope(
+      shell = ShellScope(
         selectTab: _select,
         child: PopScope(
           canPop: _tab == AppTab.home,
@@ -213,43 +355,71 @@ class _AppShellState extends State<AppShell> {
           ),
         ),
       );
-    }
+    } else {
+      const bottomTabs = [
+        AppTab.home,
+        AppTab.movies,
+        AppTab.series,
+        AppTab.live,
+      ];
+      final bottomIndex = bottomTabs.contains(_tab)
+          ? bottomTabs.indexOf(_tab)
+          : 4;
 
-    const bottomTabs = [AppTab.home, AppTab.movies, AppTab.series, AppTab.live];
-    final bottomIndex = bottomTabs.contains(_tab)
-        ? bottomTabs.indexOf(_tab)
-        : 4;
-
-    return ShellScope(
-      selectTab: _select,
-      child: PopScope(
-        canPop: _tab == AppTab.home,
-        onPopInvokedWithResult: (didPop, _) {
-          if (!didPop) _popToHome();
-        },
-        child: Scaffold(
-          body: body,
-          bottomNavigationBar: NavigationBar(
-            selectedIndex: bottomIndex,
-            height: 66,
-            onDestinationSelected: (index) {
-              if (index < bottomTabs.length) {
-                _select(bottomTabs[index]);
-              } else {
-                _openMoreSheet();
-              }
-            },
-            destinations: [
-              for (final tab in bottomTabs)
-                NavigationDestination(icon: Icon(tab.icon), label: tab.title),
-              const NavigationDestination(
-                icon: Icon(Icons.menu_rounded),
-                label: 'بیشتر',
-              ),
-            ],
+      shell = ShellScope(
+        selectTab: _select,
+        child: PopScope(
+          canPop: _tab == AppTab.home,
+          onPopInvokedWithResult: (didPop, _) {
+            if (!didPop) _popToHome();
+          },
+          child: Scaffold(
+            body: body,
+            bottomNavigationBar: NavigationBar(
+              selectedIndex: bottomIndex,
+              height: 66,
+              onDestinationSelected: (index) {
+                if (index < bottomTabs.length) {
+                  _select(bottomTabs[index]);
+                } else {
+                  _openMoreSheet();
+                }
+              },
+              destinations: [
+                for (final tab in bottomTabs)
+                  NavigationDestination(icon: Icon(tab.icon), label: tab.title),
+                const NavigationDestination(
+                  icon: Icon(Icons.menu_rounded),
+                  label: 'بیشتر',
+                ),
+              ],
+            ),
           ),
         ),
-      ),
+      );
+    }
+
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        shell,
+        if (_splashMounted)
+          Positioned.fill(
+            child: AbsorbPointer(
+              child: AnimatedOpacity(
+                opacity: _splashVisible ? 1 : 0,
+                duration: _splashFade,
+                curve: Curves.easeInOut,
+                onEnd: () {
+                  if (!_splashVisible && _splashMounted && mounted) {
+                    setState(() => _splashMounted = false);
+                  }
+                },
+                child: const SplashView(),
+              ),
+            ),
+          ),
+      ],
     );
   }
 
@@ -369,10 +539,21 @@ class _SideRail extends StatelessWidget {
             ),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 10),
-              child: _RailItem(
-                tab: AppTab.settings,
-                selected: selected == AppTab.settings,
-                onTap: () => onSelect(AppTab.settings),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _RailAction(
+                    icon: Icons.info_outline_rounded,
+                    title: 'درباره',
+                    onTap: () => showAboutSheet(context),
+                  ),
+                  const SizedBox(height: 3),
+                  _RailItem(
+                    tab: AppTab.settings,
+                    selected: selected == AppTab.settings,
+                    onTap: () => onSelect(AppTab.settings),
+                  ),
+                ],
               ),
             ),
             const SizedBox(height: 14),
@@ -430,6 +611,48 @@ class _ConnectionBadge extends StatelessWidget {
           ],
         );
       },
+    );
+  }
+}
+
+class _RailAction extends StatelessWidget {
+  const _RailAction({
+    required this.icon,
+    required this.title,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String title;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.palette;
+    return AppFocusable(
+      onTap: onTap,
+      borderRadius: 9,
+      focusScale: 1.01,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+        child: Row(
+          children: [
+            Icon(icon, size: 18, color: palette.textSecondary),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                title,
+                style: TextStyle(
+                  fontFamily: AppTheme.fontFamily,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                  color: palette.textSecondary,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../core/models.dart';
+import '../core/origin_filter.dart';
 import '../core/stores.dart';
 import '../ui/nav.dart';
 import '../ui/theme.dart';
@@ -13,12 +14,20 @@ class HistoryScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final history = AppServices.instance.history;
+    final settings = AppServices.instance.settings;
     return SafeArea(
       bottom: false,
       child: ListenableBuilder(
-        listenable: history,
+        listenable: Listenable.merge([history, settings]),
         builder: (context, _) {
-          final entries = history.entries;
+          final hiding = ContentHiding(
+            origins: settings.hideRegionalOrigins,
+            anime: settings.hideAnime,
+          );
+          final allEntries = history.entries;
+          final entries = allEntries
+              .where((entry) => !hiding.isHidden(entry.item))
+              .toList();
           return Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
@@ -30,9 +39,10 @@ class HistoryScreen extends StatelessWidget {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text('اخیراً دیده‌شده',
-                              style:
-                                  Theme.of(context).textTheme.headlineMedium),
+                          Text(
+                            'اخیراً دیده‌شده',
+                            style: Theme.of(context).textTheme.headlineMedium,
+                          ),
                           Text(
                             '${faDigits(entries.length)} عنوان',
                             style: Theme.of(context).textTheme.bodySmall,
@@ -40,11 +50,13 @@ class HistoryScreen extends StatelessWidget {
                         ],
                       ),
                     ),
-                    if (entries.isNotEmpty)
+                    if (allEntries.isNotEmpty)
                       OutlinedButton.icon(
                         onPressed: () => _confirmClear(context),
-                        icon: const Icon(Icons.delete_outline_rounded,
-                            size: 18),
+                        icon: const Icon(
+                          Icons.delete_outline_rounded,
+                          size: 18,
+                        ),
                         label: const Text('پاک‌کردن همه'),
                       ),
                   ],
@@ -52,21 +64,21 @@ class HistoryScreen extends StatelessWidget {
               ),
               Expanded(
                 child: entries.isEmpty
-                    ? const EmptyView(
-                        message:
-                            'هر چیزی که تماشا کنید اینجا ثبت می‌شود تا بعداً ادامه دهید.',
+                    ? EmptyView(
+                        message: allEntries.isEmpty
+                            ? 'هر چیزی که تماشا کنید اینجا ثبت می‌شود تا بعداً ادامه دهید.'
+                            : 'موارد تاریخچه در دسته‌های پنهان‌شده قرار دارند.',
                         icon: Icons.history_toggle_off_rounded,
                       )
                     : ListView.separated(
                         padding: const EdgeInsets.fromLTRB(16, 4, 16, 30),
                         itemCount: entries.length,
-                        separatorBuilder: (_, _) =>
-                            const SizedBox(height: 8),
+                        separatorBuilder: (_, _) => const SizedBox(height: 8),
                         itemBuilder: (context, index) => _HistoryTile(
                           entry: entries[index],
-                          onOpen: () => Navigator.of(context)
-                              .push(appRoute(DetailScreen(
-                                  item: entries[index].item))),
+                          onOpen: () => Navigator.of(context).push(
+                            appRoute(DetailScreen(item: entries[index].item)),
+                          ),
                           onRemove: () => history.remove(entries[index].item),
                         ),
                       ),
@@ -167,10 +179,10 @@ class _HistoryTile extends StatelessWidget {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    percent <= 0 ? 'شروع‌نشده' : '${faDigits(percent)}٪ تماشا شده',
-                    style: Theme.of(context)
-                        .textTheme
-                        .labelSmall
+                    percent <= 0
+                        ? 'شروع‌نشده'
+                        : '${faDigits(percent)}٪ تماشا شده',
+                    style: Theme.of(context).textTheme.labelSmall
                         ?.copyWith(color: context.palette.textTertiary),
                   ),
                 ],
@@ -179,8 +191,11 @@ class _HistoryTile extends StatelessWidget {
             IconButton(
               onPressed: onRemove,
               tooltip: 'حذف از تاریخچه',
-              icon: Icon(Icons.close_rounded,
-                  size: 18, color: context.palette.textTertiary),
+              icon: Icon(
+                Icons.close_rounded,
+                size: 18,
+                color: context.palette.textTertiary,
+              ),
             ),
           ],
         ),

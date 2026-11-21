@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'downloads_store.dart';
 import 'link_health.dart';
 import 'models.dart';
+import 'recent_searches.dart';
 
 enum AppAppearance {
   system('هماهنگ با سیستم'),
@@ -533,18 +534,22 @@ class HistoryStore extends ChangeNotifier {
 class AppServices {
   static late final AppServices instance;
 
+  final SharedPreferences prefs;
   final AppSettings settings;
   final FavoritesStore favorites;
   final HistoryStore history;
   final LinkHealthStore linkHealth;
   final DownloadsStore downloads;
+  final RecentSearchesStore recentSearches;
 
   AppServices._create(
+    this.prefs,
     this.settings,
     this.favorites,
     this.history,
     this.linkHealth,
     this.downloads,
+    this.recentSearches,
   );
 
   static void init(
@@ -552,11 +557,13 @@ class AppServices {
     required DownloadsStore downloads,
   }) {
     instance = AppServices._create(
+      prefs,
       AppSettings(prefs),
       FavoritesStore(prefs),
       HistoryStore(prefs),
       LinkHealthStore(prefs),
       downloads,
+      RecentSearchesStore(prefs),
     );
   }
 }

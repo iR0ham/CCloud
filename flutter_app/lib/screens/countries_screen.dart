@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 
 import '../core/api_client.dart';
+import '../core/app_events.dart';
 import '../core/models.dart';
+import '../core/origin_filter.dart';
+import '../core/stores.dart';
 import '../ui/nav.dart';
 import '../ui/theme.dart';
 import '../ui/widgets.dart';
@@ -20,16 +23,32 @@ class _CountriesScreenState extends State<CountriesScreen> {
   bool _loading = true;
   String? _error;
 
+  late final AppSettings _settings;
+
   @override
   void initState() {
     super.initState();
+    _settings = AppServices.instance.settings;
+    AppEvents.refreshTick.addListener(_onRefreshTick);
     _load();
   }
 
   @override
   void dispose() {
+    AppEvents.refreshTick.removeListener(_onRefreshTick);
     _search.dispose();
     super.dispose();
+  }
+
+  void _onRefreshTick() {
+    if (mounted) _load();
+  }
+
+  List<Country> get _visibleCountries {
+    if (!_settings.hideRegionalOrigins) return _countries;
+    return _countries
+        .where((country) => !OriginFilter.hidesCountry(country))
+        .toList();
   }
 
   Future<void> _load() async {
@@ -54,80 +73,88 @@ class _CountriesScreenState extends State<CountriesScreen> {
   }
 
   List<Country> get _filtered {
+    final countries = _visibleCountries;
     final query = _search.text.trim();
-    if (query.isEmpty) return _countries;
-    return _countries
-        .where((country) => country.title.contains(query))
-        .toList();
+    if (query.isEmpty) return countries;
+    return countries.where((country) => country.title.contains(query)).toList();
   }
 
   @override
   Widget build(BuildContext context) {
     final width = MediaQuery.sizeOf(context).width;
-    return SafeArea(
-      bottom: false,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 14, 16, 4),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('کشورها',
-                    style: Theme.of(context).textTheme.headlineMedium),
-                Text('فیلم و سریال هر کشور',
-                    style: Theme.of(context).textTheme.bodySmall),
-                const SizedBox(height: 10),
-                DpadTextField(
-                  child: TextField(
-                    controller: _search,
-                    onChanged: (_) => setState(() {}),
-                    decoration: const InputDecoration(
-                      hintText: 'جست‌وجوی کشور…',
-                      prefixIcon: Icon(Icons.public_rounded),
-                      isDense: true,
+    return ListenableBuilder(
+      listenable: _settings,
+      builder: (context, _) {
+        final filtered = _filtered;
+        return SafeArea(
+          bottom: false,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 14, 16, 4),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'کشورها',
+                      style: Theme.of(context).textTheme.headlineMedium,
                     ),
-                  ),
+                    Text(
+                      'فیلم و سریال هر کشور',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                    const SizedBox(height: 10),
+                    DpadTextField(
+                      child: TextField(
+                        controller: _search,
+                        onChanged: (_) => setState(() {}),
+                        decoration: const InputDecoration(
+                          hintText: 'جست‌وجوی کشور…',
+                          prefixIcon: Icon(Icons.public_rounded),
+                          isDense: true,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
-              ],
-            ),
-          ),
-          Expanded(
-            child: _loading
-                ? const LoadingView(message: 'در حال دریافت کشورها…')
-                : _error != null
+              ),
+              Expanded(
+                child: _loading
+                    ? const LoadingView(message: 'در حال دریافت کشورها…')
+                    : _error != null
                     ? ErrorView(message: _error!, onRetry: _load)
-                    : _filtered.isEmpty
-                        ? const EmptyView(
-                            message: 'کشوری پیدا نشد.',
-                            icon: Icons.public_off_rounded,
-                          )
-                        : GridView.builder(
-                            padding:
-                                const EdgeInsets.fromLTRB(16, 12, 16, 30),
-                            gridDelegate:
-                                SliverGridDelegateWithMaxCrossAxisExtent(
-                              maxCrossAxisExtent: width >= 760 ? 190 : 130,
-                              mainAxisSpacing: 12,
-                              crossAxisSpacing: 12,
-                              childAspectRatio: 1.55,
+                    : filtered.isEmpty
+                    ? EmptyView(
+                        message: _visibleCountries.isEmpty
+                            ? 'همهٔ کشورها پنهان شده‌اند.'
+                            : 'کشوری پیدا نشد.',
+                        icon: Icons.public_off_rounded,
+                      )
+                    : GridView.builder(
+                        padding: const EdgeInsets.fromLTRB(16, 12, 16, 30),
+                        gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
+                          maxCrossAxisExtent: width >= 760 ? 190 : 130,
+                          mainAxisSpacing: 12,
+                          crossAxisSpacing: 12,
+                          childAspectRatio: 1.55,
+                        ),
+                        itemCount: filtered.length,
+                        itemBuilder: (context, index) {
+                          final country = filtered[index];
+                          return _CountryCard(
+                            country: country,
+                            onTap: () => Navigator.of(context).push(
+                              appRoute(CountryBrowseScreen(country: country)),
                             ),
-                            itemCount: _filtered.length,
-                            itemBuilder: (context, index) {
-                              final country = _filtered[index];
-                              return _CountryCard(
-                                country: country,
-                                onTap: () => Navigator.of(context).push(
-                                  appRoute(
-                                      CountryBrowseScreen(country: country)),
-                                ),
-                              );
-                            },
-                          ),
+                          );
+                        },
+                      ),
+              ),
+            ],
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 }
