@@ -48,7 +48,10 @@ class DownloadItem {
   final String? subtitle;
   final String? posterURL;
   final String sourceURL;
-  final String fileName;
+
+  /// Mutable because a finishing download may have to move to a unique name
+  /// when another record already owns this one (see `_uniqueFileNameFor`).
+  String fileName;
   final String kind;
   DownloadState state;
   int receivedBytes;
@@ -292,6 +295,10 @@ class DownloadsStore extends ChangeNotifier {
   }
 
   /// Cancels the transfer, drops the record and deletes the partial/final file.
+  ///
+  /// Two records can legitimately share a file name (identical titles and
+  /// quality); the finished file is kept while any other record still points at
+  /// it, so cancelling one download cannot destroy another one's file.
   void cancel(String id) {
     final job = _jobs.remove(id);
     job?.cancelled = true;
@@ -301,7 +308,10 @@ class DownloadsStore extends ChangeNotifier {
     final index = _items.indexWhere((item) => item.id == id);
     if (index < 0) return;
     final item = _items.removeAt(index);
-    _deleteQuietly(fileFor(item));
+    final shared = _items.any(
+      (entry) => _sameFileName(entry.fileName, item.fileName),
+    );
+    if (!shared) _deleteQuietly(fileFor(item));
     _deleteQuietly(_temporaryFile(id));
     _save();
     notifyListeners();
@@ -422,6 +432,9 @@ class DownloadsStore extends ChangeNotifier {
     _deleteQuietly(temp);
 
     final client = _clientFactory();
+    // DNS/TCP/TLS establishment must not hang forever holding the item in
+    // «downloading»; the idle timeout covers the body, this covers connecting.
+    client.connectionTimeout = downloadIdleTimeout;
     job.client = client;
     IOSink? sink;
     try {
@@ -459,7 +472,11 @@ class DownloadsStore extends ChangeNotifier {
       client.close(force: true);
       _jobs.remove(item.id);
       _timers.remove(item.id)?.cancel();
-      if (job.cancelled || !_hasItem(item.id)) {
+      // The sink is closed now, so this also works on Windows (an open file
+      // cannot be unlinked there). A completed item has already renamed the
+      // temp file away; anything else leaves a hidden part that must not stay.
+      final finished = itemFor(item.id)?.state == DownloadState.completed;
+      if (job.cancelled || !_hasItem(item.id) || !finished) {
         _deleteQuietly(temp);
       }
     }
@@ -492,6 +509,14 @@ class DownloadsStore extends ChangeNotifier {
       return;
     }
     final item = _items[index];
+    // Another record may own this exact name (same title, quality and
+    // container). Never replace or delete its file: move this record to a
+    // free «base (2).ext» name and persist that before writing.
+    final unique = _uniqueFileNameFor(item.fileName, item.id);
+    if (unique != item.fileName) {
+      item.fileName = unique;
+      _save();
+    }
     final target = fileFor(item);
     try {
       if (target.existsSync()) target.deleteSync();
@@ -530,6 +555,29 @@ class DownloadsStore extends ChangeNotifier {
       File('${directory.path}${Platform.pathSeparator}.$id.part');
 
   bool _hasItem(String id) => _items.any((item) => item.id == id);
+
+  static bool _sameFileName(String a, String b) =>
+      a.toLowerCase() == b.toLowerCase();
+
+  /// Whether a record other than [id] already claims [name]. The comparison is
+  /// case-insensitive because Windows/macOS would treat the files as one.
+  bool _fileNameTakenByOther(String name, String id) => _items.any(
+    (entry) => entry.id != id && _sameFileName(entry.fileName, name),
+  );
+
+  /// `desired`, or «`<base> (2).<ext>`» with an incrementing counter until no
+  /// other record owns the name. The record's own previous file is ignored, so
+  /// retry still replaces its own output.
+  String _uniqueFileNameFor(String desired, String id) {
+    if (!_fileNameTakenByOther(desired, id)) return desired;
+    final dot = desired.lastIndexOf('.');
+    final base = dot > 0 ? desired.substring(0, dot) : desired;
+    final extension = dot > 0 ? desired.substring(dot) : '';
+    for (var counter = 2; ; counter++) {
+      final candidate = '$base ($counter)$extension';
+      if (!_fileNameTakenByOther(candidate, id)) return candidate;
+    }
+  }
 
   static void _deleteQuietly(File file) {
     try {
@@ -574,36 +622,57 @@ class DownloadsStore extends ChangeNotifier {
 
   /// Writes through a sibling `.tmp` file so a crash mid-write cannot leave a
   /// truncated list. The rename replaces the old file on POSIX; Windows refuses
-  /// to rename over an existing file, so the fallback copy overwrites in place.
+  /// to rename over an existing file, so the fallback copy overwrites in place
+  /// (that copy is the one non-atomic path, and only on Windows). The temp file
+  /// is removed on every exit, including a failed write/copy.
   void _save() {
+    final temp = File('${metadataFile.path}.tmp');
     try {
       final data = jsonEncode(_items.map((item) => item.toJson()).toList());
-      final temp = File('${metadataFile.path}.tmp');
       temp.writeAsStringSync(data, flush: true);
       try {
         temp.renameSync(metadataFile.path);
       } catch (_) {
         temp.copySync(metadataFile.path);
-        _deleteQuietly(temp);
       }
-    } catch (_) {}
+    } catch (_) {
+      // Persistence is best effort; downloads still work in memory.
+    } finally {
+      _deleteQuietly(temp);
+    }
   }
 
   // MARK: Helpers
 
   /// `"<title> <qualityLabel>.<ext>"`, with `/` and `:` folded to `-`, every
-  /// character Windows forbids (`\ * ? " < > |`) folded too, an empty title
-  /// replaced by `CCloud`, and the base name capped at 90 chars.
+  /// character Windows forbids (`\ * ? " < > |`) folded too, control characters
+  /// (`[\x00-\x1F]`) folded as well, an empty title replaced by `CCloud`, and
+  /// the base name capped at 90 chars.
   ///
-  /// The invalid set is sanitised on every platform so the saved name never
-  /// depends on the host: a title such as «What If...?» must not download fully
-  /// and then fail at the rename step on Windows.
+  /// The invalid set is sanitised on every platform and on every component
+  /// (title, quality, extension) so the saved name never depends on the host: a
+  /// title such as «What If...?» must not download fully and then fail at the
+  /// rename step on Windows, and a quality label must not smuggle a path
+  /// separator or newline into the name.
   static String fileNameFor({
     required String title,
     required String quality,
     required String extensionName,
   }) {
-    var base = title;
+    var base = _legalNamePart(title).trim();
+    if (base.isEmpty) base = 'CCloud';
+    if (base.length > 90) base = base.substring(0, 90);
+    // Truncation can leave a dot or space at the end, which Windows also
+    // rejects; the rule is applied after the cut, not before it.
+    base = base.replaceFirst(RegExp(r'[. ]+$'), '');
+    if (base.isEmpty) base = 'CCloud';
+    return '$base ${_legalNamePart(quality)}.${_legalNamePart(extensionName)}';
+  }
+
+  /// Folds path separators, the Windows-illegal set and control characters to
+  /// a plain dash. Used for every component of a file name.
+  static String _legalNamePart(String value) {
+    var result = value;
     for (final invalid in const [
       '/',
       '\\',
@@ -615,16 +684,9 @@ class DownloadsStore extends ChangeNotifier {
       '>',
       '|',
     ]) {
-      base = base.replaceAll(invalid, '-');
+      result = result.replaceAll(invalid, '-');
     }
-    base = base.trim();
-    if (base.isEmpty) base = 'CCloud';
-    if (base.length > 90) base = base.substring(0, 90);
-    // Truncation can leave a dot or space at the end, which Windows also
-    // rejects; the rule is applied after the cut, not before it.
-    base = base.replaceFirst(RegExp(r'[. ]+$'), '');
-    if (base.isEmpty) base = 'CCloud';
-    return '$base $quality.$extensionName';
+    return result.replaceAll(RegExp(r'[\x00-\x1F]'), '-');
   }
 
   static String _newID() {

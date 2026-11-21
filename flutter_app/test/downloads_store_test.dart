@@ -37,6 +37,36 @@ Future<void> _writeMetadata(File file, List<DownloadItem> items) async {
   );
 }
 
+Future<void> _waitUntil(
+  DownloadsStore store,
+  bool Function(List<DownloadItem> items) condition,
+) async {
+  final deadline = DateTime.now().add(const Duration(seconds: 10));
+  while (DateTime.now().isBefore(deadline)) {
+    if (condition(store.items)) return;
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+  }
+  fail(
+    'condition not met; states: '
+    '${store.items.map((item) => '${item.id}:${item.state.name}').join(', ')}',
+  );
+}
+
+/// A loopback server answering every request with `body:<path>`.
+Future<HttpServer> _serveBodies() async {
+  final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+  server.listen((request) async {
+    final body = utf8.encode('body:${request.uri.path}');
+    request.response
+      ..contentLength = body.length
+      ..add(body);
+    try {
+      await request.response.close();
+    } catch (_) {}
+  });
+  return server;
+}
+
 void main() {
   late Directory temp;
 
@@ -115,6 +145,43 @@ void main() {
         extensionName: 'mp4',
       );
       expect(name, isNot(matches(RegExp(r'[\\/:*?"<>|]'))));
+    });
+
+    test('sanitises the quality label, including control characters', () {
+      expect(
+        DownloadsStore.fileNameFor(
+          title: 'Dune',
+          quality: '1080p: HDR\n',
+          extensionName: 'mp4',
+        ),
+        'Dune 1080p- HDR-.mp4',
+      );
+      expect(
+        DownloadsStore.fileNameFor(
+          title: 'Dune',
+          quality: 'کیفیت/اصلی',
+          extensionName: 'mp4',
+        ),
+        'Dune کیفیت-اصلی.mp4',
+      );
+    });
+
+    test('sanitises the extension and leaves no illegal character at all', () {
+      expect(
+        DownloadsStore.fileNameFor(
+          title: 'Dune',
+          quality: '720p',
+          extensionName: 'mp?4',
+        ),
+        'Dune 720p.mp-4',
+      );
+      final name = DownloadsStore.fileNameFor(
+        title: 'Bad\tTitle',
+        quality: 'a/b:c',
+        extensionName: 'm?kv',
+      );
+      expect(name, 'Bad-Title a-b-c.m-kv');
+      expect(name, isNot(matches(RegExp(r'[\\/:*?"<>|\x00-\x1F]'))));
     });
 
     test('never leaves a trailing dot or space after the cut', () {
@@ -269,6 +336,72 @@ void main() {
       expect(jsonDecode(reloaded.metadataFile.readAsStringSync()), isEmpty);
     });
 
+    test('a failed metadata write leaves no .tmp behind', () {
+      // Make the metadata path a directory so both the atomic rename and the
+      // Windows copy fallback fail after the temp file was written.
+      final metadataPath =
+          '${temp.path}${Platform.pathSeparator}downloads.json';
+      Directory(metadataPath).createSync(recursive: true);
+      final store = DownloadsStore(
+        directory: Directory('${temp.path}${Platform.pathSeparator}CCloud')
+          ..createSync(recursive: true),
+        metadataFile: File(metadataPath),
+      );
+
+      store.clearFinished();
+
+      expect(File('$metadataPath.tmp').existsSync(), isFalse);
+    });
+
+    test('cancel keeps a file another record still references', () async {
+      final store = openStore();
+      await _writeMetadata(store.metadataFile, [
+        _item(id: 'first', fileName: 'Shared 720p.mp4'),
+        // Same file on a case-insensitive Windows/macOS volume.
+        _item(id: 'second', fileName: 'shared 720p.MP4'),
+      ]);
+      final file = File(
+        '${store.directory.path}${Platform.pathSeparator}Shared 720p.mp4',
+      );
+      file.writeAsStringSync('shared');
+      final reloaded = openStore();
+
+      reloaded.cancel('first');
+
+      expect(reloaded.items.single.id, 'second');
+      expect(file.existsSync(), isTrue);
+    });
+
+    test('the client gets the idle timeout as its connection timeout', () {
+      final clients = <HttpClient>[];
+      final store = DownloadsStore(
+        directory: Directory('${temp.path}${Platform.pathSeparator}CCloud')
+          ..createSync(recursive: true),
+        metadataFile: File(
+          '${temp.path}${Platform.pathSeparator}downloads.json',
+        ),
+        clientFactory: () {
+          final client = HttpClient();
+          clients.add(client);
+          return client;
+        },
+      );
+
+      store.start(
+        title: 'Timeout',
+        source: const MediaSource(
+          id: 1,
+          quality: '720p',
+          type: 'mp4',
+          url: 'http://127.0.0.1:1/refused.mp4',
+        ),
+      );
+
+      expect(clients, hasLength(1));
+      expect(clients.single.connectionTimeout, downloadIdleTimeout);
+      store.cancel(store.items.single.id);
+    });
+
     test('progress is clamped and 0% when the size is unknown', () {
       expect(_item(id: 'x', received: 50, total: 200).progress, 0.25);
       expect(_item(id: 'x', received: 300, total: 200).progress, 1.0);
@@ -294,6 +427,121 @@ void main() {
         );
       },
     );
+  });
+
+  group('file name collisions', () {
+    test('two records that share a name both keep their files', () async {
+      final server = await _serveBodies();
+      addTearDown(() => server.close(force: true));
+      final store = openStore();
+      for (final path in ['/a', '/b']) {
+        expect(
+          store.start(
+            title: 'What If..',
+            source: MediaSource(
+              id: 1,
+              quality: '720p',
+              type: 'mp4',
+              url: 'http://127.0.0.1:${server.port}$path',
+            ),
+          ),
+          DownloadStartResult.started,
+        );
+      }
+      expect(store.items.map((item) => item.fileName).toSet(), {
+        'What If 720p.mp4',
+      });
+
+      await _waitUntil(
+        store,
+        (items) => items.every((item) => item.state == DownloadState.completed),
+      );
+
+      final names = store.items.map((item) => item.fileName).toList();
+      expect(names.toSet(), hasLength(2));
+      expect(names, contains('What If 720p.mp4'));
+      expect(names.where((name) => name.contains(' (2).')), hasLength(1));
+      for (final item in store.items) {
+        final file = store.fileFor(item);
+        expect(file.existsSync(), isTrue, reason: item.fileName);
+        expect(
+          file.readAsStringSync(),
+          'body:/${item.sourceURL.endsWith('/a') ? 'a' : 'b'}',
+        );
+      }
+      final saved = jsonDecode(store.metadataFile.readAsStringSync()) as List;
+      expect(
+        saved.map((raw) => (raw as Map)['fileName']).toSet(),
+        names.toSet(),
+      );
+    });
+
+    test('retry replaces its own file instead of inventing a name', () async {
+      final server = await _serveBodies();
+      addTearDown(() => server.close(force: true));
+      final store = openStore();
+      store.start(
+        title: 'Retried',
+        source: MediaSource(
+          id: 1,
+          quality: '720p',
+          type: 'mp4',
+          url: 'http://127.0.0.1:${server.port}/one',
+        ),
+      );
+      await _waitUntil(
+        store,
+        (items) => items.single.state == DownloadState.completed,
+      );
+      final id = store.items.single.id;
+      final name = store.items.single.fileName;
+
+      store.retry(id);
+      await _waitUntil(
+        store,
+        (items) => items.single.state == DownloadState.completed,
+      );
+
+      expect(store.items.single.fileName, name);
+      expect(name, isNot(contains(' (2).')));
+    });
+  });
+
+  group('failed transfers', () {
+    test('a truncated response leaves no .part behind', () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      server.listen((request) async {
+        final response = request.response;
+        response.contentLength = 4096;
+        response.add(List<int>.filled(32, 7));
+        try {
+          await response.close();
+        } catch (_) {}
+      });
+      addTearDown(() => server.close(force: true));
+      final store = openStore();
+
+      store.start(
+        title: 'Truncated',
+        source: MediaSource(
+          id: 1,
+          quality: '720p',
+          type: 'mp4',
+          url: 'http://127.0.0.1:${server.port}/broken.mp4',
+        ),
+      );
+      await _waitUntil(
+        store,
+        (items) => items.single.state == DownloadState.failed,
+      );
+
+      final item = store.items.single;
+      final part = File(
+        '${store.directory.path}${Platform.pathSeparator}.${item.id}.part',
+      );
+      expect(part.existsSync(), isFalse);
+      expect(store.fileFor(item).existsSync(), isFalse);
+    });
   });
 
   group('download eligibility', () {

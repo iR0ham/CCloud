@@ -26,3 +26,22 @@ bool playerYieldsKeysToFocusedChild({
   required bool hasPrimaryFocus,
   required bool rootHasPrimaryFocus,
 }) => isTv && hasPrimaryFocus && !rootHasPrimaryFocus;
+
+/// Whether returning to the app should offer the next episode again.
+///
+/// The countdown is cancelled whenever the app goes to the background. On
+/// resume it restarts only if the item is still sitting at its end, nothing is
+/// counting down, and the viewer did not tap «لغو» — an explicit dismissal must
+/// not be undone by a later resume.
+bool shouldOfferAutoNextOnResume({
+  required bool completed,
+  required int countdown,
+  required bool dismissed,
+  required bool hasUpcoming,
+  required bool autoPlayNextEpisode,
+}) =>
+    completed &&
+    countdown == 0 &&
+    !dismissed &&
+    hasUpcoming &&
+    autoPlayNextEpisode;

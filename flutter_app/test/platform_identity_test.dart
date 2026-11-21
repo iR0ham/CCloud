@@ -22,13 +22,19 @@ void main() {
     expect(platformDisplayName(AppPlatform.unknown), 'نسخه نامشخص');
   });
 
-  test('this macOS host produces the macOS label through the real path', () {
-    expect(Platform.isMacOS, isTrue);
-    final identity = PlatformIdentity.forCurrentOs(version: '1.0.6');
-    expect(identity.platform, AppPlatform.macos);
-    expect(identity.displayName, 'نسخه مک (macOS)');
-    expect(identity.versionLabel, 'نسخه مک (macOS) • ۱.۰.۶');
-  });
+  test(
+    'this macOS host produces the macOS label through the real path',
+    () {
+      final identity = PlatformIdentity.forCurrentOs(version: '1.0.6');
+      expect(identity.platform, AppPlatform.macos);
+      expect(identity.displayName, 'نسخه مک (macOS)');
+      expect(identity.versionLabel, 'نسخه مک (macOS) • ۱.۰.۶');
+    },
+    // The suite also runs on Windows and Linux; only a macOS host can assert
+    // the real `Platform.operatingSystem` path. The OS→string mapping above is
+    // covered independently of the host.
+    skip: !Platform.isMacOS,
+  );
 
   test('version labels stay OS-correct and omit an empty version', () {
     final windows = PlatformIdentity(
@@ -95,5 +101,28 @@ void main() {
       ),
       isFalse,
     );
+  });
+
+  test('a dismissed next-episode offer is not revived by resume', () {
+    bool offer({
+      bool completed = true,
+      int countdown = 0,
+      bool dismissed = false,
+      bool hasUpcoming = true,
+      bool autoPlayNextEpisode = true,
+    }) => shouldOfferAutoNextOnResume(
+      completed: completed,
+      countdown: countdown,
+      dismissed: dismissed,
+      hasUpcoming: hasUpcoming,
+      autoPlayNextEpisode: autoPlayNextEpisode,
+    );
+
+    expect(offer(), isTrue);
+    expect(offer(dismissed: true), isFalse);
+    expect(offer(completed: false), isFalse);
+    expect(offer(countdown: 7), isFalse);
+    expect(offer(hasUpcoming: false), isFalse);
+    expect(offer(autoPlayNextEpisode: false), isFalse);
   });
 }

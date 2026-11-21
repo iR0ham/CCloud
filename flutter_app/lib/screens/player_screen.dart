@@ -65,6 +65,7 @@ class _PlayerScreenState extends State<PlayerScreen>
   String? _error;
   bool _isLive = false;
   int _countdown = 0;
+  bool _countdownDismissed = false;
 
   double _volume = 0.85;
   double _lastAudibleVolume = 0.85;
@@ -430,6 +431,8 @@ class _PlayerScreenState extends State<PlayerScreen>
     bool keepNote = false,
   }) async {
     _cancelCountdown();
+    // A freshly opened item starts clean: no earlier dismissal applies.
+    _countdownDismissed = false;
     _pendingSeekSeconds = null;
     _lastProgressAt = DateTime.now();
     _successRecorded = false;
@@ -583,6 +586,7 @@ class _PlayerScreenState extends State<PlayerScreen>
 
   void _startCountdown() {
     _countdownTimer?.cancel();
+    _countdownDismissed = false;
     setState(() => _countdown = 10);
     _countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (!mounted) {
@@ -610,6 +614,14 @@ class _PlayerScreenState extends State<PlayerScreen>
       setState(() => _countdown = 0);
       if (_nextFocus.hasFocus) _rootFocus.requestFocus();
     }
+  }
+
+  /// The viewer explicitly declined the next episode. Unlike the internal
+  /// cancels above, this survives a background/resume cycle: resuming must not
+  /// re-offer a countdown the viewer already dismissed.
+  void _dismissCountdown() {
+    _countdownDismissed = true;
+    _cancelCountdown();
   }
 
   void _playNextNow() {
@@ -685,9 +697,19 @@ class _PlayerScreenState extends State<PlayerScreen>
     if (!(Platform.isWindows || Platform.isMacOS || Platform.isLinux)) return;
     final window = _currentWindow();
     if (window == null) return;
+    // macOS animates the transition; adopt the requested state now so an
+    // Escape during the animation leaves fullscreen (as it would afterwards)
+    // instead of closing the player. The read-back below reverts this if the
+    // backend never actually applied it.
+    if (mounted && _fullscreen != value) {
+      setState(() => _fullscreen = value);
+    }
     try {
       window.isFullScreen = value;
     } catch (_) {
+      if (mounted && _fullscreen != !value) {
+        setState(() => _fullscreen = !value);
+      }
       return;
     }
     var actual = value;
@@ -865,7 +887,10 @@ class _PlayerScreenState extends State<PlayerScreen>
       rootHasPrimaryFocus: primaryFocus == _rootFocus,
     )) {
       // A visible control owns the D-pad; let focus traversal move between
-      // controls instead of swallowing the arrows for seek/volume.
+      // controls instead of swallowing the arrows for seek/volume. The press
+      // itself still counts as activity, so the chrome is not hidden while the
+      // viewer is moving focus between controls.
+      _resetHideTimer();
       return KeyEventResult.ignored;
     }
     final keyboard = HardwareKeyboard.instance;
@@ -964,10 +989,14 @@ class _PlayerScreenState extends State<PlayerScreen>
       return;
     }
     if (state == AppLifecycleState.resumed &&
-        _completed &&
-        _countdown == 0 &&
-        _args.upcoming.isNotEmpty &&
-        AppServices.instance.settings.autoPlayNextEpisode) {
+        shouldOfferAutoNextOnResume(
+          completed: _completed,
+          countdown: _countdown,
+          dismissed: _countdownDismissed,
+          hasUpcoming: _args.upcoming.isNotEmpty,
+          autoPlayNextEpisode:
+              AppServices.instance.settings.autoPlayNextEpisode,
+        )) {
       // The episode was still sitting at its end; offer the next one again.
       _startCountdown();
     }
@@ -1154,7 +1183,7 @@ class _PlayerScreenState extends State<PlayerScreen>
                     ),
                     const SizedBox(width: 8),
                     AppFocusable(
-                      onTap: _cancelCountdown,
+                      onTap: _dismissCountdown,
                       borderRadius: 10,
                       focusScale: 1.04,
                       child: Container(
