@@ -1,0 +1,71 @@
+name: Build Windows
+
+# Windows builds cannot be cross-compiled from macOS, so they run on a Windows
+# runner. There is no release/publish step: the workflow only produces an
+# artifact that can be downloaded and tested.
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    name: Dart analyze
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: flutter_app
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.8'
+          cache: true
+
+      - name: Resolve dependencies
+        run: flutter pub get
+
+      - name: Analyze
+        run: flutter analyze
+
+  build-windows:
+    name: Windows release build
+    runs-on: windows-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: flutter_app
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.8'
+          cache: true
+
+      - name: Enable Windows desktop
+        run: flutter config --enable-windows-desktop
+
+      - name: Resolve dependencies
+        run: flutter pub get
+
+      # The first run downloads the prebuilt libmpv/ANGLE archives referenced by
+      # media_kit_libs_windows_video, so this step needs network access.
+      - name: Build (release)
+        run: flutter build windows --release
+
+      - name: Upload portable build
+        uses: actions/upload-artifact@v4
+        with:
+          name: CCloud-windows-x64
+          path: flutter_app/build/windows/x64/runner/Release/
+          if-no-files-found: error

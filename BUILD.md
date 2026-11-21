@@ -2,6 +2,7 @@
 
 این مخزن، سورس کامل نسخهٔ نیتیو macOS اپلیکیشن CCloud است (SwiftUI + AppKit، بدون هیچ وابستگی خارجی).
 هدف: با یک دستور، همان `CCloud.app` قابل ساخت و اجرا باشد.
+نسخهٔ Windows از همان اپ در `flutter_app/` (Flutter) ساخته می‌شود — بخش ۸.
 
 ---
 
@@ -115,7 +116,41 @@ scripts/    typecheck · make_icon · bundle_ffmpeg · qa_* · make_dist
 | پخش MKV شروع نمی‌شود | `Resources/ffmpeg-bin/ffmpeg` را با `bundle_ffmpeg.sh` بسازید یا `brew install ffmpeg` |
 | «برنامه از توسعه‌دهندهٔ شناسایی‌شده نیست» | ad-hoc امضاشده؛ راست‌کلیک → Open |
 
-## ۸. اعتبارها
+## ۸. نسخهٔ Windows (Flutter)
+
+نسخهٔ Windows از همان کد Flutter در `flutter_app/` ساخته می‌شود، نه از `Sources/` نیتیو macOS.
+ساخت cross-compile از مک ممکن نیست؛ بیلد روی ویندوز یا runner ویندوزی CI انجام می‌شود.
+
+پیش‌نیازهای ویندوز:
+
+| مورد | توضیح |
+|---|---|
+| Flutter | ۳.۴۷.۸ (stable) روی `PATH` |
+| Visual Studio 2022 | workload «Desktop development with C++» (CMake + MSVC) |
+| اینترنت | اولین بیلد، آرشیوهای libmpv/ANGLE را برای `media_kit_libs_windows_video` دانلود می‌کند |
+
+بیلد محلی (PowerShell):
+
+```powershell
+.\build_windows.ps1
+```
+
+یا دستی:
+
+```powershell
+cd flutter_app
+flutter pub get
+flutter build windows --release
+```
+
+خروجی: `flutter_app\build\windows\x64\runner\Release\` شامل `ccloud.exe`، `libmpv-2.dll`،
+DLLهای ANGLE و پوشهٔ `data`. کل این پوشه قابل انتقال است.
+
+ساخت با CI: workflow «Build Windows» در `.github/workflows/build-windows.yml` — اجرای دستی از تب
+Actions (workflow_dispatch) یا push یک tag با الگوی `v*`. artifact به نام `CCloud-windows-x64`
+شامل همان پوشهٔ Release است. (این مرحله publish/release نمی‌کند.)
+
+## ۹. اعتبارها
 
 - اپ اندروید اصلی: <https://github.com/code3-dev/CCloud> (Kotlin/Compose)
 - نسخهٔ Flutter دسکتاپ (منبع بخش پخش زنده): `CCloud-GUI`

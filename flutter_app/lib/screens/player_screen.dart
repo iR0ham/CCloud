@@ -449,7 +449,13 @@ class _PlayerScreenState extends State<PlayerScreen>
     return source;
   }
 
+  /// SystemChrome is implemented by the Android/iOS embedders only. Desktop
+  /// shells (Windows/macOS/Linux) have no handler for it, so the player keeps
+  /// its in-app full-screen route there instead of calling these APIs.
+  bool get _mobilePlatform => Platform.isAndroid || Platform.isIOS;
+
   void _enterFullscreen() {
+    if (!_mobilePlatform) return;
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
     if (Platform.isAndroid && !PlatformInfo.isTv) {
       SystemChrome.setPreferredOrientations([
@@ -460,6 +466,7 @@ class _PlayerScreenState extends State<PlayerScreen>
   }
 
   void _exitFullscreen() {
+    if (!_mobilePlatform) return;
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     SystemChrome.setPreferredOrientations(DeviceOrientation.values);
   }
