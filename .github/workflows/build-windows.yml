@@ -69,3 +69,37 @@ jobs:
           name: CCloud-windows-x64
           path: flutter_app/build/windows/x64/runner/Release/
           if-no-files-found: error
+
+  # A successful build only proves the compiler and linker were happy. This job
+  # runs the produced binary and requires it to open a visible window titled
+  # "CCloud", so a missing libmpv, a bad DLL or a dead embedder turns CI red
+  # instead of shipping an exe that cannot start.
+  smoke-test:
+    name: Windows runtime smoke test
+    needs: build-windows
+    runs-on: windows-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download portable build
+        uses: actions/download-artifact@v4
+        with:
+          name: CCloud-windows-x64
+          path: windows-release
+
+      - name: Launch ccloud.exe
+        shell: pwsh
+        run: ./scripts/windows-smoke.ps1 -ReleaseDir windows-release -ScreenshotPath windows-smoke.png
+
+      - name: Upload run evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-smoke-evidence
+          path: windows-smoke.png
+          if-no-files-found: warn
