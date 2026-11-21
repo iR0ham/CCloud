@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
-import '../core/live_tv_client.dart';
+import '../core/live_catalog.dart';
 import '../core/models.dart';
 import '../core/playback.dart';
 import '../core/stores.dart';
@@ -41,7 +42,7 @@ class _LiveScreenState extends State<LiveScreen> {
       _error = null;
     });
     try {
-      final countries = await LiveTvClient.instance.countries();
+      final countries = await LiveCatalog.instance.countries();
       if (!mounted) return;
       setState(() {
         _countries = countries;
@@ -58,6 +59,15 @@ class _LiveScreenState extends State<LiveScreen> {
         _error = error.toString();
       });
     }
+  }
+
+  String get _countriesSubtitle {
+    if (_countries.isEmpty) return 'شبکه‌های تلویزیونی زنده از سراسر جهان';
+    final channels = _countries.fold<int>(
+      0,
+      (sum, country) => sum + country.channelCount,
+    );
+    return '${faDigits(_countries.length)} کشور • ${faDigits(channels)} شبکهٔ زنده';
   }
 
   List<LiveTvCountry> get _filteredCountries {
@@ -99,35 +109,40 @@ class _LiveScreenState extends State<LiveScreen> {
                     style: Theme.of(context).textTheme.headlineMedium,
                   ),
                   Text(
-                    'شبکه‌های تلویزیونی از سراسر جهان',
+                    _countriesSubtitle,
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
                   const SizedBox(height: 10),
                   TvSearchField(
                     controller: _countrySearch,
                     onChanged: (_) => setState(() {}),
-                    hintText: 'جست‌وجوی کشور…',
+                    hintText: 'جستجوی کشور…',
                     icon: Icons.public_rounded,
                   ),
                 ],
               ),
             ),
             Expanded(
-              child: ListView(
-                padding: const EdgeInsets.fromLTRB(16, 10, 16, 30),
-                children: [
-                  for (final country in _filteredCountries)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 8),
-                      child: _CountryTile(
-                        country: country,
-                        onTap: () => Navigator.of(
-                          context,
-                        ).push(appRoute(LiveChannelsScreen(country: country))),
-                      ),
+              child: _filteredCountries.isEmpty
+                  ? const EmptyView(
+                      message: 'کشوری پیدا نشد',
+                      icon: Icons.flag_outlined,
+                    )
+                  : ListView(
+                      padding: const EdgeInsets.fromLTRB(16, 10, 16, 30),
+                      children: [
+                        for (final country in _filteredCountries)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 8),
+                            child: _CountryTile(
+                              country: country,
+                              onTap: () => Navigator.of(context).push(
+                                appRoute(LiveChannelsScreen(country: country)),
+                              ),
+                            ),
+                          ),
+                      ],
                     ),
-                ],
-              ),
             ),
           ],
         ),
@@ -154,11 +169,15 @@ class _LiveScreenState extends State<LiveScreen> {
                         'پخش زنده',
                         style: Theme.of(context).textTheme.titleLarge,
                       ),
+                      Text(
+                        _countriesSubtitle,
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
                       const SizedBox(height: 8),
                       TvSearchField(
                         controller: _countrySearch,
                         onChanged: (_) => setState(() {}),
-                        hintText: 'جست‌وجوی کشور…',
+                        hintText: 'جستجوی کشور…',
                         icon: Icons.public_rounded,
                         iconSize: 18,
                         contentPadding: const EdgeInsets.symmetric(
@@ -170,21 +189,27 @@ class _LiveScreenState extends State<LiveScreen> {
                   ),
                 ),
                 Expanded(
-                  child: ListView.builder(
-                    padding: const EdgeInsets.fromLTRB(10, 4, 10, 20),
-                    itemCount: _filteredCountries.length,
-                    itemBuilder: (context, index) {
-                      final country = _filteredCountries[index];
-                      return Padding(
-                        padding: const EdgeInsets.only(bottom: 4),
-                        child: _CountryRow(
-                          country: country,
-                          selected: country.code == selected?.code,
-                          onTap: () => setState(() => _selected = country),
+                  child: _filteredCountries.isEmpty
+                      ? const EmptyView(
+                          message: 'کشوری پیدا نشد',
+                          icon: Icons.flag_outlined,
+                        )
+                      : ListView.builder(
+                          padding: const EdgeInsets.fromLTRB(10, 4, 10, 20),
+                          itemCount: _filteredCountries.length,
+                          itemBuilder: (context, index) {
+                            final country = _filteredCountries[index];
+                            return Padding(
+                              padding: const EdgeInsets.only(bottom: 4),
+                              child: _CountryRow(
+                                country: country,
+                                selected: country.code == selected?.code,
+                                onTap: () =>
+                                    setState(() => _selected = country),
+                              ),
+                            );
+                          },
                         ),
-                      );
-                    },
-                  ),
                 ),
               ],
             ),
@@ -237,9 +262,7 @@ class _ChannelsPaneState extends State<_ChannelsPane> {
       _error = null;
     });
     try {
-      final channels = await LiveTvClient.instance.channels(
-        widget.country.code,
-      );
+      final channels = await LiveCatalog.instance.channels(widget.country);
       if (!mounted) return;
       setState(() {
         _channels = channels;
@@ -259,7 +282,9 @@ class _ChannelsPaneState extends State<_ChannelsPane> {
     if (query.isEmpty) return _channels;
     return _channels
         .where(
-          (channel) => channel.name.toLowerCase().contains(query.toLowerCase()),
+          (channel) =>
+              channel.name.toLowerCase().contains(query.toLowerCase()) ||
+              channel.languageLabel.contains(query),
         )
         .toList();
   }
@@ -284,7 +309,7 @@ class _ChannelsPaneState extends State<_ChannelsPane> {
                       style: Theme.of(context).textTheme.titleLarge,
                     ),
                     Text(
-                      '${faDigits(_channels.length)} شبکه',
+                      '${faDigits(_channels.length)} شبکهٔ زنده',
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
                   ],
@@ -295,7 +320,7 @@ class _ChannelsPaneState extends State<_ChannelsPane> {
                 child: TvSearchField(
                   controller: _search,
                   onChanged: (_) => setState(() {}),
-                  hintText: 'جست‌وجوی شبکه…',
+                  hintText: 'جستجوی شبکه…',
                   icon: Icons.search_rounded,
                   iconSize: 19,
                   style: Theme.of(context).textTheme.bodyMedium,
@@ -314,8 +339,10 @@ class _ChannelsPaneState extends State<_ChannelsPane> {
               : _error != null
               ? ErrorView(message: _error!, onRetry: _load)
               : _filtered.isEmpty
-              ? const EmptyView(
-                  message: 'شبکه‌ای پیدا نشد.',
+              ? EmptyView(
+                  message: _search.text.trim().isEmpty
+                      ? 'شبکه‌ای برای این کشور پیدا نشد'
+                      : 'شبکه‌ای پیدا نشد',
                   icon: Icons.tv_off_rounded,
                 )
               : ListView.builder(
@@ -578,19 +605,13 @@ class _ChannelTile extends StatelessWidget {
   final String countryName;
   final bool autofocus;
 
+  bool get _hasStream => channel.streams.isNotEmpty;
+
   @override
   Widget build(BuildContext context) {
-    final hasStream = channel.streams.isNotEmpty;
     return AppFocusable(
       autofocus: autofocus,
-      onTap: !hasStream
-          ? () {}
-          : () => Navigator.of(context).push(
-              appRoute(
-                PlayerScreen(args: PlayerArgs.forChannel(channel, countryName)),
-              ),
-            ),
-      enabled: hasStream,
+      onTap: () => _play(context, null),
       borderRadius: AppRadii.normal,
       focusScale: 1.01,
       keepDirectionalWithinScrollable: true,
@@ -615,55 +636,19 @@ class _ChannelTile extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                     style: Theme.of(context).textTheme.bodyLarge,
                   ),
-                  Text(
-                    channel.languageLabel,
-                    style: Theme.of(context).textTheme.bodySmall,
+                  const SizedBox(height: 4),
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 4,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: _chips(context),
                   ),
                 ],
               ),
             ),
-            if (channel.isGeoBlocked)
-              const Padding(
-                padding: EdgeInsets.only(left: 8),
-                child: MetaChip(
-                  label: 'محدود جغرافیایی',
-                  icon: Icons.lock_outline,
-                ),
-              ),
-            ListenableBuilder(
-              listenable: AppServices.instance.linkHealth,
-              builder: (context, _) {
-                final dead = AppServices.instance.linkHealth
-                    .areAllDeprioritised(channel.streams);
-                if (!dead) return const SizedBox.shrink();
-                return Container(
-                  margin: const EdgeInsets.only(left: 8),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 9,
-                    vertical: 4,
-                  ),
-                  decoration: BoxDecoration(
-                    color: AppColors.red.withValues(alpha: 0.14),
-                    borderRadius: BorderRadius.circular(999),
-                    border: Border.all(
-                      color: AppColors.red.withValues(alpha: 0.40),
-                    ),
-                  ),
-                  child: const Text(
-                    'قطع',
-                    style: TextStyle(
-                      fontFamily: AppTheme.fontFamily,
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
-                      color: AppColors.red,
-                    ),
-                  ),
-                );
-              },
-            ),
             Icon(
               Icons.play_circle_outline_rounded,
-              color: hasStream
+              color: _hasStream
                   ? AppColors.accentBright
                   : context.palette.textTertiary,
             ),
@@ -672,4 +657,179 @@ class _ChannelTile extends StatelessWidget {
       ),
     );
   }
+
+  /// Chip order follows the macOS row: dead, geo-blocked, sources, language.
+  List<Widget> _chips(BuildContext context) {
+    final secondary = context.palette.textSecondary;
+    return [
+      ListenableBuilder(
+        listenable: AppServices.instance.linkHealth,
+        builder: (context, _) {
+          final dead = AppServices.instance.linkHealth.areAllDeprioritised(
+            channel.streams,
+          );
+          if (!dead) return const SizedBox.shrink();
+          return const _LiveChip('قطع', AppColors.red);
+        },
+      ),
+      if (channel.isGeoBlocked)
+        const _LiveChip('محدود جغرافیایی', AppColors.gold),
+      if (channel.streams.length > 1)
+        _LiveChip(
+          '${faDigits(channel.streams.length)} منبع',
+          secondary,
+          onTap: () => _openSources(context),
+        ),
+      if (channel.languages.isNotEmpty)
+        _LiveChip(channel.languageLabel, secondary),
+    ];
+  }
+
+  void _play(BuildContext context, String? stream) {
+    if (!_hasStream) {
+      _showLiveToast(context, 'برای این شبکه آدرسی ثبت نشده است');
+      return;
+    }
+    Navigator.of(context).push(
+      appRoute(
+        PlayerScreen(
+          args: PlayerArgs.forChannel(
+            channel,
+            countryName,
+            streamOverride: stream,
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// «N منبع» menu: play, every stream, and copy the primary link.
+  Future<void> _openSources(BuildContext context) async {
+    if (!_hasStream) {
+      _showLiveToast(context, 'برای این شبکه آدرسی ثبت نشده است');
+      return;
+    }
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) {
+        final count = channel.streams.length;
+        return SafeArea(
+          child: Directionality(
+            textDirection: TextDirection.rtl,
+            child: ListView(
+              shrinkWrap: true,
+              padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+                  child: Text(
+                    '${faDigits(count)} منبع',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                ),
+                _sheetRow(
+                  sheetContext,
+                  icon: Icons.play_arrow_rounded,
+                  label: 'پخش زنده',
+                  onTap: () {
+                    Navigator.of(sheetContext).pop();
+                    _play(context, null);
+                  },
+                ),
+                for (var index = 0; index < count; index++)
+                  _sheetRow(
+                    sheetContext,
+                    icon: Icons.playlist_play_rounded,
+                    label: 'منبع ${faDigits(index + 1)}',
+                    onTap: () {
+                      Navigator.of(sheetContext).pop();
+                      _play(context, channel.streams[index]);
+                    },
+                  ),
+                _sheetRow(
+                  sheetContext,
+                  icon: Icons.copy_rounded,
+                  label: 'کپی لینک',
+                  onTap: () async {
+                    Navigator.of(sheetContext).pop();
+                    await Clipboard.setData(
+                      ClipboardData(text: channel.primaryStream),
+                    );
+                    if (context.mounted) {
+                      _showLiveToast(context, 'در کلیپ‌بورد کپی شد');
+                    }
+                  },
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _sheetRow(
+    BuildContext sheetContext, {
+    required IconData icon,
+    required String label,
+    required VoidCallback onTap,
+  }) {
+    return AppFocusable(
+      onTap: onTap,
+      borderRadius: AppRadii.normal,
+      focusScale: 1.01,
+      child: ListTile(
+        leading: Icon(icon, color: AppColors.accentBright),
+        title: Text(label),
+      ),
+    );
+  }
+}
+
+class _LiveChip extends StatelessWidget {
+  const _LiveChip(this.text, this.color, {this.onTap});
+
+  final String text;
+  final Color color;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final chip = Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            text,
+            style: TextStyle(
+              fontFamily: AppTheme.fontFamily,
+              fontSize: 10.5,
+              fontWeight: FontWeight.w500,
+              color: color,
+            ),
+          ),
+          if (onTap != null)
+            Icon(Icons.arrow_drop_down_rounded, size: 15, color: color),
+        ],
+      ),
+    );
+    if (onTap == null) return chip;
+    return AppFocusable(
+      onTap: onTap!,
+      borderRadius: 999,
+      focusScale: 1.04,
+      child: chip,
+    );
+  }
+}
+
+void _showLiveToast(BuildContext context, String message) {
+  ScaffoldMessenger.maybeOf(context)
+      ?.showSnackBar(SnackBar(content: Text(message)));
 }

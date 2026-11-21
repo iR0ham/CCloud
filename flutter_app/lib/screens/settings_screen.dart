@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../core/api_client.dart';
+import '../core/catalogue.dart';
+import '../core/downloads_store.dart';
 import '../core/models.dart';
 import '../core/stores.dart';
 import '../ui/theme.dart';
@@ -14,42 +17,76 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  String _host = ApiClient.instance.activeHost;
   bool _checking = false;
+  int _genreCount = 0;
 
   @override
   void initState() {
     super.initState();
-    ApiClient.instance.addHostListener((host) {
-      if (mounted) setState(() => _host = host);
-    });
+    _genreCount = Catalogue.cachedGenres?.length ?? 0;
+    _refreshGenres();
+  }
+
+  Future<void> _refreshGenres() async {
+    try {
+      final genres = await Catalogue.genres();
+      if (!mounted) return;
+      setState(() => _genreCount = genres.length);
+    } catch (_) {
+      // The server card already shows the connection state; a failed count
+      // stays at its last value.
+    }
   }
 
   Future<void> _checkConnection() async {
     setState(() => _checking = true);
     final ok = await ApiClient.instance.healthCheck();
+    if (ok) {
+      Catalogue.invalidate();
+      await _refreshGenres();
+    }
     if (!mounted) return;
-    setState(() {
-      _checking = false;
-      _host = ApiClient.instance.activeHost;
-    });
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          ok ? 'اتصال به سرور برقرار است ($_host)' : 'اتصال به سرور برقرار نشد',
-        ),
-        duration: const Duration(seconds: 3),
-      ),
+    setState(() => _checking = false);
+    _snack(
+      ok
+          ? 'اتصال به سرور برقرار است (${ApiClient.instance.activeHost})'
+          : 'اتصال به سرور برقرار نشد',
     );
+  }
+
+  void _snack(String message) {
+    ScaffoldMessenger.maybeOf(context)
+        ?.showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  // MARK: Downloads
+
+  Future<void> _reveal(DownloadItem item) async {
+    final downloads = AppServices.instance.downloads;
+    final opened = await downloads.reveal(item.id);
+    if (opened || !mounted) return;
+    // Android has no file-manager hook: hand the user the path instead.
+    await Clipboard.setData(ClipboardData(text: downloads.fileFor(item).path));
+    if (mounted) _snack('مسیر فایل کپی شد');
+  }
+
+  Future<void> _revealFolder() async {
+    final downloads = AppServices.instance.downloads;
+    final opened = await downloads.revealFolder();
+    if (opened || !mounted) return;
+    await Clipboard.setData(ClipboardData(text: downloads.directory.path));
+    if (mounted) _snack('مسیر پوشهٔ دانلود کپی شد');
   }
 
   @override
   Widget build(BuildContext context) {
     final settings = AppServices.instance.settings;
+    final downloads = AppServices.instance.downloads;
+    final connectivity = ApiClient.instance.connectivity;
     return SafeArea(
       bottom: false,
       child: ListenableBuilder(
-        listenable: settings,
+        listenable: Listenable.merge([settings, downloads, connectivity]),
         builder: (context, _) {
           return ListView(
             padding: const EdgeInsets.fromLTRB(16, 14, 16, 34),
@@ -183,6 +220,138 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
               const SizedBox(height: 14),
               _Section(
+                title: 'دانلودها',
+                subtitle: 'ذخیرهٔ مستقیم در پوشهٔ Downloads/CCloud',
+                children: [
+                  if (downloads.items.isEmpty)
+                    Text(
+                      'هنوز دانلودی شروع نشده است. از صفحهٔ جزئیات فیلم یا قسمت سریال، دکمهٔ دانلود را بزنید.',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    )
+                  else
+                    for (final item in downloads.items)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: _DownloadRow(
+                          item: item,
+                          onCancel: () => downloads.cancel(item.id),
+                          onRetry: () => downloads.retry(item.id),
+                          onReveal: () => _reveal(item),
+                          onRemove: () => downloads.remove(item.id),
+                        ),
+                      ),
+                  const SizedBox(height: 4),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      TextButton.icon(
+                        onPressed: _revealFolder,
+                        icon: const Icon(Icons.folder_outlined, size: 17),
+                        label: const Text('نمایش پوشهٔ دانلود'),
+                      ),
+                      if (downloads.items.any(
+                        (item) => item.state != DownloadState.downloading,
+                      ))
+                        TextButton.icon(
+                          onPressed: downloads.clearFinished,
+                          icon: const Icon(
+                            Icons.playlist_remove_rounded,
+                            size: 17,
+                          ),
+                          label: const Text('پاک کردن فهرست'),
+                        ),
+                    ],
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
+              _Section(
+                title: 'وضعیت سرور',
+                subtitle: 'وضعیت اتصال به بک‌اند CCloud',
+                children: [
+                  _InfoRow(
+                    label: 'هاست فعال',
+                    value: connectivity.host,
+                    tint: Theme.of(context).colorScheme.onSurface,
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Text(
+                        'وضعیت اتصال',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                      const Spacer(),
+                      Container(
+                        width: 7,
+                        height: 7,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: connectivity.isOffline
+                              ? AppColors.gold
+                              : connectivity.hasError
+                              ? AppColors.red
+                              : AppColors.green,
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        connectivity.isOffline
+                            ? 'آفلاین'
+                            : connectivity.hasError
+                            ? 'قطع'
+                            : 'متصل',
+                        style: TextStyle(
+                          fontFamily: AppTheme.fontFamily,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: connectivity.isOffline
+                              ? AppColors.gold
+                              : connectivity.hasError
+                              ? AppColors.red
+                              : AppColors.green,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  _InfoRow(
+                    label: 'ژانرهای دریافتی',
+                    value: faDigits(_genreCount),
+                    tint: Theme.of(context).colorScheme.onSurface,
+                  ),
+                  if (connectivity.lastError != null) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      connectivity.lastError!,
+                      maxLines: 3,
+                      style: TextStyle(
+                        fontFamily: AppTheme.fontFamily,
+                        fontSize: 11,
+                        color: AppColors.red,
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      OutlinedButton.icon(
+                        onPressed: _checking ? null : _checkConnection,
+                        icon: const Icon(
+                          Icons.wifi_tethering_rounded,
+                          size: 17,
+                        ),
+                        label: Text(
+                          _checking ? 'در حال بررسی…' : 'بررسی اتصال',
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
+              _Section(
                 title: 'داده‌ها',
                 children: [
                   _ActionRow(
@@ -210,9 +379,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     title: 'خالی‌کردن حافظهٔ موقت',
                     onTap: () {
                       ApiClient.instance.invalidateCache();
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('حافظهٔ موقت خالی شد')),
-                      );
+                      _snack('حافظهٔ موقت خالی شد');
                     },
                   ),
                   const Divider(height: 18),
@@ -261,29 +428,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ),
                     ],
                   ),
-                  const SizedBox(height: 14),
-                  Row(
-                    children: [
-                      Icon(
-                        Icons.dns_rounded,
-                        size: 17,
-                        color: context.palette.textTertiary,
-                      ),
-                      const SizedBox(width: 7),
-                      Expanded(
-                        child: Text(
-                          'سرور فعال: $_host',
-                          style: Theme.of(context).textTheme.bodySmall,
-                        ),
-                      ),
-                      OutlinedButton(
-                        onPressed: _checking ? null : _checkConnection,
-                        child: Text(
-                          _checking ? 'در حال بررسی…' : 'بررسی اتصال',
-                        ),
-                      ),
-                    ],
-                  ),
                   const SizedBox(height: 10),
                   Text(
                     'رابط کاربری فارسی و راست‌به‌چپ، بهینه برای گوشی، تبلت و تلویزیون اندروید.',
@@ -323,15 +467,235 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (confirmed != true) return;
     await action();
     if (!mounted) return;
-    ScaffoldMessenger.of(context)
-        .showSnackBar(const SnackBar(content: Text('انجام شد')));
+    _snack('انجام شد');
+  }
+}
+
+// MARK: - Download row
+
+class _DownloadRow extends StatelessWidget {
+  const _DownloadRow({
+    required this.item,
+    required this.onCancel,
+    required this.onRetry,
+    required this.onReveal,
+    required this.onRemove,
+  });
+
+  final DownloadItem item;
+  final VoidCallback onCancel;
+  final VoidCallback onRetry;
+  final VoidCallback onReveal;
+  final VoidCallback onRemove;
+
+  String get _sizeText {
+    final received = _megabytes(item.receivedBytes);
+    if (item.totalBytes > 0) {
+      return '$received از ${_megabytes(item.totalBytes)} مگابایت';
+    }
+    return '$received مگابایت';
+  }
+
+  String _megabytes(int bytes) => faDigits((bytes / 1048576).round());
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        color: context.palette.elevated,
+        borderRadius: BorderRadius.circular(9),
+        border: Border.all(color: context.palette.stroke),
+      ),
+      child: Row(
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(6),
+            child: SizedBox(
+              width: 34,
+              height: 48,
+              child: AsyncImage(
+                url: item.posterURL,
+                placeholderIcon: Icons.arrow_downward_rounded,
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  item.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontFamily: AppTheme.fontFamily,
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                _statusLine(context),
+                if (item.state == DownloadState.downloading) ...[
+                  const SizedBox(height: 6),
+                  Directionality(
+                    textDirection: TextDirection.ltr,
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(999),
+                      child: LinearProgressIndicator(
+                        value: item.progress <= 0 ? 0.02 : item.progress,
+                        minHeight: 3,
+                        backgroundColor: context.palette.stroke,
+                        color: AppColors.accent,
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(width: 6),
+          ..._actions(),
+        ],
+      ),
+    );
+  }
+
+  Widget _statusLine(BuildContext context) {
+    switch (item.state) {
+      case DownloadState.downloading:
+        return Text(
+          'در حال دانلود • ٪${faDigits((item.progress * 100).round())} • $_sizeText',
+          style: const TextStyle(
+            fontFamily: AppTheme.fontFamily,
+            fontSize: 11,
+            color: AppColors.accentBright,
+          ),
+        );
+      case DownloadState.completed:
+        return Row(
+          children: [
+            const Icon(
+              Icons.check_circle_rounded,
+              size: 12,
+              color: AppColors.green,
+            ),
+            const SizedBox(width: 4),
+            Text(
+              'دانلود شد • $_sizeText',
+              style: const TextStyle(
+                fontFamily: AppTheme.fontFamily,
+                fontSize: 11,
+                color: AppColors.green,
+              ),
+            ),
+          ],
+        );
+      case DownloadState.failed:
+        return Text(
+          item.errorMessage ?? 'دانلود ناموفق بود',
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(
+            fontFamily: AppTheme.fontFamily,
+            fontSize: 11,
+            color: AppColors.red,
+          ),
+        );
+    }
+  }
+
+  List<Widget> _actions() {
+    switch (item.state) {
+      case DownloadState.downloading:
+        return [
+          IconButton(
+            onPressed: onCancel,
+            tooltip: 'لغو دانلود',
+            visualDensity: VisualDensity.compact,
+            icon: const Icon(Icons.close_rounded, size: 18),
+          ),
+        ];
+      case DownloadState.completed:
+        return [
+          IconButton(
+            onPressed: onReveal,
+            tooltip: 'نمایش در پوشه',
+            visualDensity: VisualDensity.compact,
+            icon: const Icon(Icons.folder_outlined, size: 18),
+          ),
+          IconButton(
+            onPressed: onRemove,
+            tooltip: 'حذف از فهرست',
+            visualDensity: VisualDensity.compact,
+            icon: const Icon(Icons.delete_outline_rounded, size: 18),
+          ),
+        ];
+      case DownloadState.failed:
+        return [
+          IconButton(
+            onPressed: onRetry,
+            tooltip: 'تلاش دوباره',
+            visualDensity: VisualDensity.compact,
+            icon: const Icon(
+              Icons.refresh_rounded,
+              size: 18,
+              color: AppColors.accentBright,
+            ),
+          ),
+          IconButton(
+            onPressed: onRemove,
+            tooltip: 'حذف از فهرست',
+            visualDensity: VisualDensity.compact,
+            icon: const Icon(Icons.delete_outline_rounded, size: 18),
+          ),
+        ];
+    }
+  }
+}
+
+class _InfoRow extends StatelessWidget {
+  const _InfoRow({
+    required this.label,
+    required this.value,
+    required this.tint,
+  });
+
+  final String label;
+  final String value;
+  final Color tint;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Text(label, style: Theme.of(context).textTheme.bodySmall),
+        const Spacer(),
+        Flexible(
+          child: Text(
+            value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.left,
+            style: TextStyle(
+              fontFamily: AppTheme.fontFamily,
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+              color: tint,
+            ),
+          ),
+        ),
+      ],
+    );
   }
 }
 
 class _Section extends StatelessWidget {
-  const _Section({required this.title, required this.children});
+  const _Section({required this.title, this.subtitle, required this.children});
 
   final String title;
+  final String? subtitle;
   final List<Widget> children;
 
   @override
@@ -347,6 +711,10 @@ class _Section extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Text(title, style: Theme.of(context).textTheme.titleMedium),
+          if (subtitle != null) ...[
+            const SizedBox(height: 2),
+            Text(subtitle!, style: Theme.of(context).textTheme.bodySmall),
+          ],
           const SizedBox(height: 10),
           ...children,
         ],

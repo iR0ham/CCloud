@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'downloads_store.dart';
 import 'link_health.dart';
 import 'models.dart';
 
@@ -536,20 +537,26 @@ class AppServices {
   final FavoritesStore favorites;
   final HistoryStore history;
   final LinkHealthStore linkHealth;
+  final DownloadsStore downloads;
 
   AppServices._create(
     this.settings,
     this.favorites,
     this.history,
     this.linkHealth,
+    this.downloads,
   );
 
-  static void init(SharedPreferences prefs) {
+  static void init(
+    SharedPreferences prefs, {
+    required DownloadsStore downloads,
+  }) {
     instance = AppServices._create(
       AppSettings(prefs),
       FavoritesStore(prefs),
       HistoryStore(prefs),
       LinkHealthStore(prefs),
+      downloads,
     );
   }
 }

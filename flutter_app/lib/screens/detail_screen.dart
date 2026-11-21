@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../core/api_client.dart';
 import '../core/description_text.dart';
+import '../core/downloads_store.dart';
 import '../core/models.dart';
 import '../core/origin_filter.dart';
 import '../core/playback.dart';
@@ -579,6 +581,73 @@ class _DetailScreenState extends State<DetailScreen> {
 
   // MARK: Sources
 
+  /// `year • duration • genres`, the macOS download/player subtitle.
+  String? get _detailSubtitle {
+    final item = widget.item;
+    final parts = [
+      item.yearText,
+      item.durationText ?? '',
+      item.genreText,
+    ].where((part) => part.isNotEmpty).toList();
+    return parts.isEmpty ? null : parts.join(' • ');
+  }
+
+  void _snack(String message) {
+    ScaffoldMessenger.maybeOf(context)
+        ?.showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  Future<void> _copyLink(String url, String message) async {
+    await Clipboard.setData(ClipboardData(text: url));
+    if (mounted) _snack(message);
+  }
+
+  void _startDownload({
+    required String title,
+    required String? subtitle,
+    required String? posterURL,
+    required MediaSource source,
+  }) {
+    final result = AppServices.instance.downloads.start(
+      title: title,
+      subtitle: subtitle,
+      posterURL: posterURL,
+      source: source,
+    );
+    switch (result) {
+      case DownloadStartResult.started:
+        _snack('دانلود آغاز شد؛ پیشرفت را در تنظیمات ببینید');
+      case DownloadStartResult.duplicate:
+        _snack('این دانلود از قبل در حال انجام است');
+      case DownloadStartResult.unsupported:
+        // A playlist is not one file: keep the link for the user instead.
+        _copyLink(source.url, 'این سورس قابل دانلود مستقیم نیست؛ لینک کپی شد');
+    }
+  }
+
+  void _downloadSource(MediaSource source) {
+    final item = widget.item;
+    _startDownload(
+      title: item.title,
+      subtitle: _detailSubtitle,
+      posterURL: item.image.isEmpty ? null : item.image,
+      source: source,
+    );
+  }
+
+  void _downloadEpisode(Season season, Episode episode, MediaSource source) {
+    final item = widget.item;
+    final poster = episode.image?.isNotEmpty == true
+        ? episode.image
+        : (item.image.isEmpty ? null : item.image);
+    _startDownload(
+      title: '${item.title} - ${episodeLabelText(episode)}',
+      subtitle: season.title,
+      posterURL: poster,
+      source: source,
+    );
+  }
+
   Widget _sourcesSection(List<MediaSource> sources) {
     if (sources.isEmpty) {
       return Column(
@@ -628,17 +697,36 @@ class _DetailScreenState extends State<DetailScreen> {
                     ),
                     const SizedBox(width: 10),
                     Expanded(
-                      child: Text(
-                        source.qualityLabel,
-                        style: Theme.of(context).textTheme.bodyLarge,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            source.qualityLabel,
+                            style: Theme.of(context).textTheme.bodyLarge,
+                          ),
+                          Text(
+                            source.kindLabel,
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        ],
                       ),
                     ),
-                    Text(
-                      source.kindLabel,
-                      style: Theme.of(context).textTheme.bodySmall,
+                    IconButton(
+                      onPressed: () => _copyLink(source.url, 'لینک کپی شد'),
+                      tooltip: 'کپی لینک',
+                      visualDensity: VisualDensity.compact,
+                      icon: const Icon(Icons.copy_rounded, size: 18),
                     ),
-                    const SizedBox(width: 10),
-                    const Icon(Icons.chevron_left_rounded, size: 20),
+                    IconButton(
+                      onPressed: () => _downloadSource(source),
+                      tooltip: 'دانلود',
+                      visualDensity: VisualDensity.compact,
+                      icon: const Icon(
+                        Icons.download_rounded,
+                        size: 19,
+                        color: AppColors.accentBright,
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -750,6 +838,22 @@ class _DetailScreenState extends State<DetailScreen> {
                           onTap: episode.playableSources.isEmpty
                               ? null
                               : () => _playEpisode(season, episode),
+                          onCopy: episode.playableSources.isEmpty
+                              ? null
+                              : () {
+                                  final source = _preferredFor(episode);
+                                  if (source != null) {
+                                    _copyLink(source.url, 'لینک قسمت کپی شد');
+                                  }
+                                },
+                          onDownload: episode.playableSources.isEmpty
+                              ? null
+                              : () {
+                                  final source = _preferredFor(episode);
+                                  if (source != null) {
+                                    _downloadEpisode(season, episode, source);
+                                  }
+                                },
                         ),
                       ),
                   ],
@@ -914,6 +1018,11 @@ class _DetailScreenState extends State<DetailScreen> {
     _openPlayer(args);
   }
 
+  MediaSource? _preferredFor(Episode episode) => preferredSource(
+    episode.playableSources,
+    AppServices.instance.settings.preferredQuality,
+  );
+
   void _playEpisode(Season season, Episode episode, {double startAt = 0}) {
     final resume = startAt > 0
         ? startAt
@@ -938,11 +1047,15 @@ class _EpisodeTile extends StatelessWidget {
     required this.episode,
     required this.isWatched,
     required this.onTap,
+    this.onCopy,
+    this.onDownload,
   });
 
   final Episode episode;
   final bool isWatched;
   final VoidCallback? onTap;
+  final VoidCallback? onCopy;
+  final VoidCallback? onDownload;
 
   @override
   Widget build(BuildContext context) {
@@ -1006,6 +1119,24 @@ class _EpisodeTile extends StatelessWidget {
                 ],
               ),
             ),
+            if (onCopy != null)
+              IconButton(
+                onPressed: onCopy,
+                tooltip: 'کپی لینک',
+                visualDensity: VisualDensity.compact,
+                icon: const Icon(Icons.copy_rounded, size: 17),
+              ),
+            if (onDownload != null)
+              IconButton(
+                onPressed: onDownload,
+                tooltip: 'دانلود این قسمت',
+                visualDensity: VisualDensity.compact,
+                icon: const Icon(
+                  Icons.download_rounded,
+                  size: 18,
+                  color: AppColors.accentBright,
+                ),
+              ),
             Icon(
               onTap == null
                   ? Icons.block_rounded

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../core/api_client.dart';
+import '../core/connectivity.dart';
 import '../core/platform_info.dart';
 import '../screens/browse_screen.dart';
 import '../screens/categories_screen.dart';
@@ -33,11 +35,7 @@ enum AppTab {
 
 /// Lets descendants (home rails, empty states) switch the active tab.
 class ShellScope extends InheritedWidget {
-  const ShellScope({
-    super.key,
-    required this.selectTab,
-    required super.child,
-  });
+  const ShellScope({super.key, required this.selectTab, required super.child});
 
   final ValueChanged<AppTab> selectTab;
 
@@ -63,16 +61,61 @@ class _AppShellState extends State<AppShell> {
   final Map<AppTab, Widget> _pages = {};
   final Map<AppTab, FocusNode> _tabFocus = {};
 
+  late final ConnectivityState _connectivity;
+  bool _wasOffline = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _connectivity = ApiClient.instance.connectivity;
+    _connectivity.addListener(_onConnectivityChanged);
+    _wasOffline = _connectivity.isOffline;
+    if (_connectivity.isOffline) {
+      // The first load already fell back to the disk copy; still tell the user
+      // once, as the macOS app does on connect failure.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _showConnectivityToast(offline: true);
+      });
+    }
+  }
+
   @override
   void dispose() {
+    _connectivity.removeListener(_onConnectivityChanged);
     for (final node in _tabFocus.values) {
       node.dispose();
     }
     super.dispose();
   }
 
-  FocusNode _tabFocusNode(AppTab tab) =>
-      _tabFocus.putIfAbsent(tab, () => FocusNode(debugLabel: 'tab-${tab.name}'));
+  /// Toasts only on a real transition, like the macOS app: telling the user
+  /// on every request would be noise.
+  void _onConnectivityChanged() {
+    final offline = _connectivity.isOffline;
+    if (offline == _wasOffline) return;
+    _wasOffline = offline;
+    _showConnectivityToast(offline: offline);
+  }
+
+  void _showConnectivityToast({required bool offline}) {
+    final message = offline
+        ? 'اتصال به سرور برقرار نشد؛ محتوای ذخیره‌شده نمایش داده می‌شود'
+        : 'اتصال به سرور برقرار شد';
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        SnackBar(
+          content: Text(message),
+          duration: const Duration(milliseconds: 2200),
+        ),
+      );
+    });
+  }
+
+  FocusNode _tabFocusNode(AppTab tab) => _tabFocus.putIfAbsent(
+    tab,
+    () => FocusNode(debugLabel: 'tab-${tab.name}'),
+  );
 
   Widget _pageFor(AppTab tab) {
     final page = _pages.putIfAbsent(tab, () {
@@ -143,10 +186,7 @@ class _AppShellState extends State<AppShell> {
         if (_pages.containsKey(tab) || tab == _tab) {
           // Hidden stack children are laid out and stay in the focus tree, so
           // D-pad focus can wander into invisible pages. Keep them out.
-          return ExcludeFocus(
-            excluding: tab != _tab,
-            child: _pageFor(tab),
-          );
+          return ExcludeFocus(excluding: tab != _tab, child: _pageFor(tab));
         }
         return const SizedBox.shrink();
       }).toList(),
@@ -174,13 +214,10 @@ class _AppShellState extends State<AppShell> {
       );
     }
 
-    const bottomTabs = [
-      AppTab.home,
-      AppTab.movies,
-      AppTab.series,
-      AppTab.live,
-    ];
-    final bottomIndex = bottomTabs.contains(_tab) ? bottomTabs.indexOf(_tab) : 4;
+    const bottomTabs = [AppTab.home, AppTab.movies, AppTab.series, AppTab.live];
+    final bottomIndex = bottomTabs.contains(_tab)
+        ? bottomTabs.indexOf(_tab)
+        : 4;
 
     return ShellScope(
       selectTab: _select,
@@ -203,10 +240,7 @@ class _AppShellState extends State<AppShell> {
             },
             destinations: [
               for (final tab in bottomTabs)
-                NavigationDestination(
-                  icon: Icon(tab.icon),
-                  label: tab.title,
-                ),
+                NavigationDestination(icon: Icon(tab.icon), label: tab.title),
               const NavigationDestination(
                 icon: Icon(Icons.menu_rounded),
                 label: 'بیشتر',
@@ -290,22 +324,26 @@ class _SideRail extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(width: 10),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'CCloud',
-                        style: Theme.of(context).textTheme.titleLarge,
-                      ),
-                      Text(
-                        'نسخه اندروید',
-                        style: TextStyle(
-                          fontFamily: AppTheme.fontFamily,
-                          fontSize: 10.5,
-                          color: palette.textSecondary,
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'CCloud',
+                          style: Theme.of(context).textTheme.titleLarge,
                         ),
-                      ),
-                    ],
+                        const SizedBox(height: 2),
+                        const _ConnectionBadge(),
+                        Text(
+                          'نسخه اندروید',
+                          style: TextStyle(
+                            fontFamily: AppTheme.fontFamily,
+                            fontSize: 10,
+                            color: palette.textTertiary,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ],
               ),
@@ -340,6 +378,57 @@ class _SideRail extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// Dot + host under the app name: gold when content comes from the offline
+/// copy, red when a request failed with nothing cached, green otherwise.
+class _ConnectionBadge extends StatelessWidget {
+  const _ConnectionBadge();
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: ApiClient.instance.connectivity,
+      builder: (context, _) {
+        final connectivity = ApiClient.instance.connectivity;
+        final offline = connectivity.isOffline;
+        final failed = connectivity.hasError;
+        final color = offline
+            ? AppColors.gold
+            : failed
+            ? AppColors.red
+            : AppColors.green;
+        final text = offline
+            ? 'آفلاین • ${connectivity.host}'
+            : connectivity.host;
+        return Row(
+          children: [
+            Container(
+              width: 6,
+              height: 6,
+              decoration: BoxDecoration(shape: BoxShape.circle, color: color),
+            ),
+            const SizedBox(width: 5),
+            Flexible(
+              child: Text(
+                text,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontFamily: AppTheme.fontFamily,
+                  fontSize: 10,
+                  fontWeight: FontWeight.w500,
+                  color: offline
+                      ? AppColors.gold
+                      : context.palette.textSecondary,
+                ),
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 }

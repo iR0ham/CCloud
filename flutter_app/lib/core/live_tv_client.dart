@@ -29,6 +29,13 @@ class LiveTvClient {
   static const Duration _countriesTtl = Duration(minutes: 10);
   static const Duration _channelsTtl = Duration(minutes: 5);
 
+  void clearCache() {
+    _countries = null;
+    _countriesAt = null;
+    _channels.clear();
+    _channelsAt.clear();
+  }
+
   Future<List<LiveTvCountry>> countries({bool force = false}) async {
     if (!force &&
         _countries != null &&
@@ -120,7 +127,10 @@ class LiveTvClient {
         final response = await _client
             .get(
               Uri.parse('$base$path'),
-              headers: const {'Accept': 'application/json'},
+              headers: {
+                'Accept': 'application/json',
+                'User-Agent': ApiClient.userAgent,
+              },
             )
             .timeout(const Duration(seconds: 25));
         if (response.statusCode == 404) {

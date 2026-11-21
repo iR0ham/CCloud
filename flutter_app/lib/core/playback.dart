@@ -146,8 +146,12 @@ class PlayerArgs {
     );
   }
 
-  factory PlayerArgs.forChannel(LiveTvChannel channel, String countryName) {
-    final urls = channel.streams;
+  factory PlayerArgs.forChannel(
+    LiveTvChannel channel,
+    String countryName, {
+    String? streamOverride,
+  }) {
+    final urls = streamOverride != null ? [streamOverride] : channel.streams;
     final sources = <MediaSource>[];
     for (var i = 0; i < urls.length; i++) {
       final url = urls[i];

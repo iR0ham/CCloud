@@ -83,6 +83,20 @@ class MediaSource {
 
   bool get isTrailer => qualityLabel.contains('تیزر');
 
+  /// Progressive file that can be saved as one download; playlists (HLS/DASH)
+  /// cannot be stored as a single file.
+  bool get isFileDownloadable =>
+      const ['mp4', 'mkv', 'webm', 'avi', 'mov'].contains(kind);
+
+  /// Extension used for the saved file, mirroring `MediaSource.downloadFileExtension`.
+  String get downloadFileExtension {
+    if (isFileDownloadable) return kind;
+    final path = Uri.tryParse(url)?.path ?? '';
+    final dot = path.lastIndexOf('.');
+    final ext = dot >= 0 ? path.substring(dot + 1).toLowerCase() : '';
+    return ext.isEmpty ? 'mp4' : ext;
+  }
+
   String get qualityLabel {
     final q = quality?.trim();
     if (q != null && q.isNotEmpty && q != 'null') return q;
@@ -370,6 +384,15 @@ class LiveTvChannel {
         languages.map(persianLiveLanguage).where((e) => e.isNotEmpty).toList();
     return names.isEmpty ? 'نامشخص' : names.join('، ');
   }
+
+  LiveTvChannel copyWithStreams(List<String> newStreams) => LiveTvChannel(
+        nanoid: nanoid,
+        name: name,
+        streams: newStreams,
+        languages: languages,
+        country: country,
+        isGeoBlocked: isGeoBlocked,
+      );
 
   factory LiveTvChannel.fromJson(Map<String, dynamic> json) {
     final sources = json['sources'];

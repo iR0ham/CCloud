@@ -4,6 +4,8 @@ import 'dart:io';
 
 import 'package:http/http.dart' as http;
 
+import 'api_cache.dart';
+import 'connectivity.dart';
 import 'models.dart';
 
 /// Persian, user-facing API failure.
@@ -16,19 +18,14 @@ class ApiException implements Exception {
   String toString() => message;
 }
 
-class _CacheEntry {
-  _CacheEntry(this.data, this.storedAt);
-
-  final List<Map<String, dynamic>> data;
-  final DateTime storedAt;
-}
-
 /// HTTP client for the CCloud backend.
 ///
 /// Mirrors the macOS client:
 /// * three interchangeable hosts, tried in fallback order; the last good host is kept,
 /// * the server labels JSON as `text/html`, so the body is always decoded as UTF-8 bytes,
 /// * 75 s in-memory cache and in-flight de-duplication,
+/// * the last successful payload per path is kept on disk so an offline start still
+///   shows content, and the disk copy is reported through [connectivity],
 /// * `page` is 0-based and paths keep their trailing slash.
 class ApiClient {
   ApiClient._();
@@ -57,17 +54,34 @@ class ApiClient {
   };
 
   final http.Client _client = http.Client();
-  final Map<String, _CacheEntry> _cache = {};
+  final ApiMemoryCache _memory = ApiMemoryCache(ttl: _cacheTtl);
   final Map<String, Future<List<Map<String, dynamic>>>> _inFlight = {};
   final List<void Function(String host)> _hostListeners = [];
+
+  /// Real-request reachability, shared with the sidebar and the settings card.
+  final ConnectivityState connectivity = ConnectivityState(hosts.first);
+
+  OfflineCache? _offlineCache;
 
   int _preferredIndex = 0;
   String _activeHost = hosts.first;
 
   String get activeHost => _activeHost;
 
+  /// Platform-accurate User-Agent for every outbound request.
+  static String get userAgent {
+    if (Platform.isAndroid) return 'CCloudAndroid/1.0 (Android)';
+    if (Platform.isWindows) return 'CCloudWindows/1.0 (Windows)';
+    if (Platform.isMacOS) return 'CCloudMac/2.0 (macOS)';
+    if (Platform.isIOS) return 'CCloudIOS/1.0 (iOS)';
+    return 'CCloud/1.0';
+  }
+
   void addHostListener(void Function(String host) listener) =>
       _hostListeners.add(listener);
+
+  /// Wires the disk fallback; called once at startup.
+  void attachOfflineCache(OfflineCache cache) => _offlineCache = cache;
 
   // MARK: - Endpoints
 
@@ -176,38 +190,71 @@ class ApiClient {
 
   // MARK: - Fetch pipeline
 
-  Future<List<Map<String, dynamic>>> _fetch(String path, {bool allowCache = true}) {
+  Future<List<Map<String, dynamic>>> _fetch(
+    String path, {
+    bool allowCache = true,
+  }) {
     if (allowCache) {
-      final cached = _cache[path];
-      if (cached != null &&
-          DateTime.now().difference(cached.storedAt) <= _cacheTtl) {
-        return Future.value(cached.data);
-      }
+      final cached = _memory.read(path);
+      if (cached != null) return Future.value(cached);
     }
     final running = _inFlight[path];
     if (running != null) return running;
 
-    final future = _perform(path);
+    final future = _performAndStore(path, allowCache);
     _inFlight[path] = future;
-    return future.then((data) {
-      if (data.length <= 4000) {
-        _cache[path] = _CacheEntry(data, DateTime.now());
-        if (_cache.length > 64) {
-          String? oldestKey;
-          DateTime? oldestAt;
-          _cache.forEach((key, value) {
-            if (oldestAt == null || value.storedAt.isBefore(oldestAt!)) {
-              oldestAt = value.storedAt;
-              oldestKey = key;
-            }
-          });
-          if (oldestKey != null) _cache.remove(oldestKey);
-        }
-      }
-      return data;
-    }).whenComplete(() {
+    return future.whenComplete(() {
       _inFlight.remove(path);
     });
+  }
+
+  /// Network first; on failure, the last disk copy wins and marks the app
+  /// offline. A failure without a copy stays an error for the status dot.
+  Future<List<Map<String, dynamic>>> _performAndStore(
+    String path,
+    bool allowCache,
+  ) async {
+    try {
+      final data = await _perform(path);
+      _memory.write(path, data);
+      if (allowCache) unawaited(_storeOffline(path, data));
+      connectivity.markOnline();
+      return data;
+    } on ApiException catch (error) {
+      if (allowCache) {
+        final fallback = await _readOffline(path);
+        if (fallback != null) {
+          connectivity.markOffline();
+          return fallback;
+        }
+      }
+      connectivity.markFailure(error.message);
+      rethrow;
+    }
+  }
+
+  Future<void> _storeOffline(
+    String path,
+    List<Map<String, dynamic>> data,
+  ) async {
+    final cache = _offlineCache;
+    if (cache == null) return;
+    await cache.store(path, utf8.encode(jsonEncode(data)));
+  }
+
+  Future<List<Map<String, dynamic>>?> _readOffline(String path) async {
+    final cache = _offlineCache;
+    if (cache == null) return null;
+    final bytes = await cache.read(path);
+    if (bytes == null) return null;
+    try {
+      final decoded = jsonDecode(utf8.decode(bytes, allowMalformed: true));
+      final list = _extractList(decoded);
+      if (list == null) return null;
+      return _toMaps(list);
+    } catch (_) {
+      return null;
+    }
   }
 
   Future<List<Map<String, dynamic>>> _perform(String path) async {
@@ -223,13 +270,18 @@ class ApiClient {
       }
 
       final order = pass == 0
-          ? List<int>.generate(hosts.length, (i) => (i + _preferredIndex) % hosts.length)
+          ? List<int>.generate(
+              hosts.length,
+              (i) => (i + _preferredIndex) % hosts.length,
+            )
           : retryHosts;
 
       for (final index in order) {
         final remaining = deadline.difference(DateTime.now());
         if (remaining.inSeconds < 1) break;
-        final timeout = remaining < _requestTimeout ? remaining : _requestTimeout;
+        final timeout = remaining < _requestTimeout
+            ? remaining
+            : _requestTimeout;
 
         try {
           final data = await _fetchOnce(hosts[index], path, timeout);
@@ -257,14 +309,16 @@ class ApiClient {
     final uri = Uri.parse('https://$host$path');
     final http.Response response;
     try {
-      response = await _client.get(
-        uri,
-        headers: const {
-          'Accept': 'application/json',
-          'Cache-Control': 'no-cache',
-          'User-Agent': 'CCloudAndroid/1.0 (Android)',
-        },
-      ).timeout(timeout);
+      response = await _client
+          .get(
+            uri,
+            headers: {
+              'Accept': 'application/json',
+              'Cache-Control': 'no-cache',
+              'User-Agent': userAgent,
+            },
+          )
+          .timeout(timeout);
     } on TimeoutException {
       throw const _TransientFailure(ApiException('پاسخ سرور دیر رسید'));
     } on SocketException {
@@ -305,11 +359,13 @@ class ApiClient {
     if (list == null) {
       throw const ApiException('ساختار پاسخ نامعتبر');
     }
-    return list
-        .whereType<Map>()
-        .map((e) => e.cast<String, dynamic>())
-        .toList(growable: false);
+    return _toMaps(list);
   }
+
+  List<Map<String, dynamic>> _toMaps(List<dynamic> list) => list
+      .whereType<Map>()
+      .map((e) => e.cast<String, dynamic>())
+      .toList(growable: false);
 
   List<dynamic>? _extractList(dynamic decoded) {
     if (decoded is List) return decoded;
@@ -331,9 +387,12 @@ class ApiClient {
         listener(host);
       }
     }
+    connectivity.updateHost(host);
   }
 
-  void invalidateCache() => _cache.clear();
+  /// Empties the short-lived memory cache (the settings "clear cache" action).
+  /// The disk fallback stays, like the macOS ⌘R behaviour.
+  void invalidateCache() => _memory.clear();
 
   // MARK: - Helpers
 

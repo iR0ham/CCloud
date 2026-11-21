@@ -5,6 +5,11 @@ import 'core/stores.dart';
 import 'ui/shell.dart';
 import 'ui/theme.dart';
 
+/// App-wide messenger so services (download completion) can show a toast
+/// without a BuildContext.
+final GlobalKey<ScaffoldMessengerState> appMessengerKey =
+    GlobalKey<ScaffoldMessengerState>();
+
 class CCloudApp extends StatelessWidget {
   const CCloudApp({super.key});
 
@@ -17,6 +22,7 @@ class CCloudApp extends StatelessWidget {
         final locale = const Locale('fa', 'IR');
         return MaterialApp(
           title: 'CCloud',
+          scaffoldMessengerKey: appMessengerKey,
           debugShowCheckedModeBanner: false,
           locale: locale,
           supportedLocales: const [Locale('fa', 'IR')],

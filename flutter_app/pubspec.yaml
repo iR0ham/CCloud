@@ -12,6 +12,8 @@ dependencies:
   flutter_localizations:
     sdk: flutter
   http: ^1.2.0
+  crypto: ^3.0.7
+  path_provider: ^2.1.4
   shared_preferences: ^2.3.0
   cached_network_image: ^3.3.0
   media_kit: ^1.1.10
