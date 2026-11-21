@@ -36,13 +36,13 @@ class _LiveScreenState extends State<LiveScreen> {
     super.dispose();
   }
 
-  Future<void> _load() async {
+  Future<void> _load({bool force = false}) async {
     setState(() {
       _loading = true;
       _error = null;
     });
     try {
-      final countries = await LiveCatalog.instance.countries();
+      final countries = await LiveCatalog.instance.countries(force: force);
       if (!mounted) return;
       setState(() {
         _countries = countries;
@@ -90,7 +90,7 @@ class _LiveScreenState extends State<LiveScreen> {
       return const LoadingView(message: 'در حال دریافت شبکه‌های زنده…');
     }
     if (_error != null) {
-      return ErrorView(message: _error!, onRetry: _load);
+      return ErrorView(message: _error!, onRetry: () => _load(force: true));
     }
 
     if (!wide) {
@@ -256,13 +256,19 @@ class _ChannelsPaneState extends State<_ChannelsPane> {
     super.dispose();
   }
 
-  Future<void> _load() async {
+  Future<void> _load({bool force = false}) async {
     setState(() {
       _loading = true;
       _error = null;
     });
     try {
-      final channels = await LiveCatalog.instance.channels(widget.country);
+      // The merged Iran list also reads the playlist TTL caches; a forced
+      // reload has to drop those first or it would rebuild from stale data.
+      if (force) LiveCatalog.instance.clearCache();
+      final channels = await LiveCatalog.instance.channels(
+        widget.country,
+        force: force,
+      );
       if (!mounted) return;
       setState(() {
         _channels = channels;
@@ -291,6 +297,9 @@ class _ChannelsPaneState extends State<_ChannelsPane> {
 
   @override
   Widget build(BuildContext context) {
+    // The refresh button shares the header row; its 220 px search field would
+    // leave no room for the country name on a small phone.
+    final compact = MediaQuery.sizeOf(context).width < 480;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -316,7 +325,7 @@ class _ChannelsPaneState extends State<_ChannelsPane> {
                 ),
               ),
               SizedBox(
-                width: 220,
+                width: compact ? 150 : 220,
                 child: TvSearchField(
                   controller: _search,
                   onChanged: (_) => setState(() {}),
@@ -330,6 +339,13 @@ class _ChannelsPaneState extends State<_ChannelsPane> {
                   ),
                 ),
               ),
+              const SizedBox(width: 2),
+              IconButton(
+                tooltip: 'دریافت دوبارهٔ فهرست شبکه‌ها',
+                onPressed: _loading ? null : () => _load(force: true),
+                icon: const Icon(Icons.refresh_rounded),
+                color: context.palette.textSecondary,
+              ),
             ],
           ),
         ),
@@ -337,7 +353,7 @@ class _ChannelsPaneState extends State<_ChannelsPane> {
           child: _loading
               ? const LoadingView(message: 'در حال دریافت شبکه‌ها…')
               : _error != null
-              ? ErrorView(message: _error!, onRetry: _load)
+              ? ErrorView(message: _error!, onRetry: () => _load(force: true))
               : _filtered.isEmpty
               ? EmptyView(
                   message: _search.text.trim().isEmpty

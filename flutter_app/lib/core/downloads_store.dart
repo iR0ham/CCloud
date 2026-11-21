@@ -106,6 +106,25 @@ class DownloadItem {
   };
 }
 
+/// A transfer that receives no bytes for this long is treated as dead, so a
+/// silently dropped connection cannot leave the item «downloading» forever.
+const Duration downloadIdleTimeout = Duration(seconds: 45);
+
+/// Fails [source] when no data arrives for [timeout]. The error is an
+/// [HttpException], which [downloadErrorText] renders as «اتصال شبکه قطع شد.».
+Stream<T> applyDownloadIdleTimeout<T>(
+  Stream<T> source, {
+  Duration timeout = downloadIdleTimeout,
+}) {
+  return source.timeout(
+    timeout,
+    onTimeout: (sink) {
+      sink.addError(HttpException('download idle timeout'));
+      sink.close();
+    },
+  );
+}
+
 /// Persian text for a failed attempt, matching the macOS URLError mapping.
 String downloadErrorText(Object error) {
   if (error is TimeoutException) return 'پاسخ سرور دیر رسید.';
@@ -296,6 +315,10 @@ class DownloadsStore extends ChangeNotifier {
       cancel(id);
       return;
     }
+    // A failed attempt leaves its hidden .part behind; it is never resumed.
+    if (item.state == DownloadState.failed) {
+      _deleteQuietly(_temporaryFile(item.id));
+    }
     _items.removeWhere((entry) => entry.id == id);
     _save();
     notifyListeners();
@@ -303,6 +326,11 @@ class DownloadsStore extends ChangeNotifier {
 
   /// Drops finished/failed records; downloaded files stay on disk.
   void clearFinished() {
+    for (final item in _items) {
+      if (item.state == DownloadState.failed) {
+        _deleteQuietly(_temporaryFile(item.id));
+      }
+    }
     _items.removeWhere((item) => item.state != DownloadState.downloading);
     _save();
     notifyListeners();
@@ -399,7 +427,7 @@ class DownloadsStore extends ChangeNotifier {
     try {
       final request = await client.getUrl(url);
       request.headers.set(HttpHeaders.userAgentHeader, ApiClient.userAgent);
-      final response = await request.close();
+      final response = await request.close().timeout(downloadIdleTimeout);
       final status = response.statusCode;
       if (status < 200 || status >= 300) {
         throw _DownloadStatusError('سرور با کد $status پاسخ داد.');
@@ -408,7 +436,7 @@ class DownloadsStore extends ChangeNotifier {
       if (total > 0) _updateTotal(item.id, total);
 
       sink = temp.openWrite();
-      await for (final chunk in response) {
+      await for (final chunk in applyDownloadIdleTimeout(response)) {
         if (job.cancelled) return;
         sink.add(chunk);
         job.received += chunk.length;
@@ -529,6 +557,8 @@ class DownloadsStore extends ChangeNotifier {
           case DownloadState.downloading:
             item.state = DownloadState.failed;
             item.errorMessage = 'دانلود پیش از پایان قطع شد.';
+            // No resume exists, so the hidden partial can never be used.
+            _deleteQuietly(_temporaryFile(item.id));
           case DownloadState.completed:
             if (!item.fileExistsIn(directory)) {
               item.state = DownloadState.failed;
@@ -542,25 +572,58 @@ class DownloadsStore extends ChangeNotifier {
     } catch (_) {}
   }
 
+  /// Writes through a sibling `.tmp` file so a crash mid-write cannot leave a
+  /// truncated list. The rename replaces the old file on POSIX; Windows refuses
+  /// to rename over an existing file, so the fallback copy overwrites in place.
   void _save() {
     try {
       final data = jsonEncode(_items.map((item) => item.toJson()).toList());
-      metadataFile.writeAsStringSync(data, flush: true);
+      final temp = File('${metadataFile.path}.tmp');
+      temp.writeAsStringSync(data, flush: true);
+      try {
+        temp.renameSync(metadataFile.path);
+      } catch (_) {
+        temp.copySync(metadataFile.path);
+        _deleteQuietly(temp);
+      }
     } catch (_) {}
   }
 
   // MARK: Helpers
 
-  /// `"<title> <qualityLabel>.<ext>"`, with `/` and `:` folded to `-`, an
-  /// empty title replaced by `CCloud`, and the base name capped at 90 chars.
+  /// `"<title> <qualityLabel>.<ext>"`, with `/` and `:` folded to `-`, every
+  /// character Windows forbids (`\ * ? " < > |`) folded too, an empty title
+  /// replaced by `CCloud`, and the base name capped at 90 chars.
+  ///
+  /// The invalid set is sanitised on every platform so the saved name never
+  /// depends on the host: a title such as «What If...?» must not download fully
+  /// and then fail at the rename step on Windows.
   static String fileNameFor({
     required String title,
     required String quality,
     required String extensionName,
   }) {
-    var base = title.replaceAll('/', '-').replaceAll(':', '-').trim();
+    var base = title;
+    for (final invalid in const [
+      '/',
+      '\\',
+      ':',
+      '*',
+      '?',
+      '"',
+      '<',
+      '>',
+      '|',
+    ]) {
+      base = base.replaceAll(invalid, '-');
+    }
+    base = base.trim();
     if (base.isEmpty) base = 'CCloud';
     if (base.length > 90) base = base.substring(0, 90);
+    // Truncation can leave a dot or space at the end, which Windows also
+    // rejects; the rule is applied after the cut, not before it.
+    base = base.replaceFirst(RegExp(r'[. ]+$'), '');
+    if (base.isEmpty) base = 'CCloud';
     return '$base $quality.$extensionName';
   }
 

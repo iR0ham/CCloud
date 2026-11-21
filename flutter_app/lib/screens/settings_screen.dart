@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -222,7 +224,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
               const SizedBox(height: 14),
               _Section(
                 title: 'دانلودها',
-                subtitle: 'ذخیرهٔ مستقیم در پوشهٔ Downloads/CCloud',
+                // Android has no public Downloads/CCloud path the app may
+                // write to, so the card must not promise one there.
+                subtitle: Platform.isAndroid
+                    ? 'ذخیره در پوشهٔ دانلود حافظهٔ برنامه'
+                    : 'ذخیرهٔ مستقیم در پوشهٔ Downloads/CCloud',
                 children: [
                   if (downloads.items.isEmpty)
                     Text(
