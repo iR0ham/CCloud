@@ -514,6 +514,21 @@ String faDigits(Object value) {
   }).join();
 }
 
+/// Player clock, identical to the macOS `PlayerTime.string`: `0:00`, `12:34`
+/// and `1:02:03` (no leading zero on minutes).
+String formatPlayerTime(num seconds) {
+  if (!seconds.isFinite || seconds <= 0) return '0:00';
+  final total = seconds.round();
+  final hours = total ~/ 3600;
+  final minutes = (total % 3600) ~/ 60;
+  final secs = total % 60;
+  final ss = secs.toString().padLeft(2, '0');
+  if (hours > 0) {
+    return '$hours:${minutes.toString().padLeft(2, '0')}:$ss';
+  }
+  return '$minutes:$ss';
+}
+
 /// Same ordering as the macOS app: Iran first, then neighbours, then by channel count.
 List<LiveTvCountry> sortLiveCountries(List<LiveTvCountry> items) {
   int rank(String code) {

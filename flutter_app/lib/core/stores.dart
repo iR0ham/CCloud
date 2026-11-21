@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'link_health.dart';
 import 'models.dart';
 
 enum AppAppearance {
@@ -198,6 +199,29 @@ class FavoritesStore extends ChangeNotifier {
   }
 }
 
+/// Resume rule shared with macOS: only long videos that were actually
+/// started but not finished offer a resume point.
+const Duration resumeMinDuration = Duration(seconds: 60);
+const Duration resumeMinPosition = Duration(seconds: 15);
+const double resumeFinishedFraction = 0.98;
+
+/// Seconds to resume from, or null when the recording is too short, not
+/// started, finished, or missing a usable duration.
+double? resumePosition({double? position, double? duration}) {
+  if (position == null || duration == null) return null;
+  if (duration <= resumeMinDuration.inSeconds) return null;
+  if (position <= resumeMinPosition.inSeconds) return null;
+  if (position >= duration * resumeFinishedFraction) return null;
+  return position;
+}
+
+/// Position recovered from a legacy record that only stored a percentage.
+/// Returns null when the real duration is unknown.
+double? migratedPositionFromProgress(double? progress, double? duration) {
+  if (progress == null || duration == null || duration <= 0) return null;
+  return (progress.clamp(0.0, 1.0)) * duration;
+}
+
 class WatchedEpisode {
   const WatchedEpisode({
     required this.id,
@@ -205,6 +229,8 @@ class WatchedEpisode {
     required this.label,
     required this.watchedAt,
     required this.progress,
+    this.position,
+    this.duration,
   });
 
   final int id;
@@ -213,15 +239,39 @@ class WatchedEpisode {
   final DateTime watchedAt;
   final double progress;
 
-  factory WatchedEpisode.fromJson(Map<String, dynamic> json) => WatchedEpisode(
-    id: (json['id'] as num?)?.toInt() ?? 0,
-    seasonTitle: json['seasonTitle']?.toString() ?? '',
-    label: json['label']?.toString() ?? '',
-    watchedAt:
-        DateTime.tryParse(json['watchedAt']?.toString() ?? '') ??
-        DateTime.now(),
-    progress: (json['progress'] as num?)?.toDouble() ?? 0,
+  /// Seconds into the episode, when known (new records only).
+  final double? position;
+
+  /// Episode length in seconds, when known (new records only).
+  final double? duration;
+
+  /// Position that may be resumed, applying the shared resume rule.
+  double? get resumePosition => resumePositionOf(
+    position ?? migratedPositionFromProgress(progress, duration),
+    duration,
   );
+
+  factory WatchedEpisode.fromJson(Map<String, dynamic> json) {
+    final rawDuration = (json['duration'] as num?)?.toDouble();
+    final duration = rawDuration != null && rawDuration > 0
+        ? rawDuration
+        : null;
+    final rawPosition = (json['position'] as num?)?.toDouble();
+    final position = rawPosition != null && rawPosition >= 0
+        ? rawPosition
+        : null;
+    return WatchedEpisode(
+      id: (json['id'] as num?)?.toInt() ?? 0,
+      seasonTitle: json['seasonTitle']?.toString() ?? '',
+      label: json['label']?.toString() ?? '',
+      watchedAt:
+          DateTime.tryParse(json['watchedAt']?.toString() ?? '') ??
+          DateTime.now(),
+      progress: (json['progress'] as num?)?.toDouble() ?? 0,
+      position: position,
+      duration: duration,
+    );
+  }
 
   Map<String, dynamic> toJson() => {
     'id': id,
@@ -229,8 +279,15 @@ class WatchedEpisode {
     'label': label,
     'watchedAt': watchedAt.toIso8601String(),
     'progress': progress,
+    if (position != null) 'position': position,
+    if (duration != null) 'duration': duration,
   };
 }
+
+/// Local helper so [WatchedEpisode] can expose a computed [resumePosition]
+/// without shadowing the top-level function of the same name.
+double? resumePositionOf(double? position, double? duration) =>
+    resumePosition(position: position, duration: duration);
 
 class HistoryEntry {
   HistoryEntry({
@@ -238,6 +295,8 @@ class HistoryEntry {
     required this.lastWatchedAt,
     required this.progress,
     required this.episodes,
+    this.position,
+    this.duration,
   });
 
   final MediaItem item;
@@ -245,28 +304,54 @@ class HistoryEntry {
   double progress;
   final List<WatchedEpisode> episodes;
 
+  /// Seconds into the movie / newest episode, when known.
+  double? position;
+
+  /// Length of that video in seconds, when known.
+  double? duration;
+
   WatchedEpisode? get lastEpisode {
     if (episodes.isEmpty) return null;
     return episodes.reduce((a, b) => a.watchedAt.isAfter(b.watchedAt) ? a : b);
   }
 
-  factory HistoryEntry.fromJson(Map<String, dynamic> json) => HistoryEntry(
-    item: MediaItem.fromJson((json['item'] as Map).cast<String, dynamic>()),
-    lastWatchedAt:
-        DateTime.tryParse(json['lastWatchedAt']?.toString() ?? '') ??
-        DateTime.now(),
-    progress: (json['progress'] as num?)?.toDouble() ?? 0,
-    episodes: (json['episodes'] as List? ?? const [])
-        .whereType<Map>()
-        .map((e) => WatchedEpisode.fromJson(e.cast<String, dynamic>()))
-        .toList(),
+  /// Position to resume this entry from, or null to start from zero.
+  double? get resumePosition => resumePositionOf(
+    position ?? migratedPositionFromProgress(progress, duration),
+    duration,
   );
+
+  factory HistoryEntry.fromJson(Map<String, dynamic> json) {
+    final rawDuration = (json['duration'] as num?)?.toDouble();
+    final duration = rawDuration != null && rawDuration > 0
+        ? rawDuration
+        : null;
+    final rawPosition = (json['position'] as num?)?.toDouble();
+    final position = rawPosition != null && rawPosition >= 0
+        ? rawPosition
+        : null;
+    return HistoryEntry(
+      item: MediaItem.fromJson((json['item'] as Map).cast<String, dynamic>()),
+      lastWatchedAt:
+          DateTime.tryParse(json['lastWatchedAt']?.toString() ?? '') ??
+          DateTime.now(),
+      progress: (json['progress'] as num?)?.toDouble() ?? 0,
+      episodes: (json['episodes'] as List? ?? const [])
+          .whereType<Map>()
+          .map((e) => WatchedEpisode.fromJson(e.cast<String, dynamic>()))
+          .toList(),
+      position: position,
+      duration: duration,
+    );
+  }
 
   Map<String, dynamic> toJson() => {
     'item': item.toJson(),
     'lastWatchedAt': lastWatchedAt.toIso8601String(),
     'progress': progress,
     'episodes': episodes.map((e) => e.toJson()).toList(),
+    if (position != null) 'position': position,
+    if (duration != null) 'duration': duration,
   };
 }
 
@@ -285,12 +370,17 @@ class HistoryStore extends ChangeNotifier {
   Future<void> record(
     MediaItem item, {
     double? progress,
+    double? position,
+    double? duration,
     int? episodeId,
     String? seasonTitle,
     String? episodeLabel,
+    DateTime? at,
   }) async {
     if (item.id == 0) return;
-    final now = DateTime.now();
+    final now = at ?? DateTime.now();
+    final safePosition = position != null && position >= 0 ? position : null;
+    final safeDuration = duration != null && duration > 0 ? duration : null;
     final index = _entries.indexWhere(
       (entry) =>
           entry.item.id == item.id && entry.item.isSeries == item.isSeries,
@@ -299,6 +389,8 @@ class HistoryStore extends ChangeNotifier {
       final entry = _entries[index];
       entry.lastWatchedAt = now;
       if (progress != null) entry.progress = progress.clamp(0, 1);
+      if (safePosition != null) entry.position = safePosition;
+      if (safeDuration != null) entry.duration = safeDuration;
       if (item.isSeries && episodeId != null) {
         final epIndex = entry.episodes.indexWhere((ep) => ep.id == episodeId);
         if (epIndex >= 0) {
@@ -309,6 +401,8 @@ class HistoryStore extends ChangeNotifier {
             label: episodeLabel ?? old.label,
             watchedAt: now,
             progress: progress?.clamp(0, 1) ?? old.progress,
+            position: safePosition ?? old.position,
+            duration: safeDuration ?? old.duration,
           );
         } else {
           entry.episodes.add(
@@ -318,19 +412,20 @@ class HistoryStore extends ChangeNotifier {
               label: episodeLabel ?? '',
               watchedAt: now,
               progress: progress?.clamp(0, 1) ?? 0,
+              position: safePosition,
+              duration: safeDuration,
             ),
           );
         }
       }
-      _entries.removeAt(index);
-      _entries.insert(0, entry);
     } else {
-      _entries.insert(
-        0,
+      _entries.add(
         HistoryEntry(
           item: item,
           lastWatchedAt: now,
           progress: progress?.clamp(0, 1) ?? 0,
+          position: safePosition,
+          duration: safeDuration,
           episodes: item.isSeries && episodeId != null
               ? [
                   WatchedEpisode(
@@ -339,17 +434,44 @@ class HistoryStore extends ChangeNotifier {
                     label: episodeLabel ?? '',
                     watchedAt: now,
                     progress: progress?.clamp(0, 1) ?? 0,
+                    position: safePosition,
+                    duration: safeDuration,
                   ),
                 ]
               : [],
         ),
       );
     }
+    _entries.sort((a, b) => b.lastWatchedAt.compareTo(a.lastWatchedAt));
     if (_entries.length > maxEntries) {
       _entries.removeRange(maxEntries, _entries.length);
     }
     notifyListeners();
     await _save();
+  }
+
+  /// Resume seconds for a movie, or null when it should start from zero.
+  double? resumePositionFor(MediaItem item) => entryFor(item)?.resumePosition;
+
+  WatchedEpisode? lastWatchedEpisode(int seriesId) {
+    for (final entry in _entries) {
+      if (entry.item.isSeries && entry.item.id == seriesId) {
+        return entry.lastEpisode;
+      }
+    }
+    return null;
+  }
+
+  /// Resume seconds for a specific episode, or null when it was finished or
+  /// never really started.
+  double? resumePositionForEpisode(int seriesId, int episodeId) {
+    for (final entry in _entries) {
+      if (!entry.item.isSeries || entry.item.id != seriesId) continue;
+      for (final episode in entry.episodes) {
+        if (episode.id == episodeId) return episode.resumePosition;
+      }
+    }
+    return null;
   }
 
   HistoryEntry? entryFor(MediaItem item) {
@@ -413,14 +535,21 @@ class AppServices {
   final AppSettings settings;
   final FavoritesStore favorites;
   final HistoryStore history;
+  final LinkHealthStore linkHealth;
 
-  AppServices._create(this.settings, this.favorites, this.history);
+  AppServices._create(
+    this.settings,
+    this.favorites,
+    this.history,
+    this.linkHealth,
+  );
 
   static void init(SharedPreferences prefs) {
     instance = AppServices._create(
       AppSettings(prefs),
       FavoritesStore(prefs),
       HistoryStore(prefs),
+      LinkHealthStore(prefs),
     );
   }
 }

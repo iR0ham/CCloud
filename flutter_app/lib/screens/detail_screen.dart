@@ -24,6 +24,7 @@ class DetailScreen extends StatefulWidget {
 class _DetailScreenState extends State<DetailScreen> {
   late Future<List<Season>>? _seasons;
   late Future<List<MediaItem>> _similar;
+  List<Season>? _seasonCache;
   int _selectedSeason = 0;
   bool _descriptionExpanded = false;
 
@@ -31,9 +32,17 @@ class _DetailScreenState extends State<DetailScreen> {
   void initState() {
     super.initState();
     if (widget.item.isSeries) {
-      _seasons = ApiClient.instance.seasons(widget.item.id);
+      _seasons = _loadSeasons();
     }
     _similar = _loadSimilar();
+  }
+
+  Future<List<Season>> _loadSeasons() {
+    final future = ApiClient.instance.seasons(widget.item.id);
+    future.then((seasons) {
+      if (mounted) setState(() => _seasonCache = seasons);
+    }, onError: (_) {});
+    return future;
   }
 
   Future<List<MediaItem>> _loadSimilar() async {
@@ -74,7 +83,8 @@ class _DetailScreenState extends State<DetailScreen> {
 
   void _reloadSeasons() {
     setState(() {
-      _seasons = ApiClient.instance.seasons(widget.item.id);
+      _seasonCache = null;
+      _seasons = _loadSeasons();
     });
   }
 
@@ -413,7 +423,6 @@ class _DetailScreenState extends State<DetailScreen> {
   // MARK: Action bar
 
   Widget _actions(MediaItem item) {
-    final history = AppServices.instance.history.entryFor(item);
     final canPlay = item.playableSources.isNotEmpty;
 
     return Wrap(
@@ -421,21 +430,25 @@ class _DetailScreenState extends State<DetailScreen> {
       runSpacing: 10,
       crossAxisAlignment: WrapCrossAlignment.center,
       children: [
+        // The label follows resume state, so it has to react to history writes
+        // from the player (every 10s and on close).
         if (item.isSeries || canPlay)
-          FilledButton.icon(
-            onPressed: _playMain,
-            style: FilledButton.styleFrom(
-              minimumSize: const Size(0, 44),
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10),
+          ListenableBuilder(
+            listenable: AppServices.instance.history,
+            builder: (context, _) => FilledButton.icon(
+              onPressed: _playMain,
+              style: FilledButton.styleFrom(
+                minimumSize: const Size(0, 44),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 20,
+                  vertical: 12,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
               ),
-            ),
-            icon: const Icon(Icons.play_arrow_rounded, size: 21),
-            label: Text(
-              history != null && history.progress > 0.02
-                  ? 'ادامه تماشا'
-                  : (item.isSeries ? 'پخش قسمت اول' : 'پخش'),
+              icon: const Icon(Icons.play_arrow_rounded, size: 21),
+              label: Text(_playButtonLabel(item)),
             ),
           ),
         ListenableBuilder(
@@ -769,34 +782,124 @@ class _DetailScreenState extends State<DetailScreen> {
     Navigator.of(context).push(appRoute(DetailScreen(item: item)));
   }
 
-  void _playMain() {
+  /// Episodes that can actually be played, in season order.
+  List<({Season season, Episode episode})> _orderedEpisodes([
+    List<Season>? seasons,
+  ]) {
+    final ordered = <({Season season, Episode episode})>[];
+    for (final season in seasons ?? _seasonCache ?? const <Season>[]) {
+      for (final episode in season.episodes) {
+        if (episode.playableSources.isNotEmpty) {
+          ordered.add((season: season, episode: episode));
+        }
+      }
+    }
+    return ordered;
+  }
+
+  /// Where the play button should start, mirroring the macOS rule: continue
+  /// the last episode, otherwise move to the next one, otherwise start over.
+  ({Season season, Episode episode, double startAt})? _resumeTarget([
+    List<Season>? seasons,
+  ]) {
+    final ordered = _orderedEpisodes(seasons);
+    if (ordered.isEmpty) return null;
+    final last = AppServices.instance.history.lastWatchedEpisode(
+      widget.item.id,
+    );
+    final index = last == null
+        ? -1
+        : ordered.indexWhere((entry) => entry.episode.id == last.id);
+    if (last == null || index < 0) {
+      return (
+        season: ordered.first.season,
+        episode: ordered.first.episode,
+        startAt: 0,
+      );
+    }
+    final position = AppServices.instance.history.resumePositionForEpisode(
+      widget.item.id,
+      last.id,
+    );
+    if (position != null) {
+      return (
+        season: ordered[index].season,
+        episode: ordered[index].episode,
+        startAt: position,
+      );
+    }
+    if (index + 1 < ordered.length) {
+      return (
+        season: ordered[index + 1].season,
+        episode: ordered[index + 1].episode,
+        startAt: 0,
+      );
+    }
+    return (
+      season: ordered[index].season,
+      episode: ordered[index].episode,
+      startAt: 0,
+    );
+  }
+
+  String _episodeLabel(Episode episode) => episodeLabelText(episode);
+
+  String _playButtonLabel(MediaItem item) {
+    final history = AppServices.instance.history;
+    if (!item.isSeries) {
+      final position = history.resumePositionFor(item);
+      return position == null
+          ? 'پخش'
+          : 'ادامه از ${formatPlayerTime(position)}';
+    }
+    final target = _resumeTarget();
+    if (target == null) return 'پخش اولین قسمت';
+    final label = _episodeLabel(target.episode);
+    if (target.startAt > 0) return 'ادامه $label';
+    if (history.lastWatchedEpisode(item.id) != null) return 'پخش $label';
+    return 'پخش اولین قسمت';
+  }
+
+  Future<void> _playMain() async {
     final item = widget.item;
     if (!item.isSeries) {
       final sources = item.playableSources;
       if (sources.isEmpty) return;
-      final historyEntry = AppServices.instance.history.entryFor(item);
-      _openPlayer(
-        PlayerArgs.forMovie(item),
-        startAt: historyEntry?.progress ?? 0,
+      final resume = AppServices.instance.history.resumePositionFor(item);
+      _openPlayer(PlayerArgs.forMovie(item), startAt: resume ?? 0);
+      return;
+    }
+    var seasons = _seasonCache;
+    if (seasons == null) {
+      final future = _seasons;
+      if (future == null) return;
+      try {
+        seasons = await future;
+      } catch (_) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('دریافت قسمت‌ها ناموفق بود')),
+        );
+        return;
+      }
+      if (!mounted) return;
+      _seasonCache = seasons;
+    }
+    final target = _resumeTarget(seasons);
+    if (target == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('قسمتی برای پخش موجود نیست')),
       );
       return;
     }
-    final seasonsFuture = _seasons;
-    if (seasonsFuture == null) return;
-    seasonsFuture.then((seasons) {
-      if (!mounted) return;
-      for (final season in seasons) {
-        for (final episode in season.episodes) {
-          if (episode.playableSources.isNotEmpty) {
-            _playEpisode(season, episode);
-            return;
-          }
-        }
-      }
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('قسمت قابل پخشی پیدا نشد')));
-    });
+    final playableSeasons = seasons
+        .where((season) => season.episodes.isNotEmpty)
+        .toList();
+    final index = playableSeasons.indexWhere(
+      (season) => season.id == target.season.id,
+    );
+    if (index >= 0) setState(() => _selectedSeason = index);
+    _playEpisode(target.season, target.episode, startAt: target.startAt);
   }
 
   void _playSource(MediaSource source) {
@@ -811,8 +914,17 @@ class _DetailScreenState extends State<DetailScreen> {
     _openPlayer(args);
   }
 
-  void _playEpisode(Season season, Episode episode) {
-    _openPlayer(PlayerArgs.forEpisode(widget.item, season, episode));
+  void _playEpisode(Season season, Episode episode, {double startAt = 0}) {
+    final resume = startAt > 0
+        ? startAt
+        : AppServices.instance.history.resumePositionForEpisode(
+            widget.item.id,
+            episode.id,
+          );
+    _openPlayer(
+      PlayerArgs.forEpisode(widget.item, season, episode),
+      startAt: resume ?? 0,
+    );
   }
 
   void _openPlayer(PlayerArgs args, {double startAt = 0}) {

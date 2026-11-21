@@ -1,5 +1,52 @@
 import 'models.dart';
 
+/// Playback menu label, matching Swift's `%.2g` formatting: whole speeds print
+/// as `1x`, 0.75 prints `0.75x` and 1.25 prints `1.2x`.
+String speedLabel(double value) {
+  if ((value - value.roundToDouble()).abs() < 0.001) {
+    return '${value.round()}x';
+  }
+  final scaled = value < 1
+      ? _roundHalfEven(value * 100) / 100
+      : _roundHalfEven(value * 10) / 10;
+  var text = scaled.toStringAsFixed(2);
+  text = text.replaceFirst(RegExp(r'0+$'), '');
+  if (text.endsWith('.')) text = text.substring(0, text.length - 1);
+  return '${text}x';
+}
+
+int _roundHalfEven(double value) {
+  final floor = value.floor();
+  if ((value - floor - 0.5).abs() < 0.0000001) {
+    return floor.isEven ? floor : floor + 1;
+  }
+  return value.round();
+}
+
+/// Label for an alternate audio track: Persian language name when known, then
+/// the track's own title, then «صدای N».
+String audioTrackLabel({
+  String? title,
+  String? language,
+  required int ordinal,
+}) {
+  final code = (language ?? '').toLowerCase().split(RegExp(r'[-_ ]')).first;
+  if (code.isNotEmpty) {
+    final persian = persianLiveLanguage(code);
+    if (persian != code) return persian;
+  }
+  if (title != null && title.trim().isNotEmpty) return title;
+  return 'صدای ${faDigits(ordinal + 1)}';
+}
+
+/// Episode label used by the series play button and Continue Watching,
+/// matching the macOS `episodeLabel`: «قسمت N» for numbered episodes, the
+/// episode's own title otherwise.
+String episodeLabelText(Episode episode) {
+  final number = episode.episodeNumber;
+  return number != null ? 'قسمت ${faDigits(number)}' : episode.title;
+}
+
 /// Everything the player needs for one play, plus the following episodes of a series.
 class PlayerArgs {
   PlayerArgs({
@@ -48,8 +95,10 @@ class PlayerArgs {
     final sources = item.playableSources;
     return PlayerArgs(
       title: item.title,
-      subtitle:
-          [item.yearText, item.genreText].where((e) => e.isNotEmpty).join(' • '),
+      subtitle: [
+        item.yearText,
+        item.genreText,
+      ].where((e) => e.isNotEmpty).join(' • '),
       posterUrl: item.image,
       sources: sources,
       preferredSourceId: sources.isEmpty ? null : sources.first.id,
@@ -57,19 +106,24 @@ class PlayerArgs {
     );
   }
 
-  factory PlayerArgs.forEpisode(MediaItem series, Season season, Episode episode) {
+  factory PlayerArgs.forEpisode(
+    MediaItem series,
+    Season season,
+    Episode episode,
+  ) {
     PlayerArgs build(Episode ep) => PlayerArgs(
-          title: series.title,
-          subtitle: '${season.title} • ${ep.title}',
-          posterUrl: series.image,
-          sources: ep.playableSources,
-          preferredSourceId:
-              ep.playableSources.isEmpty ? null : ep.playableSources.first.id,
-          media: series,
-          episodeId: ep.id,
-          seasonTitle: season.title,
-          episodeLabel: ep.title,
-        );
+      title: series.title,
+      subtitle: '${season.title} • ${ep.title}',
+      posterUrl: series.image,
+      sources: ep.playableSources,
+      preferredSourceId: ep.playableSources.isEmpty
+          ? null
+          : ep.playableSources.first.id,
+      media: series,
+      episodeId: ep.id,
+      seasonTitle: season.title,
+      episodeLabel: ep.title,
+    );
 
     final index = season.episodes.indexWhere((e) => e.id == episode.id);
     final following = index < 0
@@ -101,18 +155,20 @@ class PlayerArgs {
       final type = lower.contains('.m3u8')
           ? 'm3u8'
           : lower.contains('.mp4')
-              ? 'mp4'
-              : lower.contains('.mpd')
-                  ? 'mpd'
-                  : 'hls';
-      sources.add(MediaSource(
-        id: i + 1,
-        quality: urls.length > 1
-            ? (i == 0 ? 'منبع اصلی' : 'منبع ${faDigits(i + 1)}')
-            : 'کیفیت اصلی',
-        type: type,
-        url: url,
-      ));
+          ? 'mp4'
+          : lower.contains('.mpd')
+          ? 'mpd'
+          : 'hls';
+      sources.add(
+        MediaSource(
+          id: i + 1,
+          quality: urls.length > 1
+              ? (i == 0 ? 'منبع اصلی' : 'منبع ${faDigits(i + 1)}')
+              : 'کیفیت اصلی',
+          type: type,
+          url: url,
+        ),
+      );
     }
     return PlayerArgs(
       title: channel.name,

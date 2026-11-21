@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../core/live_tv_client.dart';
 import '../core/models.dart';
 import '../core/playback.dart';
+import '../core/stores.dart';
 import '../ui/nav.dart';
 import '../ui/theme.dart';
 import '../ui/widgets.dart';
@@ -629,6 +630,37 @@ class _ChannelTile extends StatelessWidget {
                   icon: Icons.lock_outline,
                 ),
               ),
+            ListenableBuilder(
+              listenable: AppServices.instance.linkHealth,
+              builder: (context, _) {
+                final dead = AppServices.instance.linkHealth
+                    .areAllDeprioritised(channel.streams);
+                if (!dead) return const SizedBox.shrink();
+                return Container(
+                  margin: const EdgeInsets.only(left: 8),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 9,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppColors.red.withValues(alpha: 0.14),
+                    borderRadius: BorderRadius.circular(999),
+                    border: Border.all(
+                      color: AppColors.red.withValues(alpha: 0.40),
+                    ),
+                  ),
+                  child: const Text(
+                    'قطع',
+                    style: TextStyle(
+                      fontFamily: AppTheme.fontFamily,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.red,
+                    ),
+                  ),
+                );
+              },
+            ),
             Icon(
               Icons.play_circle_outline_rounded,
               color: hasStream
