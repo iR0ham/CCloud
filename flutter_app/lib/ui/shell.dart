@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../core/api_client.dart';
 import '../core/connectivity.dart';
+import '../core/platform_identity.dart';
 import '../core/platform_info.dart';
 import '../screens/browse_screen.dart';
 import '../screens/categories_screen.dart';
@@ -335,7 +336,7 @@ class _SideRail extends StatelessWidget {
                         const SizedBox(height: 2),
                         const _ConnectionBadge(),
                         Text(
-                          'نسخه اندروید',
+                          PlatformIdentity.current.displayName,
                           style: TextStyle(
                             fontFamily: AppTheme.fontFamily,
                             fontSize: 10,

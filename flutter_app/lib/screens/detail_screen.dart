@@ -1007,15 +1007,28 @@ class _DetailScreenState extends State<DetailScreen> {
   }
 
   void _playSource(MediaSource source) {
-    final args = PlayerArgs(
-      title: widget.item.title,
-      subtitle: widget.item.yearText,
-      posterUrl: widget.item.image,
-      sources: [source],
-      preferredSourceId: source.id,
-      media: widget.item,
+    final item = widget.item;
+    final sources = item.playableSources;
+    if (sources.isEmpty) return;
+    // Match the macOS detail view: every playable source travels with the
+    // request, the clicked one is preferred, and a watched movie resumes
+    // instead of restarting from zero.
+    final resume = AppServices.instance.history.resumePositionFor(item);
+    _openPlayer(
+      PlayerArgs(
+        title: item.title,
+        subtitle: [
+          item.yearText,
+          item.genreText,
+        ].where((part) => part.isNotEmpty).join(' • '),
+        posterUrl: item.image,
+        sources: sources,
+        preferredSourceId: source.id,
+        honorPreferredSource: true,
+        media: item,
+      ),
+      startAt: resume ?? 0,
     );
-    _openPlayer(args);
   }
 
   MediaSource? _preferredFor(Episode episode) => preferredSource(

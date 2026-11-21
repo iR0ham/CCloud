@@ -1,5 +1,5 @@
 name: ccloud
-description: "CCloud for Android phone, tablet and Android TV."
+description: "CCloud movie, series and live TV player for Android, Windows and macOS."
 publish_to: 'none'
 version: 1.0.6+7
 
@@ -23,6 +23,7 @@ dependencies:
   wakelock_plus: ^1.2.0
   url_launcher: ^6.3.0
   window_manager: ^0.6.0
+  package_info_plus: ^10.2.2
 
 dev_dependencies:
   flutter_test:

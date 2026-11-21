@@ -7,7 +7,7 @@ import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
-import 'package:window_manager/window_manager.dart' show WindowManager;
+import 'package:window_manager/window_manager.dart' show Window, WindowManager;
 
 import '../core/models.dart';
 import '../core/playback.dart';
@@ -72,6 +72,7 @@ class _PlayerScreenState extends State<PlayerScreen>
   List<AudioTrack> _audioTracks = const [];
   String? _selectedAudioId;
   String? _toast;
+
   /// Mobile opens the player in immersive mode, so it starts "full screen";
   /// desktop windows keep their frame until F / the button asks otherwise.
   bool _fullscreen = Platform.isAndroid || Platform.isIOS;
@@ -83,6 +84,12 @@ class _PlayerScreenState extends State<PlayerScreen>
   /// Where the original play request asked to start; kept for retries the way
   /// the macOS controller keeps `request.startAt`.
   double _requestStart = 0;
+
+  /// Resume request waiting for the stream duration; progress writes stay off
+  /// until it lands so a 0:00 tick cannot overwrite the saved resume point.
+  double? _pendingSeekSeconds;
+  int _pendingSeekGeneration = 0;
+  bool _applyingSeek = false;
   int _openGeneration = 0;
   late final bool _vlcAvailable = _detectVlc();
 
@@ -180,6 +187,7 @@ class _PlayerScreenState extends State<PlayerScreen>
       _player.stream.duration.listen((value) {
         if (!mounted) return;
         setState(() => _duration = value);
+        if (_pendingSeekSeconds != null) unawaited(_applyPendingSeek());
       }),
     );
     _subscriptions.add(
@@ -413,20 +421,8 @@ class _PlayerScreenState extends State<PlayerScreen>
     }
   }
 
-  MediaSource? _pickSourceFor(PlayerArgs args, String preference) {
-    final playable = args.sources
-        .where((s) => s.url.isNotEmpty && !s.isTrailer)
-        .toList();
-    if (playable.isEmpty) return null;
-    if (args.preferredSourceId != null) {
-      for (final source in playable) {
-        if (source.id == args.preferredSourceId) {
-          if (preference == 'auto') return source;
-        }
-      }
-    }
-    return preferredSource(playable, preference) ?? playable.first;
-  }
+  MediaSource? _pickSourceFor(PlayerArgs args, String preference) =>
+      pickPlaybackSource(args, preference);
 
   Future<void> _open(
     MediaSource source, {
@@ -434,6 +430,7 @@ class _PlayerScreenState extends State<PlayerScreen>
     bool keepNote = false,
   }) async {
     _cancelCountdown();
+    _pendingSeekSeconds = null;
     _lastProgressAt = DateTime.now();
     _successRecorded = false;
     _historyStarted = false;
@@ -441,6 +438,11 @@ class _PlayerScreenState extends State<PlayerScreen>
         ? resumeAt.inMilliseconds / 1000
         : _resumeOffset;
     final generation = ++_openGeneration;
+    if (start > 0.5) {
+      // Suppress progress from the first tick even before `open` finishes.
+      _pendingSeekSeconds = start;
+      _pendingSeekGeneration = generation;
+    }
     setState(() {
       _source = source;
       _error = null;
@@ -471,19 +473,49 @@ class _PlayerScreenState extends State<PlayerScreen>
   /// Resumes at [seconds] once the duration is known, clamped like the macOS
   /// player (`duration - 0.5` for a resume, unlike the `duration - 0.05` seek
   /// ceiling used by timeline drags and key presses).
+  ///
+  /// The duration listener applies the seek as soon as metadata arrives; this
+  /// loop is only a long fallback for backends that report it late. Progress
+  /// writes stay suppressed meanwhile (see [_recordProgress]).
   Future<void> _seekAfterOpen(double seconds, int generation) async {
-    for (var i = 0; i < 40; i++) {
-      if (_duration > const Duration(seconds: 1)) break;
-      await Future<void>.delayed(const Duration(milliseconds: 250));
+    if (!mounted || generation != _openGeneration) return;
+    _pendingSeekSeconds = seconds;
+    _pendingSeekGeneration = generation;
+    for (var i = 0; i < 240; i++) {
       if (!mounted || generation != _openGeneration) return;
+      if (_pendingSeekSeconds == null) return;
+      if (_duration > const Duration(seconds: 1)) {
+        await _applyPendingSeek();
+        return;
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 250));
     }
-    if (_duration <= Duration.zero) return;
-    final target = Duration(milliseconds: (seconds * 1000).round());
-    final ceiling = _duration > const Duration(seconds: 1)
-        ? _duration - const Duration(milliseconds: 500)
-        : target;
-    final clamped = target > ceiling ? ceiling : target;
-    await _player.seek(clamped < Duration.zero ? Duration.zero : clamped);
+    if (generation == _openGeneration) _pendingSeekSeconds = null;
+  }
+
+  Future<void> _applyPendingSeek() async {
+    final seconds = _pendingSeekSeconds;
+    if (seconds == null || _applyingSeek) return;
+    if (!mounted || _pendingSeekGeneration != _openGeneration) {
+      _pendingSeekSeconds = null;
+      return;
+    }
+    if (_duration <= const Duration(seconds: 1)) return;
+    final generation = _pendingSeekGeneration;
+    _applyingSeek = true;
+    try {
+      final target = Duration(milliseconds: (seconds * 1000).round());
+      final ceiling = _duration - const Duration(milliseconds: 500);
+      final clamped = target > ceiling ? ceiling : target;
+      final position = clamped < Duration.zero ? Duration.zero : clamped;
+      await _player.seek(position);
+      if (!mounted) return;
+      setState(() => _position = position);
+    } finally {
+      _applyingSeek = false;
+      // A newer open may have queued its own resume while this seek awaited.
+      if (_pendingSeekGeneration == generation) _pendingSeekSeconds = null;
+    }
   }
 
   Duration _clampedSeek(Duration target) {
@@ -523,6 +555,7 @@ class _PlayerScreenState extends State<PlayerScreen>
   void _recordProgress({bool atEnd = false}) {
     final media = _args.media;
     if (media == null) return;
+    if (_pendingSeekSeconds != null) return;
     final duration = _duration;
     if (duration <= const Duration(seconds: 1)) return;
     final position = atEnd ? duration : _position;
@@ -620,7 +653,7 @@ class _PlayerScreenState extends State<PlayerScreen>
 
   void _enterFullscreen() {
     if (!_mobilePlatform) {
-      _setWindowFullscreen(true);
+      unawaited(_applyWindowFullscreen(true));
       return;
     }
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
@@ -634,7 +667,7 @@ class _PlayerScreenState extends State<PlayerScreen>
 
   void _exitFullscreen() {
     if (!_mobilePlatform) {
-      _setWindowFullscreen(false);
+      unawaited(_applyWindowFullscreen(false));
       return;
     }
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
@@ -643,12 +676,42 @@ class _PlayerScreenState extends State<PlayerScreen>
 
   /// Windowed fullscreen for the desktop shells; a backend that cannot do it
   /// keeps the in-app full-window route.
-  void _setWindowFullscreen(bool value) {
+  ///
+  /// window_manager 0.6.0's native API has no initialization step: it says "no
+  /// setup of its own on any platform" and [WindowManager.getCurrent] goes
+  /// straight to the native window. The icon follows what the window reports
+  /// after the setter, so a missing backend no longer flips it.
+  Future<void> _applyWindowFullscreen(bool value) async {
     if (!(Platform.isWindows || Platform.isMacOS || Platform.isLinux)) return;
+    final window = _currentWindow();
+    if (window == null) return;
     try {
-      final window = WindowManager.instance.getCurrent();
-      if (window != null) window.isFullScreen = value;
-    } catch (_) {}
+      window.isFullScreen = value;
+    } catch (_) {
+      return;
+    }
+    var actual = value;
+    // macOS animates the transition; confirm until the window settles.
+    for (var attempt = 0; attempt < 5; attempt++) {
+      try {
+        actual = window.isFullScreen;
+      } catch (_) {
+        return;
+      }
+      if (actual == value) break;
+      await Future<void>.delayed(const Duration(milliseconds: 250));
+      if (!mounted) return;
+    }
+    if (!mounted || _fullscreen == actual) return;
+    setState(() => _fullscreen = actual);
+  }
+
+  static Window? _currentWindow() {
+    try {
+      return WindowManager.instance.getCurrent();
+    } catch (_) {
+      return null;
+    }
   }
 
   void _resetHideTimer() {
@@ -717,8 +780,14 @@ class _PlayerScreenState extends State<PlayerScreen>
   bool get _timelineLive => _isLive || _duration <= const Duration(seconds: 1);
 
   void _toggleFullscreen() {
-    setState(() => _fullscreen = !_fullscreen);
-    if (_fullscreen) {
+    final target = !_fullscreen;
+    if (!_mobilePlatform) {
+      unawaited(_applyWindowFullscreen(target));
+      _resetHideTimer();
+      return;
+    }
+    setState(() => _fullscreen = target);
+    if (target) {
       _enterFullscreen();
     } else {
       _exitFullscreen();
@@ -787,6 +856,16 @@ class _PlayerScreenState extends State<PlayerScreen>
 
   KeyEventResult _handleKeyEvent(FocusNode node, KeyEvent event) {
     if (event is! KeyDownEvent && event is! KeyRepeatEvent) {
+      return KeyEventResult.ignored;
+    }
+    final primaryFocus = FocusManager.instance.primaryFocus;
+    if (playerYieldsKeysToFocusedChild(
+      isTv: PlatformInfo.isTv,
+      hasPrimaryFocus: primaryFocus != null,
+      rootHasPrimaryFocus: primaryFocus == _rootFocus,
+    )) {
+      // A visible control owns the D-pad; let focus traversal move between
+      // controls instead of swallowing the arrows for seek/volume.
       return KeyEventResult.ignored;
     }
     final keyboard = HardwareKeyboard.instance;
@@ -878,8 +957,19 @@ class _PlayerScreenState extends State<PlayerScreen>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.inactive) {
+      // A backgrounded app must not start the next episode's audio.
+      _cancelCountdown();
       _player.pause();
       if (_historyStarted) _recordProgress();
+      return;
+    }
+    if (state == AppLifecycleState.resumed &&
+        _completed &&
+        _countdown == 0 &&
+        _args.upcoming.isNotEmpty &&
+        AppServices.instance.settings.autoPlayNextEpisode) {
+      // The episode was still sitting at its end; offer the next one again.
+      _startCountdown();
     }
   }
 

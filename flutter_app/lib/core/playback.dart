@@ -55,6 +55,7 @@ class PlayerArgs {
     this.posterUrl,
     required this.sources,
     this.preferredSourceId,
+    this.honorPreferredSource = false,
     this.media,
     this.episodeId,
     this.seasonTitle,
@@ -67,6 +68,11 @@ class PlayerArgs {
   final String? posterUrl;
   final List<MediaSource> sources;
   final int? preferredSourceId;
+
+  /// An explicit source pick (a quality row on the detail page) wins even when
+  /// the user has a preferred-quality setting; the automatic play button keeps
+  /// honouring that setting.
+  final bool honorPreferredSource;
   final MediaItem? media;
   final int? episodeId;
   final String? seasonTitle;
@@ -83,6 +89,7 @@ class PlayerArgs {
       posterUrl: nextArgs.posterUrl ?? posterUrl,
       sources: nextArgs.sources,
       preferredSourceId: nextArgs.preferredSourceId,
+      honorPreferredSource: nextArgs.honorPreferredSource,
       media: nextArgs.media ?? media,
       episodeId: nextArgs.episodeId,
       seasonTitle: nextArgs.seasonTitle,
@@ -181,4 +188,26 @@ class PlayerArgs {
       preferredSourceId: sources.isEmpty ? null : sources.first.id,
     );
   }
+}
+
+/// Source the player opens first.
+///
+/// An explicit pick (the detail page's quality rows) wins over the saved
+/// preferred quality; otherwise the automatic play button keeps honouring it,
+/// matching the macOS source walk.
+MediaSource? pickPlaybackSource(PlayerArgs args, String preferredQuality) {
+  final playable = args.sources
+      .where((source) => source.url.isNotEmpty && !source.isTrailer)
+      .toList();
+  if (playable.isEmpty) return null;
+  final preferredId = args.preferredSourceId;
+  if (preferredId != null) {
+    for (final source in playable) {
+      if (source.id == preferredId &&
+          (args.honorPreferredSource || preferredQuality == 'auto')) {
+        return source;
+      }
+    }
+  }
+  return preferredSource(playable, preferredQuality) ?? playable.first;
 }

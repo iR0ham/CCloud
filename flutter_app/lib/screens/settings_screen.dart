@@ -5,6 +5,7 @@ import '../core/api_client.dart';
 import '../core/catalogue.dart';
 import '../core/downloads_store.dart';
 import '../core/models.dart';
+import '../core/platform_identity.dart';
 import '../core/stores.dart';
 import '../ui/theme.dart';
 import '../ui/widgets.dart';
@@ -421,7 +422,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             style: Theme.of(context).textTheme.titleMedium,
                           ),
                           Text(
-                            'نسخهٔ اندروید • ۱.۰.۶',
+                            PlatformIdentity.current.versionLabel,
                             style: Theme.of(context).textTheme.bodySmall,
                           ),
                         ],
@@ -430,7 +431,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                   const SizedBox(height: 10),
                   Text(
-                    'رابط کاربری فارسی و راست‌به‌چپ، بهینه برای گوشی، تبلت و تلویزیون اندروید.',
+                    PlatformIdentity.current.featureBlurb,
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
                 ],

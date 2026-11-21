@@ -6,6 +6,7 @@ import 'app.dart';
 import 'core/api_cache.dart';
 import 'core/api_client.dart';
 import 'core/downloads_store.dart';
+import 'core/platform_identity.dart';
 import 'core/platform_info.dart';
 import 'core/stores.dart';
 
@@ -13,6 +14,7 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   MediaKit.ensureInitialized();
   await PlatformInfo.detect();
+  await PlatformIdentity.load();
   final prefs = await SharedPreferences.getInstance();
   final downloads = await DownloadsStore.open();
   downloads.onCompleted = (item) {
