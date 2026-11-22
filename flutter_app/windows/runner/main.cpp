@@ -90,9 +90,15 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
 #endif
 
   // If the window or the renderer wedges, the process must not stay alive as
-  // an invisible background task. This only reports; it never forces Show().
+  // an invisible background task. A slow disk or an antivirus scan can delay a
+  // healthy start, so after 15 seconds keep checking once a second up to 30
+  // seconds and only report when no frame has arrived by then. This only
+  // reports; it never forces Show().
   std::thread([]() {
     std::this_thread::sleep_for(std::chrono::seconds(15));
+    for (int extra = 0; extra < 15 && !HasFirstFrame(); ++extra) {
+      std::this_thread::sleep_for(std::chrono::seconds(1));
+    }
     if (!HasFirstFrame()) {
       ShowFirstFrameWarning();
     }
@@ -102,9 +108,11 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   Win32Window::Point origin(10, 10);
   Win32Window::Size size(1280, 720);
   if (!window.Create(L"CCloud", origin, size)) {
-    StartupLog("ERROR: window.Create returned false");
+    const DWORD error = ::GetLastError();
+    StartupLog("ERROR: window.Create returned false (GetLastError=" +
+               std::to_string(error) + ")");
     if (!StartupErrorShown()) {
-      ShowStartupError("The main window could not be created.");
+      ShowStartupError("The main window could not be created.", error);
     }
     return EXIT_FAILURE;
   }

@@ -1,6 +1,8 @@
 #ifndef RUNNER_STARTUP_LOG_H_
 #define RUNNER_STARTUP_LOG_H_
 
+#include <windows.h>
+
 #include <string>
 
 // Startup diagnostics for the Windows runner.
@@ -19,9 +21,11 @@ std::wstring StartupLogPath();
 // blocks startup on a failed write.
 void StartupLog(const std::string& message);
 
-// Logs |what| together with the current GetLastError() and shows a blocking
-// error box naming the log path. Meant for unrecoverable startup failures.
-void ShowStartupError(const char* what);
+// Logs |what| together with |code| and shows a blocking error box naming the
+// log path. Meant for unrecoverable startup failures; callers pass the
+// GetLastError() value captured immediately after the failing call, because by
+// the time this runs the thread's error code may already be unrelated.
+void ShowStartupError(const char* what, DWORD code);
 
 // Whether an error box was already shown, so the top-level failure path does
 // not stack a second identical dialog on top of it.

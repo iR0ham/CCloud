@@ -8,8 +8,10 @@
 ; libmpv-2.dll, the data/ folder and the three MSVC runtime DLLs, so the
 ; installed copy runs without a separate Visual C++ redistributable install.
 
+; The version is a required input: a missing /DAppVersion must fail the compile
+; instead of silently producing an installer labelled with a stale number.
 #ifndef AppVersion
-  #define AppVersion "1.0.7"
+  #error AppVersion must be provided with /DAppVersion=<version>
 #endif
 #ifndef SourceDir
   #define SourceDir "..\flutter_app\build\windows\x64\runner\Release"
@@ -41,7 +43,7 @@ SolidCompression=yes
 WizardStyle=modern
 SetupIconFile=..\flutter_app\windows\runner\resources\app_icon.ico
 UninstallDisplayIcon={app}\{#MyAppExeName}
-MinVersion=10.0
+MinVersion=10.0.14393
 ArchitecturesAllowed=x64
 ArchitecturesInstallIn64BitMode=x64
 PrivilegesRequired=admin

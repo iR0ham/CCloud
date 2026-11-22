@@ -16,7 +16,8 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$OutputDir,
 
-    [string]$AppVersion = '1.0.7'
+    [Parameter(Mandatory = $true)]
+    [string]$AppVersion
 )
 
 $ErrorActionPreference = 'Stop'

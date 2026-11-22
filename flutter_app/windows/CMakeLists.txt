@@ -80,28 +80,36 @@ elseif(DEFINED ENV{CCLOUD_FORCE_SKIA})
 endif()
 
 include(CheckCXXSourceCompiles)
-set(_ccloud_try_compile_type "${CMAKE_TRY_COMPILE_TARGET_TYPE}")
-set(_ccloud_cxx_standard "${CMAKE_CXX_STANDARD}")
-set(_ccloud_cxx_standard_required "${CMAKE_CXX_STANDARD_REQUIRED}")
-set(CMAKE_TRY_COMPILE_TARGET_TYPE STATIC_LIBRARY)
-# The wrapper headers are C++17; make the probe use the same language level as
-# the runner so a missing <optional>/<string_view> cannot fake a missing API.
-set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_REQUIRED_INCLUDES
-    "${FLUTTER_MANAGED_DIR}/ephemeral/cpp_client_wrapper/include")
-check_cxx_source_compiles("
+
+# The probe mutates several CMake variables (try-compile type, language level,
+# include dirs). Doing that here in directory scope and then "restoring" the
+# previous values is unsafe: when CMAKE_CXX_STANDARD was never set, the restore
+# writes an empty string back and CMake rejects every later target with
+# "CMAKE_CXX_STANDARD is set to invalid value ''". A function scope throws the
+# mutations away automatically, so no variable outside this function changes.
+function(CCLOUD_PROBE_IMPELLER_SWITCH _result_var)
+  set(CMAKE_TRY_COMPILE_TARGET_TYPE STATIC_LIBRARY)
+  # The wrapper headers are C++17; make the probe use the same language level as
+  # the runner so a missing <optional>/<string_view> cannot fake a missing API.
+  set(CMAKE_CXX_STANDARD 17)
+  set(CMAKE_CXX_STANDARD_REQUIRED ON)
+  set(CMAKE_REQUIRED_INCLUDES
+      "${FLUTTER_MANAGED_DIR}/ephemeral/cpp_client_wrapper/include")
+  check_cxx_source_compiles("
 #include <flutter/dart_project.h>
 int main() {
   flutter::DartProject project(L\"data\");
   project.set_impeller_switch(flutter::ImpellerSwitch::Disabled);
   return 0;
 }
-" CCLOUD_HAS_IMPELLER_SWITCH)
-set(CMAKE_TRY_COMPILE_TARGET_TYPE "${_ccloud_try_compile_type}")
-set(CMAKE_CXX_STANDARD "${_ccloud_cxx_standard}")
-set(CMAKE_CXX_STANDARD_REQUIRED "${_ccloud_cxx_standard_required}")
-unset(CMAKE_REQUIRED_INCLUDES)
+" ${_result_var})
+  set(${_result_var} "${${_result_var}}" PARENT_SCOPE)
+endfunction()
+
+# CCLOUD_HAS_IMPELLER_SWITCH is a cache variable, so the result still reaches
+# the rest of this file and CI through the marker below.
+CCLOUD_PROBE_IMPELLER_SWITCH(CCLOUD_HAS_IMPELLER_SWITCH)
+
 if(CCLOUD_HAS_IMPELLER_SWITCH)
   add_compile_definitions(CCLOUD_HAS_IMPELLER_SWITCH=1)
 endif()

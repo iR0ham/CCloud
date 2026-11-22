@@ -12,7 +12,8 @@ FlutterWindow::~FlutterWindow() {}
 
 bool FlutterWindow::OnCreate() {
   if (!Win32Window::OnCreate()) {
-    StartupLog("ERROR: Win32Window::OnCreate failed");
+    ShowStartupError("The main window could not be created.",
+                     ::GetLastError());
     return false;
   }
 
@@ -26,7 +27,8 @@ bool FlutterWindow::OnCreate() {
   if (!flutter_controller_->engine() || !flutter_controller_->view()) {
     ShowStartupError(
         "The Flutter engine or view could not be created "
-        "(flutter_windows.dll may be missing or incompatible).");
+        "(flutter_windows.dll may be missing or incompatible).",
+        ::GetLastError());
     return false;
   }
   StartupLog("flutter engine and view created");

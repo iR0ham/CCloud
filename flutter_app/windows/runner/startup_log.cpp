@@ -95,8 +95,7 @@ void StartupLog(const std::string& message) {
   ::CloseHandle(file);
 }
 
-void ShowStartupError(const char* what) {
-  const DWORD code = ::GetLastError();
+void ShowStartupError(const char* what, DWORD code) {
   StartupLog(std::string("ERROR: ") + what +
              " (GetLastError=" + std::to_string(code) + ")");
   g_error_shown.store(true);
@@ -127,10 +126,11 @@ bool HasFirstFrame() {
 
 void ShowFirstFrameWarning() {
   const std::wstring path = StartupLogPath();
-  StartupLog("ERROR: no first frame within 15 seconds; the window stays hidden");
+  StartupLog(
+      "ERROR: no first frame within 30 seconds; no window has been shown");
   std::wstring message =
-      L"CCloud started but did not produce its first frame within 15 "
-      L"seconds, so the window stays invisible.\n\n"
+      L"CCloud has not shown its window yet: the first frame still has not "
+      L"arrived after 30 seconds.\n\n"
       L"Try the compatibility build (ZIP named -compat), which turns the "
       L"Impeller renderer off, or read the log:\n";
   message += path.empty() ? std::wstring(L"(startup.log unavailable)") : path;

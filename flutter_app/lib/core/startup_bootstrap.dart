@@ -77,23 +77,34 @@ Future<StartupState> loadStartup({
   );
 }
 
-/// Appends one line to the same Application Support folder the rest of the app
-/// uses. Silently does nothing when even that folder cannot be resolved.
+/// Appends one line to the startup log. Silently does nothing when the folder
+/// cannot be resolved, and the whole write is capped at two seconds so a slow
+/// disk can never push diagnostics past the native watchdog window.
 Future<void> recordStartupError(Object error, StackTrace stack) async {
   try {
-    final base = await getApplicationSupportDirectory().timeout(
-      const Duration(seconds: 2),
-    );
-    final directory = Directory(
-      '${base.path}${Platform.pathSeparator}CCloudMac',
-    );
-    await directory.create(recursive: true);
-    final log = File('${directory.path}${Platform.pathSeparator}startup.log');
-    final entry =
-        '${DateTime.now().toUtc().toIso8601String()} '
-        '${error.toString()}\n$stack\n';
-    await log.writeAsString(entry, mode: FileMode.append, flush: true);
+    await _writeStartupError(error, stack).timeout(const Duration(seconds: 2));
   } catch (_) {
     // A broken app-data folder must not become a second startup failure.
   }
+}
+
+Future<void> _writeStartupError(Object error, StackTrace stack) async {
+  final Directory directory;
+  final localAppData = Platform.environment['LOCALAPPDATA'];
+  if (Platform.isWindows && localAppData != null && localAppData.isNotEmpty) {
+    // The native runner writes %LOCALAPPDATA%\CCloud\startup.log; keep the Dart
+    // diagnostics in the same file so the user has one log, not two folders.
+    directory = Directory('$localAppData${Platform.pathSeparator}CCloud');
+  } else {
+    final base = await getApplicationSupportDirectory().timeout(
+      const Duration(seconds: 2),
+    );
+    directory = Directory('${base.path}${Platform.pathSeparator}CCloudMac');
+  }
+  await directory.create(recursive: true);
+  final log = File('${directory.path}${Platform.pathSeparator}startup.log');
+  final entry =
+      '${DateTime.now().toUtc().toIso8601String()} '
+      '${error.toString()}\n$stack\n';
+  await log.writeAsString(entry, mode: FileMode.append, flush: true);
 }
