@@ -10,6 +10,7 @@ import '../core/catalogue.dart';
 import '../core/connectivity.dart';
 import '../core/platform_identity.dart';
 import '../core/platform_info.dart';
+import '../core/shortcut_gate.dart';
 import '../core/stores.dart';
 import '../screens/browse_screen.dart';
 import '../screens/categories_screen.dart';
@@ -255,7 +256,16 @@ class _AppShellState extends State<AppShell> {
   /// combinations the macOS app binds are consumed; player keys (Space, Esc,
   /// arrows, F/M/N without the modifier) fall through untouched.
   bool _handleShortcut(KeyEvent event) {
-    if (!_desktopShortcuts || event is! KeyDownEvent) return false;
+    if (event is! KeyDownEvent) return false;
+    // Dialogs, bottom sheets and the pushed player route sit above the shell;
+    // their keys (Esc, Space, arrows) must reach them untouched.
+    final routeCurrent = ModalRoute.of(context)?.isCurrent ?? true;
+    if (!desktopShortcutAllowed(
+      desktopPlatform: _desktopShortcuts,
+      shellRouteCurrent: routeCurrent,
+    )) {
+      return false;
+    }
     final keyboard = HardwareKeyboard.instance;
     final primaryPressed = defaultTargetPlatform == TargetPlatform.macOS
         ? keyboard.isMetaPressed

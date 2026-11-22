@@ -7,6 +7,7 @@ import '../core/media_filters.dart';
 import '../core/models.dart';
 import '../core/origin_filter.dart';
 import '../core/stores.dart';
+import '../ui/feed_footer.dart';
 import '../ui/media_filter_panel.dart';
 import '../ui/nav.dart';
 import '../ui/theme.dart';
@@ -78,7 +79,10 @@ class _BrowseScreenState extends State<BrowseScreen> {
   }
 
   void _onRefreshTick() {
-    if (mounted) _reload();
+    if (!mounted) return;
+    // The shell invalidated the genre cache; refill the pills as macOS does.
+    _loadGenres();
+    _reload();
   }
 
   void _onSettingsChanged() {
@@ -276,7 +280,12 @@ class _BrowseScreenState extends State<BrowseScreen> {
   }
 
   Future<void> _openFilters() async {
-    final result = await showMediaFilterPanel(context, _filters);
+    // A movies or series feed cannot switch kind, so the panel hides it.
+    final result = await showMediaFilterPanel(
+      context,
+      _filters,
+      showKind: false,
+    );
     if (result != null) _applyFilters(result);
   }
 
@@ -412,13 +421,18 @@ class _BrowseScreenState extends State<BrowseScreen> {
                       ),
                     ),
                     const SizedBox(width: 8),
-                    MediaFilterButton(filters: _filters, onTap: _openFilters),
+                    MediaFilterButton(
+                      filters: _filters,
+                      showKind: false,
+                      onTap: _openFilters,
+                    ),
                   ],
                 ),
               ),
               if (_filters.isActive)
                 ActiveMediaFilterChips(
                   filters: _filters,
+                  showKind: false,
                   onChange: _applyFilters,
                 ),
               Expanded(child: _body(items, maxExtent, settings)),
@@ -455,9 +469,15 @@ class _BrowseScreenState extends State<BrowseScreen> {
         anime: settings.hideAnime,
       );
       if (hiding.isActive && _items.isNotEmpty) {
-        return const EmptyView(
-          message: 'همهٔ عنوان‌های این فهرست در دسته‌های پنهان‌شده قرار دارند. برای نمایش، گزینه‌های «پنهان‌کردن محتوا» را در تنظیمات تغییر دهید.',
+        final movies = widget.kind == BrowseKind.movies;
+        return EmptyView(
           icon: Icons.visibility_off_outlined,
+          title: movies
+              ? 'همهٔ فیلم‌ها پنهان شده‌اند'
+              : 'همهٔ سریال‌ها پنهان شده‌اند',
+          message: movies
+              ? 'همهٔ فیلم‌های این فهرست در دسته‌های پنهان‌شده قرار دارند. برای نمایش، گزینه‌های «پنهان‌سازی محتوا» را در تنظیمات تغییر دهید.'
+              : 'همهٔ سریال‌های این فهرست در دسته‌های پنهان‌شده قرار دارند. برای نمایش، گزینه‌های «پنهان‌سازی محتوا» را در تنظیمات تغییر دهید.',
         );
       }
       return EmptyView(
@@ -469,35 +489,52 @@ class _BrowseScreenState extends State<BrowseScreen> {
     }
     return RefreshIndicator(
       onRefresh: _reload,
-      child: GridView.builder(
-        controller: _scrollController,
-        physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.fromLTRB(16, 10, 16, 30),
-        gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
-          maxCrossAxisExtent: maxExtent,
-          mainAxisSpacing: 16,
-          crossAxisSpacing: 12,
-          childAspectRatio: 0.58,
-        ),
-        itemCount: items.length + (_loadingMore ? 1 : 0),
-        itemBuilder: (context, index) {
-          if (index >= items.length) {
-            return const Center(
-              child: SizedBox(
-                width: 22,
-                height: 22,
-                child: CircularProgressIndicator(strokeWidth: 2),
+      child: Column(
+        children: [
+          Expanded(
+            child: GridView.builder(
+              controller: _scrollController,
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.fromLTRB(16, 10, 16, 30),
+              gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
+                maxCrossAxisExtent: maxExtent,
+                mainAxisSpacing: 16,
+                crossAxisSpacing: 12,
+                childAspectRatio: 0.58,
               ),
-            );
-          }
-          final item = items[index];
-          return MediaPosterCard(
-            item: item,
-            width: double.infinity,
-            onTap: () =>
-                Navigator.of(context).push(appRoute(DetailScreen(item: item))),
-          );
-        },
+              itemCount: items.length + (_loadingMore ? 1 : 0),
+              itemBuilder: (context, index) {
+                if (index >= items.length) {
+                  return const Center(
+                    child: SizedBox(
+                      width: 22,
+                      height: 22,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  );
+                }
+                final item = items[index];
+                return MediaPosterCard(
+                  item: item,
+                  width: double.infinity,
+                  onTap: () =>
+                      Navigator.of(context)
+                          .push(appRoute(DetailScreen(item: item))),
+                );
+              },
+            ),
+          ),
+          BrowseFeedFooter(
+            loadingMore: _loadingMore,
+            // A running «بررسی عناوین بیشتر» is also a scan; showing the
+            // action again would invite taps that do nothing.
+            filterScanning: _filterScanning || _scanningMore,
+            filterActive: _isPostFiltering,
+            hasMore: !_end,
+            itemCount: items.length,
+            onScanMore: _scanMore,
+          ),
+        ],
       ),
     );
   }
@@ -580,6 +617,8 @@ class CountryBrowseScreen extends StatefulWidget {
 }
 
 class _CountryBrowseScreenState extends State<CountryBrowseScreen> {
+  static const int _pageSize = 30;
+
   final ScrollController _scrollController = ScrollController();
   final List<MediaItem> _items = [];
   SortOption _sort = SortOption.newest;
@@ -587,29 +626,31 @@ class _CountryBrowseScreenState extends State<CountryBrowseScreen> {
   bool _loading = true;
   bool _loadingMore = false;
   bool _end = false;
+  bool _filterScanning = false;
+  bool _scanningMore = false;
+  int _scanGeneration = 0;
   String? _error;
 
   late final AppSettings _settings;
+  late bool _lastHideOrigins;
+  late bool _lastHideAnime;
 
   @override
   void initState() {
     super.initState();
     _settings = AppServices.instance.settings;
+    _lastHideOrigins = _settings.hideRegionalOrigins;
+    _lastHideAnime = _settings.hideAnime;
+    _settings.addListener(_onSettingsChanged);
     AppEvents.refreshTick.addListener(_onRefreshTick);
-    _scrollController.addListener(() {
-      final position = _scrollController.position;
-      if (position.pixels >= position.maxScrollExtent - 500 &&
-          !_loadingMore &&
-          !_end &&
-          !_loading) {
-        _loadMore();
-      }
-    });
+    _scrollController.addListener(_onScroll);
     _reload();
   }
 
   @override
   void dispose() {
+    _scanGeneration += 1;
+    _settings.removeListener(_onSettingsChanged);
     AppEvents.refreshTick.removeListener(_onRefreshTick);
     _scrollController.dispose();
     super.dispose();
@@ -619,6 +660,33 @@ class _CountryBrowseScreenState extends State<CountryBrowseScreen> {
     if (mounted) _reload();
   }
 
+  void _onSettingsChanged() {
+    final origins = _settings.hideRegionalOrigins;
+    final anime = _settings.hideAnime;
+    if (origins == _lastHideOrigins && anime == _lastHideAnime) return;
+    _lastHideOrigins = origins;
+    _lastHideAnime = anime;
+    if (!mounted) return;
+    // New hiding rules can empty the first pages; walk forward like macOS.
+    _startFilterScan();
+  }
+
+  void _onScroll() {
+    if (!_scrollController.hasClients) return;
+    final position = _scrollController.position;
+    if (position.pixels >= position.maxScrollExtent - 500 &&
+        !_loadingMore &&
+        !_filterScanning &&
+        !_scanningMore &&
+        !_end &&
+        !_loading) {
+      _loadMore();
+    }
+  }
+
+  bool get _isPostFiltering =>
+      _settings.hideRegionalOrigins || _settings.hideAnime;
+
   List<MediaItem> get _visibleItems {
     final hiding = ContentHiding(
       origins: _settings.hideRegionalOrigins,
@@ -627,26 +695,44 @@ class _CountryBrowseScreenState extends State<CountryBrowseScreen> {
     return _items.where((item) => !hiding.isHidden(item)).toList();
   }
 
+  /// Appends [items], dropping titles already in the feed.
+  void _append(List<MediaItem> items) {
+    _items.addAll(
+      items.where(
+        (item) => !_items.any(
+          (existing) =>
+              existing.id == item.id && existing.isSeries == item.isSeries,
+        ),
+      ),
+    );
+  }
+
+  Future<List<MediaItem>> _fetch(int page) => ApiClient.instance.countryPosters(
+    countryId: widget.country.id,
+    page: page,
+    sort: _sort,
+  );
+
   Future<void> _reload() async {
+    _scanGeneration += 1;
     setState(() {
       _loading = true;
       _error = null;
       _end = false;
       _page = 0;
+      _filterScanning = false;
+      _scanningMore = false;
       _items.clear();
     });
     try {
-      final items = await ApiClient.instance.countryPosters(
-        countryId: widget.country.id,
-        page: 0,
-        sort: _sort,
-      );
+      final items = await _fetch(0);
       if (!mounted) return;
       setState(() {
         _items.addAll(items);
         _loading = false;
-        _end = items.length < 30;
+        _end = items.length < _pageSize;
       });
+      _startFilterScan();
     } catch (error) {
       if (!mounted) return;
       setState(() {
@@ -660,21 +746,115 @@ class _CountryBrowseScreenState extends State<CountryBrowseScreen> {
     setState(() => _loadingMore = true);
     final next = _page + 1;
     try {
-      final items = await ApiClient.instance.countryPosters(
-        countryId: widget.country.id,
-        page: next,
-        sort: _sort,
-      );
+      final items = await _fetch(next);
       if (!mounted) return;
       setState(() {
-        _items.addAll(items);
+        _append(items);
         _page = next;
-        _end = items.length < 30;
+        _end = items.length < _pageSize;
         _loadingMore = false;
       });
     } catch (_) {
       if (mounted) setState(() => _loadingMore = false);
     }
+  }
+
+  /// Walks the feed forward (bounded) until enough visible titles exist.
+  Future<void> _startFilterScan() async {
+    final token = ++_scanGeneration;
+    if (!_isPostFiltering) {
+      if (_filterScanning || _scanningMore) {
+        setState(() {
+          _filterScanning = false;
+          _scanningMore = false;
+        });
+      }
+      return;
+    }
+    setState(() {
+      _filterScanning = true;
+      _scanningMore = false;
+    });
+    var scanned = 0;
+    try {
+      while (mounted && token == _scanGeneration) {
+        final matches = _visibleItems.length;
+        if (!shouldContinueFilterScan(
+          matches: matches,
+          pagesScanned: scanned,
+          hasMore: !_end,
+        )) {
+          break;
+        }
+        final next = _page + 1;
+        final fetched = await _fetch(next);
+        if (!mounted || token != _scanGeneration) return;
+        setState(() {
+          _append(fetched);
+          _page = next;
+          _end = fetched.length < _pageSize;
+        });
+        scanned += 1;
+      }
+    } catch (_) {
+      // The first page already loaded; a later page failing just ends the scan.
+    } finally {
+      if (mounted && token == _scanGeneration) {
+        setState(() => _filterScanning = false);
+      }
+    }
+  }
+
+  /// Footer action: at most four more pages, stopping at the first new match.
+  Future<void> _scanMore() async {
+    if (_scanningMore || _filterScanning || _end) return;
+    final token = _scanGeneration;
+    final baseline = _visibleItems.length;
+    setState(() => _scanningMore = true);
+    var scanned = 0;
+    try {
+      while (mounted && token == _scanGeneration) {
+        final added = _visibleItems.length - baseline;
+        if (!shouldContinueScanMore(
+          newMatches: added,
+          pagesScanned: scanned,
+          hasMore: !_end,
+        )) {
+          break;
+        }
+        final next = _page + 1;
+        final fetched = await _fetch(next);
+        if (!mounted || token != _scanGeneration) return;
+        setState(() {
+          _append(fetched);
+          _page = next;
+          _end = fetched.length < _pageSize;
+        });
+        scanned += 1;
+      }
+    } catch (_) {
+      // Best effort; the empty state keeps its «بررسی عناوین بیشتر» action.
+    } finally {
+      if (mounted && token == _scanGeneration) {
+        setState(() => _scanningMore = false);
+      }
+    }
+  }
+
+  Widget _emptyState() {
+    if (_filterScanning) return const MediaFilterScanningView();
+    if (_isPostFiltering) {
+      return const EmptyView(
+        icon: Icons.visibility_off_outlined,
+        title: 'همهٔ عناوین پنهان شده‌اند',
+        message: 'همهٔ عنوان‌های این کشور در تنظیمات پنهان شده‌اند. برای نمایش، گزینه‌های «پنهان‌سازی محتوا» را تغییر دهید.',
+      );
+    }
+    return const EmptyView(
+      icon: Icons.movie_filter_outlined,
+      title: 'عنوانی برای این کشور نیست',
+      message: 'مرتب‌سازی دیگری را امتحان کنید یا کشور دیگری را انتخاب کنید.',
+    );
   }
 
   @override
@@ -720,44 +900,59 @@ class _CountryBrowseScreenState extends State<CountryBrowseScreen> {
                       : _error != null
                       ? ErrorView(message: _error!, onRetry: _reload)
                       : items.isEmpty
-                      ? EmptyView(
-                          message: _items.isEmpty
-                              ? 'برای این کشور عنوانی پیدا نشد.'
-                              : 'همهٔ عنوان‌های این کشور پنهان شده‌اند.',
-                          icon: Icons.public_off_rounded,
-                        )
-                      : GridView.builder(
-                          controller: _scrollController,
-                          padding: const EdgeInsets.fromLTRB(16, 8, 16, 30),
-                          gridDelegate:
-                              const SliverGridDelegateWithMaxCrossAxisExtent(
-                                maxCrossAxisExtent: 160,
-                                mainAxisSpacing: 16,
-                                crossAxisSpacing: 12,
-                                childAspectRatio: 0.58,
-                              ),
-                          itemCount: items.length + (_loadingMore ? 1 : 0),
-                          itemBuilder: (context, index) {
-                            if (index >= items.length) {
-                              return const Center(
-                                child: SizedBox(
-                                  width: 22,
-                                  height: 22,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                  ),
+                      ? _emptyState()
+                      : Column(
+                          children: [
+                            Expanded(
+                              child: GridView.builder(
+                                controller: _scrollController,
+                                padding: const EdgeInsets.fromLTRB(
+                                  16,
+                                  8,
+                                  16,
+                                  30,
                                 ),
-                              );
-                            }
-                            final item = items[index];
-                            return MediaPosterCard(
-                              item: item,
-                              width: double.infinity,
-                              onTap: () =>
-                                  Navigator.of(context)
-                                      .push(appRoute(DetailScreen(item: item))),
-                            );
-                          },
+                                gridDelegate:
+                                    const SliverGridDelegateWithMaxCrossAxisExtent(
+                                      maxCrossAxisExtent: 160,
+                                      mainAxisSpacing: 16,
+                                      crossAxisSpacing: 12,
+                                      childAspectRatio: 0.58,
+                                    ),
+                                itemCount:
+                                    items.length + (_loadingMore ? 1 : 0),
+                                itemBuilder: (context, index) {
+                                  if (index >= items.length) {
+                                    return const Center(
+                                      child: SizedBox(
+                                        width: 22,
+                                        height: 22,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                        ),
+                                      ),
+                                    );
+                                  }
+                                  final item = items[index];
+                                  return MediaPosterCard(
+                                    item: item,
+                                    width: double.infinity,
+                                    onTap: () => Navigator.of(
+                                      context,
+                                    ).push(appRoute(DetailScreen(item: item))),
+                                  );
+                                },
+                              ),
+                            ),
+                            BrowseFeedFooter(
+                              loadingMore: _loadingMore,
+                              filterScanning: _filterScanning || _scanningMore,
+                              filterActive: _isPostFiltering,
+                              hasMore: !_end,
+                              itemCount: items.length,
+                              onScanMore: _scanMore,
+                            ),
+                          ],
                         ),
                 ),
               ],

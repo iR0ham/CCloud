@@ -112,6 +112,14 @@ class MediaFilters {
     MediaFilterFacet.imdb => withMinImdb(null),
   };
 
+  /// The filters as a surface without a kind section can present them.
+  ///
+  /// Feeds that pass `showKind: false` offer no way to set the kind, so a
+  /// kind carried in from elsewhere must not tint the button or add a chip.
+  MediaFilters visible({required bool showKind}) => showKind
+      ? this
+      : MediaFilters(yearFrom: yearFrom, yearTo: yearTo, minIMDb: minIMDb);
+
   /// Label shown on the removable chip, or null when the facet is inactive.
   String? facetLabel(MediaFilterFacet facet) => switch (facet) {
     MediaFilterFacet.kind => switch (kind) {
@@ -171,3 +179,22 @@ bool shouldContinueScanMore({
   required bool hasMore,
   int maxPages = filterScanMoreMaxPages,
 }) => hasMore && pagesScanned < maxPages && newMatches == 0;
+
+/// What the strip under a poster grid shows; mirrors `BrowseFeedFooter`.
+enum FeedFooterMode { hidden, loading, scanMore, end }
+
+/// Picks the footer state in the macOS order: a running load or scan wins,
+/// then the deeper-scan action, then the end caption.
+FeedFooterMode feedFooterMode({
+  required bool loadingMore,
+  required bool filterScanning,
+  required bool postFiltering,
+  required bool hasMore,
+  required int itemCount,
+  required bool canScanMore,
+}) {
+  if (loadingMore || filterScanning) return FeedFooterMode.loading;
+  if (postFiltering && hasMore && canScanMore) return FeedFooterMode.scanMore;
+  if (!hasMore && itemCount > 0) return FeedFooterMode.end;
+  return FeedFooterMode.hidden;
+}

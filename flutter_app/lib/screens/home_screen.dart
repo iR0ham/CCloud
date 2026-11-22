@@ -6,6 +6,7 @@ import '../core/api_client.dart';
 import '../core/app_events.dart';
 import '../core/catalogue.dart';
 import '../core/description_text.dart';
+import '../core/media_filters.dart';
 import '../core/models.dart';
 import '../core/origin_filter.dart';
 import '../core/playback.dart';
@@ -40,6 +41,8 @@ class _HomeScreenState extends State<HomeScreen> {
   int _slide = 0;
 
   late final AppSettings _settings;
+  late bool _lastHideOrigins;
+  late bool _lastHideAnime;
 
   ContentHiding get _hiding => ContentHiding(
     origins: _settings.hideRegionalOrigins,
@@ -62,6 +65,8 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     _settings = AppServices.instance.settings;
+    _lastHideOrigins = _settings.hideRegionalOrigins;
+    _lastHideAnime = _settings.hideAnime;
     _settings.addListener(_onSettingsChanged);
     AppEvents.refreshTick.addListener(_onRefreshTick);
     _load();
@@ -82,6 +87,16 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _onSettingsChanged() {
     if (!mounted) return;
+    final origins = _settings.hideRegionalOrigins;
+    final anime = _settings.hideAnime;
+    if (origins != _lastHideOrigins || anime != _lastHideAnime) {
+      _lastHideOrigins = origins;
+      _lastHideAnime = anime;
+      // Rails are filtered while loading, so new hiding rules need fresh
+      // pages; otherwise a rail can empty out even though more titles exist.
+      _load();
+      return;
+    }
     final needsJump = _slide >= _slides.length;
     setState(() {
       // Filtering a hero title out shrinks the PageView; never leave the
@@ -104,28 +119,52 @@ class _HomeScreenState extends State<HomeScreen> {
       _error = null;
     });
     final api = ApiClient.instance;
+    final hiding = _hiding;
     String? firstError;
 
-    Future<List<MediaItem>> guard(Future<List<MediaItem>> future) async {
-      try {
-        return await future;
-      } catch (error) {
-        firstError ??= error.toString();
-        return const [];
+    /// Hidden titles are dropped client-side, so walk a few pages to keep the
+    /// rail populated; mirrors `HomeModel.loadMovies/loadSeries`.
+    Future<List<MediaItem>> loadRail({
+      required bool isSeries,
+      required SortOption sort,
+    }) async {
+      final merged = <MediaItem>[];
+      final seen = <int>{};
+      for (var page = 0; page < 3; page++) {
+        try {
+          final items = isSeries
+              ? await api.series(page: page, sort: sort)
+              : await api.movies(page: page, sort: sort);
+          for (final item in items) {
+            if (seen.add(item.id)) merged.add(item);
+          }
+        } catch (error) {
+          if (merged.isEmpty) firstError ??= error.toString();
+          break;
+        }
+        if (!hiding.isActive ||
+            merged.where((item) => !hiding.isHidden(item)).length >=
+                filterScanMinimumMatches) {
+          break;
+        }
       }
+      return hiding.isActive
+          ? merged.where((item) => !hiding.isHidden(item)).toList()
+          : merged;
     }
 
     final results = await Future.wait([
-      guard(api.movies(page: 0)),
-      guard(api.series(page: 0)),
-      guard(api.movies(page: 0, sort: SortOption.imdb)),
-      guard(api.series(page: 0, sort: SortOption.imdb)),
+      loadRail(isSeries: false, sort: SortOption.newest),
+      loadRail(isSeries: true, sort: SortOption.newest),
+      loadRail(isSeries: false, sort: SortOption.imdb),
+      loadRail(isSeries: true, sort: SortOption.imdb),
     ]);
     final genres = await Catalogue.genres().catchError(
       (Object _) => const <Genre>[],
     );
 
     if (!mounted) return;
+    final empty = results.every((list) => list.isEmpty);
     setState(() {
       _latestMovies = results[0];
       _latestSeries = results[1];
@@ -133,7 +172,10 @@ class _HomeScreenState extends State<HomeScreen> {
       _topSeries = results[3];
       _genres = genres;
       _loading = false;
-      _error = results.every((list) => list.isEmpty) ? firstError : null;
+      _error = empty
+          ? (firstError ??
+                (hiding.isActive ? null : 'محتوایی برای نمایش پیدا نشد'))
+          : null;
       _slide = 0;
     });
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -192,6 +234,17 @@ class _HomeScreenState extends State<HomeScreen> {
     }
     if (_error != null && _slides.isEmpty) {
       return ErrorView(message: _error!, onRetry: _load);
+    }
+    if (_hiding.isActive &&
+        _latestMovies.isEmpty &&
+        _latestSeries.isEmpty &&
+        _topMovies.isEmpty &&
+        _topSeries.isEmpty) {
+      return const EmptyView(
+        icon: Icons.visibility_off_outlined,
+        title: 'محتوایی برای نمایش نیست',
+        message: 'همهٔ عناوین این بخش در تنظیمات پنهان شده‌اند. برای نمایش، گزینه‌های «پنهان‌سازی محتوا» را تغییر دهید.',
+      );
     }
 
     final history = AppServices.instance.history;

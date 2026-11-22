@@ -289,5 +289,139 @@ void main() {
         isFalse,
       );
     });
+
+    test('country scan uses the same 12-match, 10-page and 4-page limits', () {
+      expect(filterScanMinimumMatches, 12);
+      expect(filterScanMaxPages, 10);
+      expect(filterScanMoreMaxPages, 4);
+      // A country feed capped at ten pages stops even with no match at all.
+      expect(
+        shouldContinueFilterScan(matches: 0, pagesScanned: 9, hasMore: true),
+        isTrue,
+      );
+      expect(
+        shouldContinueFilterScan(matches: 0, pagesScanned: 10, hasMore: true),
+        isFalse,
+      );
+    });
+  });
+
+  group('showKind visibility', () {
+    const filters = MediaFilters(
+      kind: MediaKind.series,
+      yearFrom: 2010,
+      yearTo: 2020,
+      minIMDb: 7,
+    );
+
+    test('a hidden kind is dropped and does not count', () {
+      final hidden = filters.visible(showKind: false);
+      expect(hidden.kind, isNull);
+      expect(hidden.yearFrom, 2010);
+      expect(hidden.yearTo, 2020);
+      expect(hidden.minIMDb, 7);
+      expect(hidden.activeCount, 2);
+    });
+
+    test('a shown kind stays part of the filter and the badge', () {
+      final shown = filters.visible(showKind: true);
+      expect(shown, filters);
+      expect(shown.activeCount, 3);
+    });
+
+    test('dropping kind is a value no-op when no kind is set', () {
+      const noKind = MediaFilters(minIMDb: 6);
+      expect(noKind.visible(showKind: false), noKind);
+    });
+  });
+
+  group('feed footer state', () {
+    test('a running load or scan wins over the scan-more action', () {
+      expect(
+        feedFooterMode(
+          loadingMore: true,
+          filterScanning: false,
+          postFiltering: true,
+          hasMore: true,
+          itemCount: 30,
+          canScanMore: true,
+        ),
+        FeedFooterMode.loading,
+      );
+      expect(
+        feedFooterMode(
+          loadingMore: false,
+          filterScanning: true,
+          postFiltering: false,
+          hasMore: true,
+          itemCount: 30,
+          canScanMore: true,
+        ),
+        FeedFooterMode.loading,
+      );
+    });
+
+    test('an active filter with more pages offers the deeper scan', () {
+      expect(
+        feedFooterMode(
+          loadingMore: false,
+          filterScanning: false,
+          postFiltering: true,
+          hasMore: true,
+          itemCount: 5,
+          canScanMore: true,
+        ),
+        FeedFooterMode.scanMore,
+      );
+      expect(
+        feedFooterMode(
+          loadingMore: false,
+          filterScanning: false,
+          postFiltering: true,
+          hasMore: false,
+          itemCount: 5,
+          canScanMore: true,
+        ),
+        FeedFooterMode.end,
+      );
+    });
+
+    test('an exhausted plain feed ends with its caption', () {
+      expect(
+        feedFooterMode(
+          loadingMore: false,
+          filterScanning: false,
+          postFiltering: false,
+          hasMore: false,
+          itemCount: 30,
+          canScanMore: false,
+        ),
+        FeedFooterMode.end,
+      );
+      // Nothing to caption when the grid is empty, matching the Mac footer.
+      expect(
+        feedFooterMode(
+          loadingMore: false,
+          filterScanning: false,
+          postFiltering: false,
+          hasMore: false,
+          itemCount: 0,
+          canScanMore: false,
+        ),
+        FeedFooterMode.hidden,
+      );
+      // A plain feed with more pages and no filter has no footer at all.
+      expect(
+        feedFooterMode(
+          loadingMore: false,
+          filterScanning: false,
+          postFiltering: false,
+          hasMore: true,
+          itemCount: 30,
+          canScanMore: true,
+        ),
+        FeedFooterMode.hidden,
+      );
+    });
   });
 }

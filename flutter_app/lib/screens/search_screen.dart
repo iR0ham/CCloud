@@ -4,10 +4,13 @@ import 'package:flutter/material.dart';
 
 import '../core/api_client.dart';
 import '../core/app_events.dart';
+import '../core/media_filters.dart';
 import '../core/models.dart';
 import '../core/origin_filter.dart';
 import '../core/recent_searches.dart';
+import '../core/search_support.dart';
 import '../core/stores.dart';
+import '../ui/media_filter_panel.dart';
 import '../ui/nav.dart';
 import '../ui/shell.dart';
 import '../ui/theme.dart';
@@ -29,6 +32,7 @@ class _SearchScreenState extends State<SearchScreen> {
   Timer? _debounce;
 
   List<MediaItem> _results = const [];
+  MediaFilters _filters = const MediaFilters();
   bool _loading = false;
   bool _searched = false;
   String? _error;
@@ -129,6 +133,20 @@ class _SearchScreenState extends State<SearchScreen> {
     _onChanged('');
   }
 
+  void _applyFilters(MediaFilters value) {
+    if (value == _filters) return;
+    setState(() => _filters = value);
+  }
+
+  Future<void> _openFilters() async {
+    final result = await showMediaFilterPanel(
+      context,
+      _filters,
+      showKind: true,
+    );
+    if (result != null) _applyFilters(result);
+  }
+
   void _goBack() {
     final navigator = Navigator.of(context);
     if (navigator.canPop()) {
@@ -146,7 +164,18 @@ class _SearchScreenState extends State<SearchScreen> {
       child: ListenableBuilder(
         listenable: Listenable.merge([_settings, _recents]),
         builder: (context, _) {
-          final visibleResults = _visibleResults(_settings);
+          final hiding = ContentHiding(
+            origins: _settings.hideRegionalOrigins,
+            anime: _settings.hideAnime,
+          );
+          final visibleResults = _visibleResults(hiding);
+          final state = searchResultState(
+            hasSearched: _searched,
+            totalResults: _results.length,
+            visibleResults: visibleResults.length,
+            filtersActive: _filters.isActive,
+            hidingActive: hiding.isActive,
+          );
           return Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
@@ -203,30 +232,22 @@ class _SearchScreenState extends State<SearchScreen> {
                         ),
                       ),
                     ),
+                    const SizedBox(width: 8),
+                    MediaFilterButton(
+                      filters: _filters,
+                      showKind: true,
+                      onTap: _openFilters,
+                    ),
                   ],
                 ),
               ),
-              Expanded(
-                child: _loading
-                    ? const LoadingView(message: 'در حال جست‌وجو…')
-                    : _error != null
-                    ? ErrorView(message: _error!, onRetry: _search)
-                    : !_searched
-                    ? _idleView(context)
-                    : visibleResults.isEmpty
-                    ? const EmptyView(
-                        message: 'نتیجه‌ای پیدا نشد.',
-                        icon: Icons.search_off_rounded,
-                      )
-                    : PosterGrid(
-                        items: visibleResults,
-                        maxExtent: width >= 760 ? 180 : 150,
-                        onOpen: (item) =>
-                            Navigator.of(context)
-                                .push(appRoute(DetailScreen(item: item))),
-                        padding: const EdgeInsets.fromLTRB(16, 8, 16, 30),
-                      ),
-              ),
+              if (_filters.isActive)
+                ActiveMediaFilterChips(
+                  filters: _filters,
+                  showKind: true,
+                  onChange: _applyFilters,
+                ),
+              Expanded(child: _content(state, visibleResults, hiding, width)),
             ],
           );
         },
@@ -234,13 +255,101 @@ class _SearchScreenState extends State<SearchScreen> {
     );
   }
 
-  /// Origin/anime hiding applies to search results too, like the macOS app.
-  List<MediaItem> _visibleResults(AppSettings settings) {
-    final hiding = ContentHiding(
-      origins: settings.hideRegionalOrigins,
-      anime: settings.hideAnime,
+  Widget _content(
+    SearchResultState state,
+    List<MediaItem> visibleResults,
+    ContentHiding hiding,
+    double width,
+  ) {
+    // Results stay on screen while a newer query loads, as in the macOS app.
+    if (_loading && _results.isEmpty) {
+      return const LoadingView(message: 'در حال جست‌وجو…');
+    }
+    if (_error != null) {
+      return ErrorView(message: _error!, onRetry: _search);
+    }
+    switch (state) {
+      case SearchResultState.results:
+        return _resultsView(visibleResults, hiding, width);
+      case SearchResultState.filteredEmpty:
+        return MediaFilteredEmptyView(
+          hasMore: false,
+          onScanMore: () {},
+          onClear: () => _applyFilters(const MediaFilters()),
+        );
+      case SearchResultState.hiddenEmpty:
+        return EmptyView(
+          icon: Icons.visibility_off_outlined,
+          title: 'همهٔ نتایج پنهان شده‌اند',
+          message: searchHidingMessage(_lastQuery),
+        );
+      case SearchResultState.notFound:
+        return EmptyView(
+          icon: Icons.search_off_rounded,
+          title: 'نتیجه‌ای پیدا نشد',
+          message: searchNotFoundMessage(_lastQuery),
+        );
+      case SearchResultState.idle:
+        return _idleView(context);
+    }
+  }
+
+  Widget _resultsView(
+    List<MediaItem> visibleResults,
+    ContentHiding hiding,
+    double width,
+  ) {
+    final postFiltering = _filters.isActive || hiding.isActive;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
+          child: Row(
+            children: [
+              if (_loading) ...[
+                const SizedBox(
+                  width: 14,
+                  height: 14,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+                const SizedBox(width: 8),
+              ],
+              Expanded(
+                child: Text(
+                  searchResultsCaption(
+                    visible: visibleResults.length,
+                    total: _results.length,
+                    query: _lastQuery,
+                    postFiltering: postFiltering,
+                  ),
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: PosterGrid(
+            items: visibleResults,
+            maxExtent: width >= 760 ? 180 : 150,
+            onOpen: (item) =>
+                Navigator.of(context).push(appRoute(DetailScreen(item: item))),
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 30),
+          ),
+        ),
+      ],
     );
-    return _results.where((item) => !hiding.isHidden(item)).toList();
+  }
+
+  /// Origin/anime hiding and the media filters apply to search results too,
+  /// like the macOS app.
+  List<MediaItem> _visibleResults(ContentHiding hiding) {
+    return _results.where((item) {
+      if (hiding.isHidden(item)) return false;
+      if (_filters.isActive && !_filters.matches(item)) return false;
+      return true;
+    }).toList();
   }
 
   Widget _idleView(BuildContext context) {

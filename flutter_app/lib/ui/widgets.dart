@@ -64,7 +64,8 @@ class _AppFocusableState extends State<AppFocusable> {
     // `Focus.of(context)` would resolve to the ancestor above this widget; the
     // action fires for this tile's own node.
     final node = _node;
-    final vertical = direction == TraversalDirection.up ||
+    final vertical =
+        direction == TraversalDirection.up ||
         direction == TraversalDirection.down;
     final listScrollable = widget.keepDirectionalWithinScrollable
         ? Scrollable.maybeOf(context)
@@ -111,10 +112,13 @@ class _AppFocusableState extends State<AppFocusable> {
     );
   }
 
-  FocusNode? _siblingInList(FocusNode current, ScrollableState list, bool down) {
+  FocusNode? _siblingInList(
+    FocusNode current,
+    ScrollableState list,
+    bool down,
+  ) {
     final currentContext = current.context;
-    if (currentContext == null ||
-        currentContext.findRenderObject() == null) {
+    if (currentContext == null || currentContext.findRenderObject() == null) {
       return null;
     }
     final currentRect = current.rect;
@@ -136,7 +140,8 @@ class _AppFocusableState extends State<AppFocusable> {
           ? rect.top >= currentRect.bottom - 1
           : rect.bottom <= currentRect.top + 1;
       if (!beyond) continue;
-      final overlap = math.min(rect.right, currentRect.right) -
+      final overlap =
+          math.min(rect.right, currentRect.right) -
           math.max(rect.left, currentRect.left);
       final distance = down
           ? rect.top - currentRect.bottom
@@ -154,8 +159,7 @@ class _AppFocusableState extends State<AppFocusable> {
   /// horizontal band (the header/search field of the same column).
   FocusNode? _focusAboveInColumn(FocusNode current) {
     final currentContext = current.context;
-    if (currentContext == null ||
-        currentContext.findRenderObject() == null) {
+    if (currentContext == null || currentContext.findRenderObject() == null) {
       return null;
     }
     final currentRect = current.rect;
@@ -171,7 +175,8 @@ class _AppFocusableState extends State<AppFocusable> {
       final rect = candidate.rect;
       if (rect.isEmpty) continue;
       if (rect.bottom > currentRect.top + 1) continue;
-      final overlap = math.min(rect.right, currentRect.right) -
+      final overlap =
+          math.min(rect.right, currentRect.right) -
           math.max(rect.left, currentRect.left);
       if (overlap <= 0) continue;
       final score = (currentRect.top - rect.bottom).abs();
@@ -196,15 +201,17 @@ class _AppFocusableState extends State<AppFocusable> {
     final forward = vertical
         ? direction == TraversalDirection.down
         : direction ==
-            (rtl ? TraversalDirection.left : TraversalDirection.right);
+              (rtl ? TraversalDirection.left : TraversalDirection.right);
     final backward = vertical
         ? direction == TraversalDirection.up
         : direction ==
-            (rtl ? TraversalDirection.right : TraversalDirection.left);
+              (rtl ? TraversalDirection.right : TraversalDirection.left);
     if (!forward && !backward) return false;
     const step = 140.0;
-    final target = (position.pixels + (forward ? step : -step))
-        .clamp(position.minScrollExtent, position.maxScrollExtent);
+    final target = (position.pixels + (forward ? step : -step)).clamp(
+      position.minScrollExtent,
+      position.maxScrollExtent,
+    );
     if (target == position.pixels) return false;
     position
         .animateTo(
@@ -213,12 +220,12 @@ class _AppFocusableState extends State<AppFocusable> {
           curve: Curves.easeOut,
         )
         .then((_) {
-      if (!mounted) return;
-      onSettled?.call();
-      if (retryNode != null && retryNode.hasFocus) {
-        retryNode.focusInDirection(direction);
-      }
-    });
+          if (!mounted) return;
+          onSettled?.call();
+          if (retryNode != null && retryNode.hasFocus) {
+            retryNode.focusInDirection(direction);
+          }
+        });
     return true;
   }
 
@@ -347,7 +354,9 @@ class _DpadTextFieldState extends State<DpadTextField> {
 /// same horizontal band, in [direction]. Used by text fields so the D-pad
 /// keeps moving instead of trapping focus inside the field.
 bool focusNearestOutsideColumn(
-    BuildContext context, TraversalDirection direction) {
+  BuildContext context,
+  TraversalDirection direction,
+) {
   final render = context.findRenderObject();
   if (render is! RenderBox || !render.hasSize) return false;
   final rect = render.localToGlobal(Offset.zero) & render.size;
@@ -363,8 +372,9 @@ bool focusNearestOutsideColumn(
     }
     final other = candidate.rect;
     if (other.isEmpty) continue;
-    final beyond =
-        down ? other.top >= rect.bottom - 1 : other.bottom <= rect.top + 1;
+    final beyond = down
+        ? other.top >= rect.bottom - 1
+        : other.bottom <= rect.top + 1;
     if (!beyond) continue;
     final overlap =
         math.min(other.right, rect.right) - math.max(other.left, rect.left);
@@ -522,10 +532,10 @@ class AsyncImage extends StatelessWidget {
   }
 
   Widget _placeholder(AppPalette palette) => Container(
-        color: palette.card,
-        alignment: Alignment.center,
-        child: Icon(placeholderIcon, color: palette.textTertiary, size: 28),
-      );
+    color: palette.card,
+    alignment: Alignment.center,
+    child: Icon(placeholderIcon, color: palette.textTertiary, size: 28),
+  );
 }
 
 class RatingBadge extends StatelessWidget {
@@ -703,10 +713,7 @@ class SectionHeader extends StatelessWidget {
               if (subtitle != null)
                 Padding(
                   padding: const EdgeInsets.only(top: 2),
-                  child: Text(
-                    subtitle!,
-                    style: theme.textTheme.bodySmall,
-                  ),
+                  child: Text(subtitle!, style: theme.textTheme.bodySmall),
                 ),
             ],
           ),
@@ -837,14 +844,10 @@ class FilterPills extends StatelessWidget {
               padding: const EdgeInsets.symmetric(horizontal: 16),
               alignment: Alignment.center,
               decoration: BoxDecoration(
-                color: isSelected
-                    ? AppColors.accent
-                    : context.palette.card,
+                color: isSelected ? AppColors.accent : context.palette.card,
                 borderRadius: BorderRadius.circular(999),
                 border: Border.all(
-                  color: isSelected
-                      ? AppColors.accent
-                      : context.palette.stroke,
+                  color: isSelected ? AppColors.accent : context.palette.stroke,
                 ),
               ),
               child: Text(
@@ -913,8 +916,11 @@ class ErrorView extends StatelessWidget {
                 color: AppColors.red.withValues(alpha: 0.12),
                 borderRadius: BorderRadius.circular(16),
               ),
-              child: const Icon(Icons.wifi_off_rounded,
-                  color: AppColors.red, size: 26),
+              child: const Icon(
+                Icons.wifi_off_rounded,
+                color: AppColors.red,
+                size: 26,
+              ),
             ),
             const SizedBox(height: 14),
             Text(
@@ -941,10 +947,14 @@ class EmptyView extends StatelessWidget {
     super.key,
     required this.message,
     this.icon = Icons.inbox_outlined,
+    this.title,
   });
 
   final String message;
   final IconData icon;
+
+  /// Optional heading above the message, as in the macOS `EmptyStateView`.
+  final String? title;
 
   @override
   Widget build(BuildContext context) {
@@ -954,6 +964,14 @@ class EmptyView extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           Icon(icon, size: 42, color: palette.textTertiary),
+          if (title != null) ...[
+            const SizedBox(height: 12),
+            Text(
+              title!,
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+          ],
           const SizedBox(height: 12),
           Text(
             message,
@@ -1043,7 +1061,11 @@ class MetaChip extends StatelessWidget {
 
 /// Simple blurred backdrop used behind hero elements.
 class BlurredImageBackground extends StatelessWidget {
-  const BlurredImageBackground({super.key, required this.url, this.opacity = 0.45});
+  const BlurredImageBackground({
+    super.key,
+    required this.url,
+    this.opacity = 0.45,
+  });
 
   final String? url;
   final double opacity;

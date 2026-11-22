@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../core/app_events.dart';
 import '../core/live_catalog.dart';
 import '../core/models.dart';
 import '../core/playback.dart';
@@ -27,13 +28,21 @@ class _LiveScreenState extends State<LiveScreen> {
   @override
   void initState() {
     super.initState();
+    AppEvents.refreshTick.addListener(_onRefreshTick);
     _load();
   }
 
   @override
   void dispose() {
+    AppEvents.refreshTick.removeListener(_onRefreshTick);
     _countrySearch.dispose();
     super.dispose();
+  }
+
+  /// The desktop refresh shortcut reloads the country list too, like
+  /// `LiveTVView.swift` does on a refresh tick.
+  void _onRefreshTick() {
+    if (mounted) _load(force: true);
   }
 
   Future<void> _load({bool force = false}) async {
@@ -247,13 +256,21 @@ class _ChannelsPaneState extends State<_ChannelsPane> {
   @override
   void initState() {
     super.initState();
+    AppEvents.refreshTick.addListener(_onRefreshTick);
     _load();
   }
 
   @override
   void dispose() {
+    AppEvents.refreshTick.removeListener(_onRefreshTick);
     _search.dispose();
     super.dispose();
+  }
+
+  /// A refresh tick forces the same reload as the header button, dropping the
+  /// merged Iran cache first (`LiveTVView.swift` refresh behaviour).
+  void _onRefreshTick() {
+    if (mounted) _load(force: true);
   }
 
   Future<void> _load({bool force = false}) async {

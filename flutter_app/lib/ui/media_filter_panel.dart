@@ -6,14 +6,21 @@ import 'theme.dart';
 import 'widgets.dart';
 
 /// Opens the filter surface and returns the chosen filters, or null when the
-/// user dismissed it without confirming.
+/// user dismissed it without applying.
+///
+/// The ✕ applies the current selection and closes, matching the macOS
+/// popover; Esc or a tap outside returns null and keeps the previous filters.
 Future<MediaFilters?> showMediaFilterPanel(
   BuildContext context,
-  MediaFilters current,
-) {
+  MediaFilters current, {
+  bool showKind = false,
+}) {
   return showDialog<MediaFilters>(
     context: context,
-    builder: (_) => _MediaFilterDialog(initial: current),
+    builder: (_) => _MediaFilterDialog(
+      initial: current.visible(showKind: showKind),
+      showKind: showKind,
+    ),
   );
 }
 
@@ -23,14 +30,20 @@ class MediaFilterButton extends StatelessWidget {
     super.key,
     required this.filters,
     required this.onTap,
+    this.showKind = false,
   });
 
   final MediaFilters filters;
   final VoidCallback onTap;
 
+  /// Whether the surface offers the «همه/فیلم/سریال» section. A hidden kind
+  /// cannot be set, so it must not tint the button or count in the badge.
+  final bool showKind;
+
   @override
   Widget build(BuildContext context) {
     final palette = context.palette;
+    final displayed = filters.visible(showKind: showKind);
     return Tooltip(
       message: 'فیلتر بر اساس نوع، سال ساخت و امتیاز IMDb',
       child: AppFocusable(
@@ -41,10 +54,10 @@ class MediaFilterButton extends StatelessWidget {
           height: 40,
           padding: const EdgeInsets.symmetric(horizontal: 13),
           decoration: BoxDecoration(
-            color: filters.isActive ? AppColors.accent : palette.card,
+            color: displayed.isActive ? AppColors.accent : palette.card,
             borderRadius: BorderRadius.circular(999),
             border: Border.all(
-              color: filters.isActive ? AppColors.accent : palette.stroke,
+              color: displayed.isActive ? AppColors.accent : palette.stroke,
             ),
           ),
           child: Row(
@@ -53,7 +66,9 @@ class MediaFilterButton extends StatelessWidget {
               Icon(
                 Icons.tune_rounded,
                 size: 17,
-                color: filters.isActive ? Colors.white : palette.textSecondary,
+                color: displayed.isActive
+                    ? Colors.white
+                    : palette.textSecondary,
               ),
               const SizedBox(width: 6),
               Text(
@@ -61,15 +76,15 @@ class MediaFilterButton extends StatelessWidget {
                 style: TextStyle(
                   fontFamily: AppTheme.fontFamily,
                   fontSize: 12.5,
-                  fontWeight: filters.isActive
+                  fontWeight: displayed.isActive
                       ? FontWeight.w700
                       : FontWeight.w500,
-                  color: filters.isActive
+                  color: displayed.isActive
                       ? Colors.white
                       : palette.textSecondary,
                 ),
               ),
-              if (filters.isActive) ...[
+              if (displayed.isActive) ...[
                 const SizedBox(width: 6),
                 Container(
                   constraints: const BoxConstraints(minWidth: 18),
@@ -81,7 +96,7 @@ class MediaFilterButton extends StatelessWidget {
                     borderRadius: BorderRadius.circular(999),
                   ),
                   child: Text(
-                    faDigits(filters.activeCount),
+                    faDigits(displayed.activeCount),
                     style: const TextStyle(
                       fontFamily: AppTheme.fontFamily,
                       fontSize: 10,
@@ -105,22 +120,28 @@ class ActiveMediaFilterChips extends StatelessWidget {
     super.key,
     required this.filters,
     required this.onChange,
+    this.showKind = false,
   });
 
   final MediaFilters filters;
   final ValueChanged<MediaFilters> onChange;
 
+  /// Mirrors the panel: without the kind section there is no kind chip.
+  final bool showKind;
+
   @override
   Widget build(BuildContext context) {
-    if (!filters.isActive) return const SizedBox.shrink();
+    final displayed = filters.visible(showKind: showKind);
+    if (!displayed.isActive) return const SizedBox.shrink();
     final chips = <Widget>[];
     for (final facet in MediaFilterFacet.values) {
-      final label = filters.facetLabel(facet);
+      if (facet == MediaFilterFacet.kind && !showKind) continue;
+      final label = displayed.facetLabel(facet);
       if (label == null) continue;
       chips.add(
         _ActiveFilterChip(
           label: label,
-          onRemove: () => onChange(filters.without(facet)),
+          onRemove: () => onChange(displayed.without(facet)),
         ),
       );
     }
@@ -289,9 +310,10 @@ class MediaFilteredEmptyView extends StatelessWidget {
 }
 
 class _MediaFilterDialog extends StatefulWidget {
-  const _MediaFilterDialog({required this.initial});
+  const _MediaFilterDialog({required this.initial, required this.showKind});
 
   final MediaFilters initial;
+  final bool showKind;
 
   @override
   State<_MediaFilterDialog> createState() => _MediaFilterDialogState();
@@ -348,35 +370,37 @@ class _MediaFilterDialogState extends State<_MediaFilterDialog> {
                 ],
               ),
               const SizedBox(height: 6),
-              _label(context, 'نوع'),
-              const SizedBox(height: 8),
-              Wrap(
-                spacing: 6,
-                runSpacing: 6,
-                children: [
-                  _ChoiceChip(
-                    label: 'همه',
-                    selected: _filters.kind == null,
-                    onTap: () =>
-                        setState(() => _filters = _filters.withKind(null)),
-                  ),
-                  _ChoiceChip(
-                    label: 'فیلم',
-                    selected: _filters.kind == MediaKind.movie,
-                    onTap: () => setState(
-                      () => _filters = _filters.withKind(MediaKind.movie),
+              if (widget.showKind) ...[
+                _label(context, 'نوع'),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: [
+                    _ChoiceChip(
+                      label: 'همه',
+                      selected: _filters.kind == null,
+                      onTap: () =>
+                          setState(() => _filters = _filters.withKind(null)),
                     ),
-                  ),
-                  _ChoiceChip(
-                    label: 'سریال',
-                    selected: _filters.kind == MediaKind.series,
-                    onTap: () => setState(
-                      () => _filters = _filters.withKind(MediaKind.series),
+                    _ChoiceChip(
+                      label: 'فیلم',
+                      selected: _filters.kind == MediaKind.movie,
+                      onTap: () => setState(
+                        () => _filters = _filters.withKind(MediaKind.movie),
+                      ),
                     ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 18),
+                    _ChoiceChip(
+                      label: 'سریال',
+                      selected: _filters.kind == MediaKind.series,
+                      onTap: () => setState(
+                        () => _filters = _filters.withKind(MediaKind.series),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 18),
+              ],
               _label(context, 'سال ساخت'),
               const SizedBox(height: 8),
               Row(
