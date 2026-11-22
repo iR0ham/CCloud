@@ -65,9 +65,8 @@ add_compile_definitions("CCLOUD_VERSION=\"${CCLOUD_VERSION}\"")
 # === CCloud renderer escape hatch ===
 # Release builds keep the Flutter default renderer. A build configured with
 # -DCCLOUD_FORCE_SKIA=ON (or a compat.txt next to the exe, handled in the
-# runner) disables Impeller when the configured Flutter SDK provides the
-# switch. The probe compiles against the SDK's own dart_project.h so an older
-# SDK can never turn this into a compile error.
+# runner) disables Impeller. See CCLOUD_HAS_IMPELLER_SWITCH below for why the
+# availability of that setter is declared rather than probed.
 option(CCLOUD_FORCE_SKIA "Disable Impeller in this build (compatibility build)" OFF)
 if(CCLOUD_FORCE_SKIA)
   add_compile_definitions(CCLOUD_DEFAULT_SKIA=1)
@@ -79,45 +78,29 @@ elseif(DEFINED ENV{CCLOUD_FORCE_SKIA})
   unset(_ccloud_env_force_skia)
 endif()
 
-include(CheckCXXSourceCompiles)
-
-# The probe mutates several CMake variables (try-compile type, language level,
-# include dirs). Doing that here in directory scope and then "restoring" the
-# previous values is unsafe: when CMAKE_CXX_STANDARD was never set, the restore
-# writes an empty string back and CMake rejects every later target with
-# "CMAKE_CXX_STANDARD is set to invalid value ''". A function scope throws the
-# mutations away automatically, so no variable outside this function changes.
-function(CCLOUD_PROBE_IMPELLER_SWITCH _result_var)
-  set(CMAKE_TRY_COMPILE_TARGET_TYPE STATIC_LIBRARY)
-  # The wrapper headers are C++17; make the probe use the same language level as
-  # the runner so a missing <optional>/<string_view> cannot fake a missing API.
-  set(CMAKE_CXX_STANDARD 17)
-  set(CMAKE_CXX_STANDARD_REQUIRED ON)
-  set(CMAKE_REQUIRED_INCLUDES
-      "${FLUTTER_MANAGED_DIR}/ephemeral/cpp_client_wrapper/include")
-  check_cxx_source_compiles("
-#include <flutter/dart_project.h>
-int main() {
-  flutter::DartProject project(L\"data\");
-  project.set_impeller_switch(flutter::ImpellerSwitch::Disabled);
-  return 0;
-}
-" ${_result_var})
-  set(${_result_var} "${${_result_var}}" PARENT_SCOPE)
-endfunction()
-
-# CCLOUD_HAS_IMPELLER_SWITCH is a cache variable, so the result still reaches
-# the rest of this file and CI through the marker below.
-CCLOUD_PROBE_IMPELLER_SWITCH(CCLOUD_HAS_IMPELLER_SWITCH)
-
-if(CCLOUD_HAS_IMPELLER_SWITCH)
-  add_compile_definitions(CCLOUD_HAS_IMPELLER_SWITCH=1)
-endif()
-message(STATUS "CCloud Impeller switch probe: ${CCLOUD_HAS_IMPELLER_SWITCH}")
-# CI reads this marker after the build to decide whether a compat build can be
-# produced without guessing about the SDK.
-file(WRITE "${CMAKE_BINARY_DIR}/ccloud_impeller_probe.txt"
-     "${CCLOUD_HAS_IMPELLER_SWITCH}")
+# === Does this Flutter SDK expose the Impeller switch? ===
+# The runner calls flutter::DartProject::set_impeller_switch(), which the
+# client-wrapper header of the pinned SDK declares (3.47.8:
+# shell/platform/windows/client_wrapper/include/flutter/dart_project.h,
+# enum ImpellerSwitch + the setter and getter).
+#
+# A check_cxx_source_compiles probe against that header is NOT possible at
+# configure time, and CI proved it: the tool unpacks the wrapper headers into
+# windows/flutter/ephemeral/cpp_client_wrapper only from the flutter_assemble
+# build step (build_system/targets/windows.dart copies
+# Artifact.windowsCppClientWrapper into the ephemeral dir), while
+# build_windows.dart runs _runCmakeGeneration() BEFORE _runBuild(). On a clean
+# runner the include directory does not exist yet, so the probe compiled
+# nothing, returned an empty cache value and wrote a 0-byte marker (CI run
+# 45045859767) - which silently disabled the escape hatch in every package.
+#
+# So the requirement is stated here instead of guessed: the compat escape hatch
+# needs the SDK this repo pins. If the pinned Flutter is ever lowered below the
+# version that ships the setter, the compile fails with a plain
+# "no member named 'set_impeller_switch'" error in runner/main.cpp, which is
+# loud and points straight at this comment - unlike a probe that can only ever
+# answer "unsupported".
+add_compile_definitions(CCLOUD_HAS_IMPELLER_SWITCH=1)
 
 # Application build; see runner/CMakeLists.txt.
 add_subdirectory("runner")

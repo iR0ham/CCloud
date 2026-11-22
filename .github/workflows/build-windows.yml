@@ -42,8 +42,6 @@ jobs:
     defaults:
       run:
         working-directory: flutter_app
-    outputs:
-      impeller: ${{ steps.impeller.outputs.supported }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -81,30 +79,11 @@ jobs:
           ../scripts/assert-windows-package.ps1 `
             -PackageDir (Join-Path $env:RUNNER_TEMP 'ccloud-release\windows')
 
-      # The CMake probe writes 1 (supported) or an empty file (unsupported), so
-      # the compat build is only attempted when this Flutter SDK actually
-      # exposes ImpellerSwitch.
-      - name: Read the Impeller switch probe
-        id: impeller
-        shell: pwsh
-        run: |
-          $marker = Get-ChildItem -Path build -Recurse -Filter ccloud_impeller_probe.txt -ErrorAction SilentlyContinue |
-            Select-Object -First 1
-          # Accept every truthy spelling CMake may emit instead of guessing.
-          # A missing marker means the probe never ran: treat it as unsupported
-          # rather than failing the build job.
-          $supported = $false
-          $raw = ''
-          if ($marker) {
-            $raw = (Get-Content -LiteralPath $marker.FullName -Raw).Trim()
-            $supported = ($raw -match '^(1|TRUE|ON|YES)$')
-          } else {
-            Write-Host '::warning::ccloud_impeller_probe.txt not found; skipping the compat package'
-          }
-          Write-Host "Probe marker contents: '$raw'"
-          Write-Host "Impeller switch supported: $supported"
-          "supported=$($supported.ToString().ToLower())" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
-
+      # The CMake probe that used to gate the compat package is gone on purpose:
+      # the wrapper headers it compiled against are only unpacked during the
+      # build, so it could only ever answer "unsupported" on a clean runner, and
+      # it sat between the assert and the upload, so its crash swallowed the
+      # package. windows/CMakeLists.txt now declares the requirement instead.
       - name: Upload portable build
         uses: actions/upload-artifact@v4
         with:
@@ -113,9 +92,13 @@ jobs:
           if-no-files-found: error
 
       # The installer is best effort: a runner without Inno Setup must not turn
-      # the whole build red, but the log says clearly that it was skipped.
+      # the whole build red, but the log says clearly that it was skipped. The
+      # portable package and its smoke test matter more than the installer, so
+      # the step cannot fail the job either - ISCC problems still show up in the
+      # step log and the skipped upload.
       - name: Build installer (Inno Setup)
         id: installer
+        continue-on-error: true
         shell: pwsh
         run: |
           # Never hardcode the version here: pubspec.yaml is the single source,
@@ -141,11 +124,12 @@ jobs:
   # Escape hatch for machines whose GPU/driver path keeps Impeller from
   # presenting a frame. This is a separate job on purpose: a failure here must
   # not hide the already-published portable package, the installer or the smoke
-  # test, and the extra Windows build is paid only when the SDK probe is green.
+  # test. It is no longer gated on a configure-time SDK probe, because that
+  # probe cannot work (see windows/CMakeLists.txt) and skipping the package was
+  # worse than building it.
   package-windows-compat:
     name: Windows compatibility package (Skia)
     needs: build-windows
-    if: needs.build-windows.outputs.impeller == 'true'
     runs-on: windows-latest
     timeout-minutes: 60
     defaults:

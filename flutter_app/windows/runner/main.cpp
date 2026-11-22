@@ -66,7 +66,8 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   // Renderer escape hatch. The default release keeps the Flutter default
   // (Impeller); a compat.txt next to the exe or a CCLOUD_FORCE_SKIA build turns
   // it off, because a broken GPU/driver path can otherwise leave a hidden
-  // window. The switch is compiled only when the configured SDK provides it.
+  // window. windows/CMakeLists.txt defines CCLOUD_HAS_IMPELLER_SWITCH for the
+  // pinned SDK; the #else branch only stays as the downgrade safety net.
   const bool compat_requested = FileExistsNextToExe(L"compat.txt");
   bool compat = compat_requested;
 #ifdef CCLOUD_DEFAULT_SKIA

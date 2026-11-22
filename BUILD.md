@@ -179,7 +179,9 @@ DLLهای ANGLE و پوشهٔ `data`. **سه DLL رانتایم VC++ به‌طو
 Actions (workflow_dispatch) یا push یک tag با الگوی `v*`. خروجی‌ها:
 
 - `CCloud-windows-x64` — پوشهٔ Release با DLLهای VC++ (ZIP قابل انتقال).
-- `CCloud-windows-x64-compat` — فقط اگر SDK فعلی کلید Impeller را داشته باشد؛ همان بسته با Skia.
+- `CCloud-windows-x64-compat` — همان بسته با رندرر Skia (کلید Impeller در Flutter ۳٫۴۷٫۸ که CI استفاده
+  می‌کند وجود دارد، پس این بسته همیشه ساخته می‌شود). در بستهٔ عادی هم می‌توانید با گذاشتن یک فایل خالی
+  به نام `compat.txt` کنار `ccloud.exe` همین اثر را بگیرید.
 - `CCloud-windows-x64-setup` — نصب‌کنندهٔ Inno Setup؛ اگر Inno روی runner پیدا/نصب نشود،
   این مرحله با هشدار skip می‌شود و بیلد قرمز نمی‌شود.
 
