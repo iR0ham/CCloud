@@ -38,7 +38,7 @@ jobs:
   build-windows:
     name: Windows release build
     runs-on: windows-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     defaults:
       run:
         working-directory: flutter_app
@@ -63,11 +63,157 @@ jobs:
       - name: Build (release)
         run: flutter build windows --release
 
+      # A Flutter ZIP without the MSVC runtime starts and dies with no window:
+      # msvcp140.dll / vcruntime140.dll / vcruntime140_1.dll are imported by
+      # ccloud.exe and every plugin DLL. Stage the bundle and add them here.
+      - name: Stage release and bundle the MSVC runtime
+        shell: pwsh
+        run: |
+          $dest = Join-Path $env:RUNNER_TEMP 'ccloud-release\windows'
+          New-Item -ItemType Directory -Force -Path $dest | Out-Null
+          Copy-Item 'build/windows/x64/runner/Release/*' $dest -Recurse -Force
+
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+          if (-not (Test-Path -LiteralPath $vswhere)) {
+            throw "vswhere.exe not found at $vswhere"
+          }
+          $vs = (& $vswhere -latest -property installationPath).Trim()
+          if (-not $vs) { throw 'vswhere returned no Visual Studio installation' }
+          $crt = Get-ChildItem (Join-Path $vs 'VC\Redist\MSVC\*\x64\Microsoft.VC143.CRT') -Directory |
+            Sort-Object { [version]$_.Name } -Descending | Select-Object -First 1
+          if (-not $crt) { throw "No Microsoft.VC143.CRT under $vs\VC\Redist\MSVC" }
+          Write-Host "Using CRT redist: $($crt.FullName)"
+
+          foreach ($dll in @('msvcp140.dll', 'vcruntime140.dll', 'vcruntime140_1.dll')) {
+            Copy-Item (Join-Path $crt.FullName $dll) $dest -Force
+            if (-not (Test-Path -LiteralPath (Join-Path $dest $dll))) {
+              throw "$dll is missing from $dest after copying"
+            }
+          }
+
+          Write-Host "Staged release files in $dest :"
+          Get-ChildItem -LiteralPath $dest -File | Sort-Object Name | ForEach-Object {
+            Write-Host ("  {0,12}  {1}" -f $_.Length, $_.Name)
+          }
+
+      - name: Assert the package can start on a clean Windows machine
+        shell: pwsh
+        run: |
+          $dest = Join-Path $env:RUNNER_TEMP 'ccloud-release\windows'
+          $required = @(
+            'ccloud.exe',
+            'flutter_windows.dll',
+            'msvcp140.dll',
+            'vcruntime140.dll',
+            'vcruntime140_1.dll',
+            'libmpv-2.dll',
+            'data\app.so'
+          )
+          $missing = @($required | Where-Object {
+            -not (Test-Path -LiteralPath (Join-Path $dest $_))
+          })
+          if ($missing.Count -gt 0) {
+            throw "Release package is incomplete: $($missing -join ', ')"
+          }
+          Write-Host 'Release package contains the exe, Flutter DLL, MSVC runtime, libmpv and data/app.so.'
+          Get-ChildItem -LiteralPath $dest -File | Sort-Object Name | ForEach-Object {
+            Write-Host ("  {0,12}  {1}" -f $_.Length, $_.Name)
+          }
+
+      # The CMake probe writes 1/0 so the compat build is only attempted when
+      # this Flutter SDK actually exposes ImpellerSwitch.
+      - name: Read the Impeller switch probe
+        id: impeller
+        shell: pwsh
+        run: |
+          $marker = Get-ChildItem -Path build -Recurse -Filter ccloud_impeller_probe.txt -ErrorAction SilentlyContinue |
+            Select-Object -First 1
+          # CMake caches this as TRUE/FALSE and file(WRITE) emits that literal
+          # text, so accept both spellings instead of guessing which one lands.
+          # A missing marker means the probe never ran: treat it as unsupported
+          # rather than failing the build job.
+          $supported = $false
+          $raw = ''
+          if ($marker) {
+            $raw = (Get-Content -LiteralPath $marker.FullName -Raw).Trim()
+            $supported = ($raw -match '^(1|TRUE|ON|YES)$')
+          } else {
+            Write-Host '::warning::ccloud_impeller_probe.txt not found; skipping the compat package'
+          }
+          Write-Host "Probe marker contents: '$raw'"
+          Write-Host "Impeller switch supported: $supported"
+          "supported=$($supported.ToString().ToLower())" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
       - name: Upload portable build
         uses: actions/upload-artifact@v4
         with:
           name: CCloud-windows-x64
-          path: flutter_app/build/windows/x64/runner/Release/
+          path: ${{ runner.temp }}/ccloud-release/windows/
+          if-no-files-found: error
+
+      # Escape hatch for machines whose GPU/driver path keeps Impeller from
+      # presenting a frame. Same bundle, built with Impeller disabled.
+      - name: Build compatibility package (Skia)
+        if: steps.impeller.outputs.supported == 'true'
+        shell: pwsh
+        run: |
+          flutter clean
+          $env:CCLOUD_FORCE_SKIA = 'ON'
+          flutter pub get
+          flutter build windows --release
+
+          $dest = Join-Path $env:RUNNER_TEMP 'ccloud-release\windows-compat'
+          New-Item -ItemType Directory -Force -Path $dest | Out-Null
+          Copy-Item 'build/windows/x64/runner/Release/*' $dest -Recurse -Force
+
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+          $vs = (& $vswhere -latest -property installationPath).Trim()
+          $crt = Get-ChildItem (Join-Path $vs 'VC\Redist\MSVC\*\x64\Microsoft.VC143.CRT') -Directory |
+            Sort-Object { [version]$_.Name } -Descending | Select-Object -First 1
+          if (-not $crt) { throw "No Microsoft.VC143.CRT under $vs\VC\Redist\MSVC" }
+          foreach ($dll in @('msvcp140.dll', 'vcruntime140.dll', 'vcruntime140_1.dll')) {
+            Copy-Item (Join-Path $crt.FullName $dll) $dest -Force
+            if (-not (Test-Path -LiteralPath (Join-Path $dest $dll))) {
+              throw "$dll is missing from $dest after copying"
+            }
+          }
+          Write-Host "Staged compatibility files in $dest :"
+          Get-ChildItem -LiteralPath $dest -File | Sort-Object Name | ForEach-Object {
+            Write-Host ("  {0,12}  {1}" -f $_.Length, $_.Name)
+          }
+
+      - name: Upload compatibility build
+        if: steps.impeller.outputs.supported == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: CCloud-windows-x64-compat
+          path: ${{ runner.temp }}/ccloud-release/windows-compat/
+          if-no-files-found: error
+
+      # The installer is best effort: a runner without Inno Setup must not turn
+      # the whole build red, but the log says clearly that it was skipped.
+      - name: Build installer (Inno Setup)
+        id: installer
+        shell: pwsh
+        run: |
+          # Never hardcode the version here: pubspec.yaml is the single source,
+          # so a bump cannot ship an installer labelled with the old number.
+          $line = (Select-String -Path pubspec.yaml -Pattern '^version:' |
+            Select-Object -First 1).Line
+          $AppVersion = ($line -split ':', 2)[1].Trim().Split('+')[0]
+          if (-not $AppVersion) { throw "Could not read the version from pubspec.yaml ($line)" }
+          Write-Host "Installer version: $AppVersion"
+          ../scripts/windows-installer.ps1 `
+            -ReleaseDir (Join-Path $env:RUNNER_TEMP 'ccloud-release\windows') `
+            -OutputDir (Join-Path $env:RUNNER_TEMP 'ccloud-release\installer') `
+            -AppVersion $AppVersion
+
+      - name: Upload installer
+        if: steps.installer.outputs.created == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: CCloud-windows-x64-setup
+          path: ${{ runner.temp }}/ccloud-release/installer/CCloud-*-setup.exe
           if-no-files-found: error
 
   # A successful build only proves the compiler and linker were happy. This job

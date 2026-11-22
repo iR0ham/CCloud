@@ -42,8 +42,17 @@ Get-ChildItem -LiteralPath $root -File | ForEach-Object {
 
 # media_kit ships libmpv as a loose DLL next to the exe. Without it the app opens
 # and then fails on every playback request, which is exactly the class of bug a
-# build-only check would miss.
-foreach ($required in @('libmpv-2.dll', 'flutter_windows.dll', 'data\app.so')) {
+# build-only check would miss. The three MSVC runtime DLLs are imported by
+# ccloud.exe and every plugin DLL; a package without them dies before any window
+# and used to pass CI silently.
+foreach ($required in @(
+    'libmpv-2.dll',
+    'flutter_windows.dll',
+    'data\app.so',
+    'msvcp140.dll',
+    'vcruntime140.dll',
+    'vcruntime140_1.dll'
+)) {
     if (-not (Test-Path -LiteralPath (Join-Path $root $required))) {
         Write-Host "::error::$required is missing next to ccloud.exe"
         exit 1
@@ -78,6 +87,13 @@ if ($app.HasExited) {
     exit 1
 }
 
+$app.Refresh()
+if ($app.MainWindowHandle -eq 0) {
+    Write-Host ("::error::ccloud.exe is alive but MainWindowHandle is still zero after {0}s" -f $WindowTimeoutSeconds)
+    Stop-App $app
+    exit 1
+}
+
 if (-not $title) {
     Write-Host ("::error::ccloud.exe is alive but created no visible top-level window within {0}s" -f $WindowTimeoutSeconds)
     Get-Process -Id $app.Id |
@@ -100,6 +116,23 @@ if (-not $title) {
 }
 
 Write-Host "Window title: [$title]"
+$startupLog = Join-Path $env:LOCALAPPDATA 'CCloud\startup.log'
+if (Test-Path -LiteralPath $startupLog) {
+    Write-Host "startup.log ($startupLog):"
+    Get-Content -LiteralPath $startupLog -Tail 20 | ForEach-Object { Write-Host "  $_" }
+}
+else {
+    Write-Host "::warning::startup.log was not written to $startupLog"
+}
+# The runner owns two diagnostic dialogs ("CCloud - startup failed" and
+# "CCloud - window did not appear"). Those are top-level windows with the
+# product name in the title, so they would otherwise pass the title check
+# exactly when the app is broken.
+if ($title -like 'CCloud - *') {
+    Write-Host "::error::ccloud.exe is showing its own failure dialog [$title] - see startup.log above"
+    Stop-App $app
+    exit 1
+}
 if ($title -notlike '*CCloud*') {
     Write-Host "::error::unexpected window title '$title' - expected the product name CCloud"
     Stop-App $app

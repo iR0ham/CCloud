@@ -177,20 +177,43 @@ class DownloadsStore extends ChangeNotifier {
   }
 
   /// Resolves the platform destination and loads stored metadata.
+  ///
+  /// Never throws: a broken Downloads or Application Support location must not
+  /// prevent the app from starting. When Application Support is unavailable the
+  /// metadata lives next to the downloads, so records still survive a restart.
   static Future<DownloadsStore> open() async {
     final directory = await _resolveDirectory();
-    final base = await getApplicationSupportDirectory();
-    final metadataDirectory = Directory(
-      '${base.path}${Platform.pathSeparator}CCloudMac',
-    );
+    Directory? metadataDirectory;
     try {
-      await metadataDirectory.create(recursive: true);
-    } catch (_) {}
+      final base = await getApplicationSupportDirectory();
+      metadataDirectory = Directory(
+        '${base.path}${Platform.pathSeparator}CCloudMac',
+      );
+      try {
+        await metadataDirectory.create(recursive: true);
+      } catch (_) {
+        // The store itself tolerates an unwritable metadata folder.
+      }
+    } catch (_) {
+      metadataDirectory = null;
+    }
+    metadataDirectory ??= directory;
     return DownloadsStore(
       directory: directory,
       metadataFile: File(
         '${metadataDirectory.path}${Platform.pathSeparator}downloads.json',
       ),
+    );
+  }
+
+  /// A store that only keeps downloads in memory/temp when the real locations
+  /// cannot be resolved at startup.
+  factory DownloadsStore.degraded() {
+    final separator = Platform.pathSeparator;
+    final base = Directory.systemTemp.path;
+    return DownloadsStore(
+      directory: Directory('$base${separator}CCloud'),
+      metadataFile: File('$base${separator}CCloud-downloads.json'),
     );
   }
 
@@ -206,9 +229,15 @@ class DownloadsStore extends ChangeNotifier {
     } catch (_) {
       base = null;
     }
+    if (base == null) {
+      try {
+        base = await getApplicationSupportDirectory();
+      } catch (_) {
+        base = null;
+      }
+    }
     base ??= Directory(
-      '${(await getApplicationSupportDirectory()).path}'
-      '${Platform.pathSeparator}Downloads',
+      '${Directory.systemTemp.path}${Platform.pathSeparator}CCloud',
     );
     final directory = Directory('${base.path}${Platform.pathSeparator}CCloud');
     try {
@@ -594,8 +623,8 @@ class DownloadsStore extends ChangeNotifier {
   // MARK: Persistence
 
   void _load() {
-    if (!metadataFile.existsSync()) return;
     try {
+      if (!metadataFile.existsSync()) return;
       final decoded = jsonDecode(metadataFile.readAsStringSync());
       if (decoded is! List) return;
       for (final raw in decoded) {

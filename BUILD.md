@@ -121,7 +121,33 @@ scripts/    typecheck · make_icon · bundle_ffmpeg · qa_* · make_dist
 نسخهٔ Windows از همان کد Flutter در `flutter_app/` ساخته می‌شود، نه از `Sources/` نیتیو macOS.
 ساخت cross-compile از مک ممکن نیست؛ بیلد روی ویندوز یا runner ویندوزی CI انجام می‌شود.
 
-پیش‌نیازهای ویندوز:
+### اجرای نسخهٔ منتشرشده
+
+| مورد | توضیح |
+|---|---|
+| ویندوز | **ویندوز ۱۰ ۶۴بیتی یا جدیدتر**. ویندوز ۱۰ نسخهٔ ۱۶۰۷ (Build 14393) و بالاتر توصیه می‌شود؛ `flutter_windows.dll` به `api-ms-win-core-path-l1-1-0.dll` وابسته است که روی ۱۵۰۷/۱۵۱۱ و LTSB 2015 ممکن است موجود نباشد و برنامه بدون هیچ پنجره‌ای بسته شود. |
+| Visual C++ | **لازم نیست جداگانه نصب شود.** `msvcp140.dll`، `vcruntime140.dll` و `vcruntime140_1.dll` داخل ZIP/نصب‌کننده هستند. |
+| استخراج | ZIP را **کامل** استخراج کنید و `ccloud.exe` را از داخل فایل ZIP اجرا نکنید؛ همهٔ DLLها و پوشهٔ `data` باید کنار exe باشند. |
+| SmartScreen | چون بسته امضای تجاری ندارد، ویندوز ممکن است هشدار «Windows protected your PC» بدهد؛ «More info → Run anyway» یا در Properties گزینهٔ Unblock. |
+| نصب‌کننده | فایل `CCloud-1.0.7-windows-x64-setup.exe` در `%ProgramFiles%\CCloud` نصب می‌کند، شورت‌کات استارت‌منو و (اختیاری) دسکتاپ می‌سازد و در Add/Remove Programs ثبت می‌شود. نسخهٔ ZIP همان فایل‌ها را بدون نصب اجرا می‌کند. |
+| بستهٔ سازگاری | اگر بیلد عادی پنجره نشان نداد، ZIP با پسوند `-compat` را امتحان کنید: همان برنامه با رندرر Skia به‌جای Impeller. در نسخهٔ ZIP می‌توانید کنار `ccloud.exe` یک فایل خالی به نام `compat.txt` بگذارید و برنامه را دوباره اجرا کنید؛ همین اثر را دارد. |
+
+### عیب‌یابی راه‌اندازی
+
+runner ویندوز حالا هر مرحله از راه‌اندازی را در این فایل ثبت می‌کند:
+
+```text
+%LOCALAPPDATA%\CCloud\startup.log
+```
+
+خط‌های آن شامل نسخه، نتیجهٔ ساخت پنجره، ساخت engine/view، اولین فریم، خروج و هر خطا
+همراه با `GetLastError` است. اگر پنجره نیامد، اول همین فایل را بخوانید. شکست ساخت پنجره یا
+engine و همچنین نرسیدن اولین فریم تا ۱۵ ثانیه، یک پیام خطای ویندوزی با مسیر لاگ هم نشان
+می‌دهد؛ دیگر هیچ شکستی بی‌صدا نیست.
+
+### ساخت
+
+پیش‌نیازهای ماشین ساخت:
 
 | مورد | توضیح |
 |---|---|
@@ -144,11 +170,20 @@ flutter build windows --release
 ```
 
 خروجی: `flutter_app\build\windows\x64\runner\Release\` شامل `ccloud.exe`، `libmpv-2.dll`،
-DLLهای ANGLE و پوشهٔ `data`. کل این پوشه قابل انتقال است.
+DLLهای ANGLE و پوشهٔ `data`. **سه DLL رانتایم VC++ به‌طور خودکار کنار exe کپی نمی‌شوند؛**
+برای پکیج قابل انتقال آن‌ها را از `VC\Redist\MSVC\*\x64\Microsoft.VC143.CRT` بردارید
+(workflow همین کار را می‌کند). نبودشان باعث می‌شود برنامه بدون هیچ پیامی اجرا نشود.
 
 ساخت با CI: workflow «Build Windows» در `.github/workflows/build-windows.yml` — اجرای دستی از تب
-Actions (workflow_dispatch) یا push یک tag با الگوی `v*`. artifact به نام `CCloud-windows-x64`
-شامل همان پوشهٔ Release است. (این مرحله publish/release نمی‌کند.)
+Actions (workflow_dispatch) یا push یک tag با الگوی `v*`. خروجی‌ها:
+
+- `CCloud-windows-x64` — پوشهٔ Release با DLLهای VC++ (ZIP قابل انتقال).
+- `CCloud-windows-x64-compat` — فقط اگر SDK فعلی کلید Impeller را داشته باشد؛ همان بسته با Skia.
+- `CCloud-windows-x64-setup` — نصب‌کنندهٔ Inno Setup؛ اگر Inno روی runner پیدا/نصب نشود،
+  این مرحله با هشدار skip می‌شود و بیلد قرمز نمی‌شود.
+
+این مرحله publish/release نمی‌کند. version در `pubspec.yaml` هم باید با شمارهٔ ریلیز یکی باشد
+(اکنون `1.0.7+8`) تا در Properties فایل exe و صفحهٔ About دیده شود.
 
 ## ۹. اعتبارها
 

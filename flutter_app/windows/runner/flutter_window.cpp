@@ -3,6 +3,7 @@
 #include <optional>
 
 #include "flutter/generated_plugin_registrant.h"
+#include "startup_log.h"
 
 FlutterWindow::FlutterWindow(const flutter::DartProject& project)
     : project_(project) {}
@@ -11,6 +12,7 @@ FlutterWindow::~FlutterWindow() {}
 
 bool FlutterWindow::OnCreate() {
   if (!Win32Window::OnCreate()) {
+    StartupLog("ERROR: Win32Window::OnCreate failed");
     return false;
   }
 
@@ -22,12 +24,18 @@ bool FlutterWindow::OnCreate() {
       frame.right - frame.left, frame.bottom - frame.top, project_);
   // Ensure that basic setup of the controller was successful.
   if (!flutter_controller_->engine() || !flutter_controller_->view()) {
+    ShowStartupError(
+        "The Flutter engine or view could not be created "
+        "(flutter_windows.dll may be missing or incompatible).");
     return false;
   }
+  StartupLog("flutter engine and view created");
   RegisterPlugins(flutter_controller_->engine());
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
 
   flutter_controller_->engine()->SetNextFrameCallback([&]() {
+    StartupLog("first frame presented");
+    MarkFirstFrame();
     this->Show();
   });
 
@@ -40,6 +48,7 @@ bool FlutterWindow::OnCreate() {
 }
 
 void FlutterWindow::OnDestroy() {
+  StartupLog("window destroyed");
   if (flutter_controller_) {
     flutter_controller_ = nullptr;
   }

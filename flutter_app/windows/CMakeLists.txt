@@ -49,6 +49,68 @@ endfunction()
 set(FLUTTER_MANAGED_DIR "${CMAKE_CURRENT_SOURCE_DIR}/flutter")
 add_subdirectory(${FLUTTER_MANAGED_DIR})
 
+# === CCloud runner version ===
+# One version string shared by the startup log and the build; kept in sync with
+# pubspec.yaml instead of a second literal.
+file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/../pubspec.yaml" CCLOUD_VERSION_LINE
+     REGEX "^version:[ ]*[0-9]")
+string(REGEX REPLACE "^version:[ ]*" "" CCLOUD_VERSION
+       "${CCLOUD_VERSION_LINE}")
+string(STRIP "${CCLOUD_VERSION}" CCLOUD_VERSION)
+if(CCLOUD_VERSION STREQUAL "")
+  set(CCLOUD_VERSION "0.0.0")
+endif()
+add_compile_definitions("CCLOUD_VERSION=\"${CCLOUD_VERSION}\"")
+
+# === CCloud renderer escape hatch ===
+# Release builds keep the Flutter default renderer. A build configured with
+# -DCCLOUD_FORCE_SKIA=ON (or a compat.txt next to the exe, handled in the
+# runner) disables Impeller when the configured Flutter SDK provides the
+# switch. The probe compiles against the SDK's own dart_project.h so an older
+# SDK can never turn this into a compile error.
+option(CCLOUD_FORCE_SKIA "Disable Impeller in this build (compatibility build)" OFF)
+if(CCLOUD_FORCE_SKIA)
+  add_compile_definitions(CCLOUD_DEFAULT_SKIA=1)
+elseif(DEFINED ENV{CCLOUD_FORCE_SKIA})
+  string(TOUPPER "$ENV{CCLOUD_FORCE_SKIA}" _ccloud_env_force_skia)
+  if(_ccloud_env_force_skia MATCHES "^(1|ON|TRUE|YES)$")
+    add_compile_definitions(CCLOUD_DEFAULT_SKIA=1)
+  endif()
+  unset(_ccloud_env_force_skia)
+endif()
+
+include(CheckCXXSourceCompiles)
+set(_ccloud_try_compile_type "${CMAKE_TRY_COMPILE_TARGET_TYPE}")
+set(_ccloud_cxx_standard "${CMAKE_CXX_STANDARD}")
+set(_ccloud_cxx_standard_required "${CMAKE_CXX_STANDARD_REQUIRED}")
+set(CMAKE_TRY_COMPILE_TARGET_TYPE STATIC_LIBRARY)
+# The wrapper headers are C++17; make the probe use the same language level as
+# the runner so a missing <optional>/<string_view> cannot fake a missing API.
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_REQUIRED_INCLUDES
+    "${FLUTTER_MANAGED_DIR}/ephemeral/cpp_client_wrapper/include")
+check_cxx_source_compiles("
+#include <flutter/dart_project.h>
+int main() {
+  flutter::DartProject project(L\"data\");
+  project.set_impeller_switch(flutter::ImpellerSwitch::Disabled);
+  return 0;
+}
+" CCLOUD_HAS_IMPELLER_SWITCH)
+set(CMAKE_TRY_COMPILE_TARGET_TYPE "${_ccloud_try_compile_type}")
+set(CMAKE_CXX_STANDARD "${_ccloud_cxx_standard}")
+set(CMAKE_CXX_STANDARD_REQUIRED "${_ccloud_cxx_standard_required}")
+unset(CMAKE_REQUIRED_INCLUDES)
+if(CCLOUD_HAS_IMPELLER_SWITCH)
+  add_compile_definitions(CCLOUD_HAS_IMPELLER_SWITCH=1)
+endif()
+message(STATUS "CCloud Impeller switch probe: ${CCLOUD_HAS_IMPELLER_SWITCH}")
+# CI reads this marker after the build to decide whether a compat build can be
+# produced without guessing about the SDK.
+file(WRITE "${CMAKE_BINARY_DIR}/ccloud_impeller_probe.txt"
+     "${CCLOUD_HAS_IMPELLER_SWITCH}")
+
 # Application build; see runner/CMakeLists.txt.
 add_subdirectory("runner")
 
