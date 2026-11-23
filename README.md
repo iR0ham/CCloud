@@ -124,7 +124,9 @@ screenshot اثبات اجرا (`windows-smoke-evidence`، `windows-smoke-compat
 `startup.log` برنامه را هم در لاگ چاپ می‌کند تا خط «renderer: Impeller default» در برابر
 «renderer: Impeller disabled» قابل بررسی باشد. job نصب، فایل `CCloud-*-setup.exe` را با
 `/VERYSILENT` واقعاً اجرا می‌کند، محل نصب و ورودی Add/Remove Programs را بررسی می‌کند و بعد
-همان تست راه‌اندازی را روی فایل‌های نصب‌شده تکرار می‌کند.
+همان تست راه‌اندازی را روی فایل‌های نصب‌شده تکرار می‌کند. این job تنها وقتی اجرا می‌شود که
+ساخت نصب‌کننده روی runner موفق بوده باشد؛ اگر Inno Setup در دسترس نباشد step با هشدار skip
+می‌شود و آن job اصلاً اجرا نمی‌شود، پس سبزبودن run به‌تنهایی دلیل بر تست‌شدن نصب‌کننده نیست.
 
 برای بیلد محلی روی ویندوز ۱۰/۱۱: Flutter 3.47.8 روی `PATH` و Visual Studio 2022 با workload
 «Desktop development with C++».

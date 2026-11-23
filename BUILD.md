@@ -129,7 +129,7 @@ scripts/    typecheck · make_icon · bundle_ffmpeg · qa_* · make_dist
 | Visual C++ | **لازم نیست جداگانه نصب شود.** `msvcp140.dll`، `vcruntime140.dll` و `vcruntime140_1.dll` داخل ZIP/نصب‌کننده هستند. |
 | استخراج | ZIP را **کامل** استخراج کنید و `ccloud.exe` را از داخل فایل ZIP اجرا نکنید؛ همهٔ DLLها و پوشهٔ `data` باید کنار exe باشند. |
 | SmartScreen | چون بسته امضای تجاری ندارد، ویندوز ممکن است هشدار «Windows protected your PC» بدهد؛ «More info → Run anyway» یا در Properties گزینهٔ Unblock. |
-| نصب‌کننده | فایل `CCloud-1.0.8-windows-x64-setup.exe` را اجرا کنید؛ برنامه در `%ProgramFiles%\CCloud` نصب می‌شود، شورت‌کات استارت‌منو و (اختیاری) دسکتاپ می‌سازد و در Add/Remove Programs ثبت می‌شود. نسخهٔ ZIP همان فایل‌ها را بدون نصب اجرا می‌کند. این نصب‌کننده در CI واقعاً نصب و اجرا می‌شود (job «Windows installer install + smoke test»)؛ اگر نصب machine-wide ممکن نباشد، installer به `%LOCALAPPDATA%\Programs\CCloud` می‌رود. |
+| نصب‌کننده | فایل `CCloud-1.0.8-windows-x64-setup.exe` را اجرا کنید؛ برنامه در `%ProgramFiles%\CCloud` نصب می‌شود، شورت‌کات استارت‌منو و (اختیاری) دسکتاپ می‌سازد و در Add/Remove Programs ثبت می‌شود. نسخهٔ ZIP همان فایل‌ها را بدون نصب اجرا می‌کند. runner ویندوزی CI خودِ همین نصب‌کننده را صامت نصب می‌کند و برنامهٔ نصب‌شده را اجرا می‌کند (job «Windows installer install + smoke test») — به شرطی که آن job اجرا شده باشد؛ اگر Inno روی runner پیدا نشود job کلاً skip می‌شود (بخش ۹). اگر نصب machine-wide ممکن نباشد، installer به `%LOCALAPPDATA%\Programs\CCloud` می‌رود. |
 | بستهٔ سازگاری | اگر بیلد عادی پنجره نشان نداد، ZIP با پسوند `-compat` را امتحان کنید: همان برنامه با رندرر Skia به‌جای Impeller. در نسخهٔ ZIP می‌توانید کنار `ccloud.exe` یک فایل خالی به نام `compat.txt` بگذارید و برنامه را دوباره اجرا کنید؛ همین اثر را دارد. |
 
 ### عیب‌یابی راه‌اندازی
@@ -185,7 +185,13 @@ Actions (workflow_dispatch) یا push یک tag با الگوی `v*`. خروجی�
 - `CCloud-windows-x64-setup` — نصب‌کنندهٔ Inno Setup؛ اگر Inno روی runner پیدا/نصب نشود،
   این مرحله با هشدار skip می‌شود و بیلد قرمز نمی‌شود.
 - `windows-installer-smoke-evidence` — screenshot اجرای `ccloud.exe` **پس از نصب واقعی** با
-  `scripts/windows-installer-smoke.ps1` (صامت، بررسی محل نصب و ورودی Add/Remove Programs).
+  `scripts/windows-installer-smoke.ps1` (صامت، بررسی محل نصب و ورودی Add/Remove Programs) به‌همراه
+  `%LOCALAPPDATA%\CCloud\startup.log` همان اجرای نصب‌شده. این job فقط وقتی اجرا می‌شود که مرحلهٔ
+  «Build installer» واقعاً `created=true` نوشته باشد؛ اگر Inno روی runner پیدا نشود، بیلد سبز می‌ماند
+  ولی نصب‌کننده ساخته و تست **نمی‌شود**، پس سبزبودن run به‌خودی‌خود دلیل بر تست‌شدن نصب‌کننده نیست؛
+  باید وجود job «Windows installer install + smoke test» در همان run را ببینید.
+  اگر پوشهٔ نصب از قبل روی ماشین وجود داشته باشد، اسکریپت آن را به‌جای نتیجهٔ این setup.exe نمی‌پذیرد
+  و با خطا قرمز می‌شود.
 
 این مرحله publish/release نمی‌کند. version در `pubspec.yaml` هم باید با شمارهٔ ریلیز یکی باشد
 (اکنون `1.0.8+9`) تا در Properties فایل exe و صفحهٔ About دیده شود.

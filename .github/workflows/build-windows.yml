@@ -269,7 +269,10 @@ jobs:
       - name: Install silently and launch the installed app
         shell: pwsh
         run: |
-          $setup = Get-ChildItem -LiteralPath installer-download -Filter 'CCloud-*-setup.exe' |
+          # The download step lays the artifact out as
+          # installer-download/CCloud-<ver>-windows-x64-setup.exe, but recurse so
+          # a changed upload layout cannot silently produce 'no setup found'.
+          $setup = Get-ChildItem -LiteralPath installer-download -Recurse -Filter 'CCloud-*-setup.exe' |
               Sort-Object Length -Descending | Select-Object -First 1
           if (-not $setup) {
               Write-Host "::error::the downloaded artifact holds no CCloud-*-setup.exe"
@@ -278,10 +281,35 @@ jobs:
           }
           ./scripts/windows-installer-smoke.ps1 -SetupPath $setup.FullName
 
+      # The app writes %LOCALAPPDATA%\CCloud\startup.log, which windows-smoke.ps1
+      # already prints into the job log but does not copy out. Pull it in so the
+      # 'renderer: Impeller default/disabled' line BUILD.md promises to show is
+      # reviewable from the artifact and not only from a log that expires.
+      - name: Collect the installed app log
+        if: always()
+        shell: pwsh
+        run: |
+          $log = Join-Path (Join-Path $env:LOCALAPPDATA 'CCloud') 'startup.log'
+          if (Test-Path -LiteralPath $log) {
+              New-Item -ItemType Directory -Force -Path installer-evidence | Out-Null
+              Copy-Item -LiteralPath $log -Destination (Join-Path 'installer-evidence' 'startup.log') -Force
+              Write-Host "--- $log ---"
+              Get-Content -LiteralPath $log | ForEach-Object { Write-Host "  $_" }
+          }
+          else {
+              Write-Host '::warning::no startup.log was written by the installed binary'
+          }
+
+      # windows-smoke.ps1 writes its screenshot relative to the CURRENT WORKING
+      # DIRECTORY. This job has no working-directory default, so that is the
+      # workspace root and the upload path below matches. Adding a
+      # defaults.working-directory here would silently break the evidence upload.
       - name: Upload installed run evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: windows-installer-smoke-evidence
-          path: windows-smoke-installed.png
+          path: |
+            windows-smoke-installed.png
+            installer-evidence/
           if-no-files-found: warn
