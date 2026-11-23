@@ -17,7 +17,7 @@
 | پلتفرم | تکنولوژی | نسخه | مسیر |
 |---|---|---|---|
 | macOS | SwiftUI + AppKit (بدون وابستگی خارجی) | 2.0.0 | `Sources/` |
-| Windows 10/11 (x64) | Flutter (Dart) + media_kit | 1.0.7 | `flutter_app/` |
+| Windows 10/11 (x64) | Flutter (Dart) + media_kit | 1.0.8 | `flutter_app/` |
 | Android / Android TV | Flutter (Dart) + media_kit | 1.0.6 | `flutter_app/` |
 | LG webOS TV | HTML/CSS/JS + سرویس Node | 1.0.0 | `webos_app/` |
 
@@ -28,12 +28,12 @@
 
 | بسته | آخرین انتشار |
 |---|---|
-| **Windows** — `CCloud-1.0.7-windows-x64-setup.exe` (نصب‌کننده) + `CCloud-1.0.7-windows-x64-portable.zip` (بدون نصب) + `CCloud-1.0.7-windows-x64-compat.zip` (رندرر Skia) | [windows-1.0.7](https://github.com/iR0ham/CCloud/releases/tag/windows-1.0.7) |
+| **Windows** — `CCloud-1.0.8-windows-x64-setup.exe` (نصب‌کننده) + `CCloud-1.0.8-windows-x64-portable.zip` (بدون نصب) + `CCloud-1.0.8-windows-x64-compat.zip` (رندرر Skia) | [windows-1.0.8](https://github.com/iR0ham/CCloud/releases/tag/windows-1.0.8) |
 | macOS — `.dmg` / `.zip` (2.0.0) | [v2026.11.10](https://github.com/iR0ham/CCloud/releases/tag/v2026.11.10) |
 | Android — `CCloud-Android-1.0.6.apk` | [v2026.11.10](https://github.com/iR0ham/CCloud/releases/tag/v2026.11.10) |
 | LG webOS — `com.ccloud.tv_1.0.0_all.ipk` | [v2026.11.10](https://github.com/iR0ham/CCloud/releases/tag/v2026.11.10) |
 
-برای ویندوز دو راه دارید: یا `CCloud-1.0.7-windows-x64-setup.exe` را نصب کنید، یا ZIP بدون نصب را
+برای ویندوز دو راه دارید: یا `CCloud-1.0.8-windows-x64-setup.exe` را نصب کنید، یا ZIP بدون نصب را
 **کاملاً** استخراج کنید و `ccloud.exe` را از همان پوشه اجرا کنید (DLLها و پوشهٔ `data` باید کنار فایل
 اجرایی بمانند؛ استخراج نشدن داخل ZIP باعث می‌شود برنامه بالا نیاید). کتابخانه‌های زمان اجرا
 (VC++ 2015-2022) داخل بسته هستند و نیازی به نصب جدا ندارند. این بیلد امضای دیجیتال ندارد؛ اگر
@@ -115,13 +115,16 @@ CCloudMac/
 
 ویندوز را نمی‌شود از macOS کراس‌کامپایل کرد؛ مسیر رسمی، workflow
 [Build Windows](.github/workflows/build-windows.yml) روی `windows-latest` است که با هر push تگ `v*`
-یا اجرای دستی، چهار job «Dart analyze»، «Windows release build»، «Windows compatibility package (Skia)»
-و «Windows runtime smoke test» را اجرا می‌کند. سه job آخر به‌ترتیب بستهٔ عادی، بستهٔ Skia و اجرای واقعی
-`ccloud.exe` را می‌سازند و artifactهای `CCloud-windows-x64`، `CCloud-windows-x64-setup`،
-`CCloud-windows-x64-compat` و دو screenshot اثبات اجرا (`windows-smoke-evidence` و
-`windows-smoke-compat-evidence`) را تولید می‌کنند؛ مرحلهٔ smoke علاوه بر دیده‌شدن پنجرهٔ CCloud،
+یا اجرای دستی، پنج job «Dart analyze»، «Windows release build»، «Windows compatibility package (Skia)»،
+«Windows runtime smoke test» و «Windows installer install + smoke test» را اجرا می‌کند. چهار job آخر
+به‌ترتیب بستهٔ عادی، بستهٔ Skia، اجرای واقعی `ccloud.exe` و اجرای واقعی **نصب‌کننده** را می‌سازند و
+artifactهای `CCloud-windows-x64`، `CCloud-windows-x64-setup`، `CCloud-windows-x64-compat` و سه
+screenshot اثبات اجرا (`windows-smoke-evidence`، `windows-smoke-compat-evidence` و
+`windows-installer-smoke-evidence`) را تولید می‌کنند؛ مرحلهٔ smoke علاوه بر دیده‌شدن پنجرهٔ CCloud،
 `startup.log` برنامه را هم در لاگ چاپ می‌کند تا خط «renderer: Impeller default» در برابر
-«renderer: Impeller disabled» قابل بررسی باشد.
+«renderer: Impeller disabled» قابل بررسی باشد. job نصب، فایل `CCloud-*-setup.exe` را با
+`/VERYSILENT` واقعاً اجرا می‌کند، محل نصب و ورودی Add/Remove Programs را بررسی می‌کند و بعد
+همان تست راه‌اندازی را روی فایل‌های نصب‌شده تکرار می‌کند.
 
 برای بیلد محلی روی ویندوز ۱۰/۱۱: Flutter 3.47.8 روی `PATH` و Visual Studio 2022 با workload
 «Desktop development with C++».

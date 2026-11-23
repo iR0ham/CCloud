@@ -129,7 +129,7 @@ scripts/    typecheck · make_icon · bundle_ffmpeg · qa_* · make_dist
 | Visual C++ | **لازم نیست جداگانه نصب شود.** `msvcp140.dll`، `vcruntime140.dll` و `vcruntime140_1.dll` داخل ZIP/نصب‌کننده هستند. |
 | استخراج | ZIP را **کامل** استخراج کنید و `ccloud.exe` را از داخل فایل ZIP اجرا نکنید؛ همهٔ DLLها و پوشهٔ `data` باید کنار exe باشند. |
 | SmartScreen | چون بسته امضای تجاری ندارد، ویندوز ممکن است هشدار «Windows protected your PC» بدهد؛ «More info → Run anyway» یا در Properties گزینهٔ Unblock. |
-| نصب‌کننده | فایل `CCloud-1.0.7-windows-x64-setup.exe` در `%ProgramFiles%\CCloud` نصب می‌کند، شورت‌کات استارت‌منو و (اختیاری) دسکتاپ می‌سازد و در Add/Remove Programs ثبت می‌شود. نسخهٔ ZIP همان فایل‌ها را بدون نصب اجرا می‌کند. |
+| نصب‌کننده | فایل `CCloud-1.0.8-windows-x64-setup.exe` را اجرا کنید؛ برنامه در `%ProgramFiles%\CCloud` نصب می‌شود، شورت‌کات استارت‌منو و (اختیاری) دسکتاپ می‌سازد و در Add/Remove Programs ثبت می‌شود. نسخهٔ ZIP همان فایل‌ها را بدون نصب اجرا می‌کند. این نصب‌کننده در CI واقعاً نصب و اجرا می‌شود (job «Windows installer install + smoke test»)؛ اگر نصب machine-wide ممکن نباشد، installer به `%LOCALAPPDATA%\Programs\CCloud` می‌رود. |
 | بستهٔ سازگاری | اگر بیلد عادی پنجره نشان نداد، ZIP با پسوند `-compat` را امتحان کنید: همان برنامه با رندرر Skia به‌جای Impeller. در نسخهٔ ZIP می‌توانید کنار `ccloud.exe` یک فایل خالی به نام `compat.txt` بگذارید و برنامه را دوباره اجرا کنید؛ همین اثر را دارد. |
 
 ### عیب‌یابی راه‌اندازی
@@ -184,9 +184,11 @@ Actions (workflow_dispatch) یا push یک tag با الگوی `v*`. خروجی�
   به نام `compat.txt` کنار `ccloud.exe` همین اثر را بگیرید.
 - `CCloud-windows-x64-setup` — نصب‌کنندهٔ Inno Setup؛ اگر Inno روی runner پیدا/نصب نشود،
   این مرحله با هشدار skip می‌شود و بیلد قرمز نمی‌شود.
+- `windows-installer-smoke-evidence` — screenshot اجرای `ccloud.exe` **پس از نصب واقعی** با
+  `scripts/windows-installer-smoke.ps1` (صامت، بررسی محل نصب و ورودی Add/Remove Programs).
 
 این مرحله publish/release نمی‌کند. version در `pubspec.yaml` هم باید با شمارهٔ ریلیز یکی باشد
-(اکنون `1.0.7+8`) تا در Properties فایل exe و صفحهٔ About دیده شود.
+(اکنون `1.0.8+9`) تا در Properties فایل exe و صفحهٔ About دیده شود.
 
 ## ۹. اعتبارها
 

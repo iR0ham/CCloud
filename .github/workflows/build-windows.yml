@@ -39,6 +39,11 @@ jobs:
     name: Windows release build
     runs-on: windows-latest
     timeout-minutes: 60
+    # The installer job is optional (a runner without Inno Setup must not fail a
+    # build), so the install test needs to know whether an installer exists at
+    # all instead of failing on a missing artifact.
+    outputs:
+      installer: ${{ steps.installer.outputs.created }}
     defaults:
       run:
         working-directory: flutter_app
@@ -96,6 +101,14 @@ jobs:
       # portable package and its smoke test matter more than the installer, so
       # the step cannot fail the job either - ISCC problems still show up in the
       # step log and the skipped upload.
+      #
+      # 'created' starts out false so that an ISCC crash - which aborts the
+      # script before it can write the output - cannot leave the flag unset and
+      # look like an intentional skip downstream.
+      - name: Assume no installer until one is built
+        shell: pwsh
+        run: echo "created=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
       - name: Build installer (Inno Setup)
         id: installer
         continue-on-error: true
@@ -226,4 +239,49 @@ jobs:
         with:
           name: windows-smoke-evidence
           path: windows-smoke.png
+          if-no-files-found: warn
+
+  # The installer is the package the README recommends, yet until now CI only
+  # ever compiled it and uploaded it - the portable folder was the thing that
+  # actually ran. A setup.exe that installs to the wrong prefix, loses a DLL in
+  # the copy step or leaves an exe that cannot start used to ship green. This
+  # job installs it silently and repeats the launch smoke test against the
+  # installed files.
+  installer-smoke:
+    name: Windows installer install + smoke test
+    needs: build-windows
+    if: needs.build-windows.outputs.installer == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download installer
+        uses: actions/download-artifact@v4
+        with:
+          name: CCloud-windows-x64-setup
+          path: installer-download
+
+      - name: Install silently and launch the installed app
+        shell: pwsh
+        run: |
+          $setup = Get-ChildItem -LiteralPath installer-download -Filter 'CCloud-*-setup.exe' |
+              Sort-Object Length -Descending | Select-Object -First 1
+          if (-not $setup) {
+              Write-Host "::error::the downloaded artifact holds no CCloud-*-setup.exe"
+              Get-ChildItem -LiteralPath installer-download -Recurse | ForEach-Object { Write-Host $_.FullName }
+              exit 1
+          }
+          ./scripts/windows-installer-smoke.ps1 -SetupPath $setup.FullName
+
+      - name: Upload installed run evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer-smoke-evidence
+          path: windows-smoke-installed.png
           if-no-files-found: warn

@@ -80,6 +80,17 @@ if (-not $iscc) {
 }
 
 Write-Host "Using Inno Setup compiler: $iscc"
+# The install test falls back to /CURRENTUSER when the machine-wide install is
+# refused, and that switch only exists from Inno Setup 6.3 - so record which
+# compiler actually produced the package instead of making anyone guess.
+try {
+    $isccVersion = (Get-Item -LiteralPath $iscc).VersionInfo
+    Write-Host ("ISCC version: file '{0}' product '{1}'" -f
+        $isccVersion.FileVersion, $isccVersion.ProductVersion)
+}
+catch {
+    Write-Host "ISCC version could not be read: $($_.Exception.Message)"
+}
 Write-Host "Source: $source"
 Write-Host "Output: $out"
 & $iscc "/DSourceDir=$source" "/DOutputDir=$out" "/DAppVersion=$AppVersion" $iss
