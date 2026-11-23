@@ -1,6 +1,6 @@
 {
   "name": "ccloud-webos",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "private": true,
   "description": "CCloud for LG webOS TV",
   "scripts": {

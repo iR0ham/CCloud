@@ -6,8 +6,6 @@ import AppKit
 struct AboutView: View {
     @Environment(\.dismiss) private var dismiss
 
-    private let version = "۲.۰.۰"
-
     var body: some View {
         VStack(spacing: 0) {
             ScrollView(showsIndicators: false) {
@@ -51,7 +49,7 @@ struct AboutView: View {
                 .font(.ccloud(32, weight: .bold))
                 .foregroundStyle(Theme.text)
 
-            Text("نسخه مک • \(version)")
+            Text("نسخه مک • \(AppVersion.display)")
                 .font(.ccloud(12, weight: .medium))
                 .foregroundStyle(Theme.textSecondary)
                 .padding(.top, 4)

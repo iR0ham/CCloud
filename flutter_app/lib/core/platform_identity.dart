@@ -46,18 +46,24 @@ String platformFeatureBlurb(AppPlatform platform) {
   };
 }
 
-/// Platform name plus the version reported by the store package, not a
-/// literal in the source.
+/// Platform name plus the version and build reported by the store package,
+/// not from literals in the source.
 class PlatformIdentity {
-  const PlatformIdentity({required this.platform, required this.version});
+  const PlatformIdentity({
+    required this.platform,
+    required this.version,
+    this.buildNumber = '',
+  });
 
   factory PlatformIdentity.forCurrentOs({
     required String version,
+    String buildNumber = '',
     String? operatingSystem,
   }) {
     return PlatformIdentity(
       platform: appPlatformFor(operatingSystem ?? Platform.operatingSystem),
       version: version,
+      buildNumber: buildNumber,
     );
   }
 
@@ -66,12 +72,20 @@ class PlatformIdentity {
   /// `PackageInfo.version` (the pubspec version without the build number).
   final String version;
 
+  /// `PackageInfo.buildNumber` (the global build, e.g. `22`), or empty when
+  /// the platform does not report one.
+  final String buildNumber;
+
   String get displayName => platformDisplayName(platform);
 
   String get versionLabel {
-    final trimmed = version.trim();
-    if (trimmed.isEmpty) return displayName;
-    return '$displayName • ${faDigits(trimmed)}';
+    final trimmedVersion = version.trim();
+    if (trimmedVersion.isEmpty) return displayName;
+    final trimmedBuild = buildNumber.trim();
+    final buildSuffix = trimmedBuild.isEmpty
+        ? ''
+        : ' (${faDigits(trimmedBuild)})';
+    return '$displayName • ${faDigits(trimmedVersion)}$buildSuffix';
   }
 
   String get featureBlurb => platformFeatureBlurb(platform);
@@ -79,19 +93,25 @@ class PlatformIdentity {
   static PlatformIdentity? _current;
 
   /// Loaded before `runApp`; before that the label is still OS-correct and
-  /// simply omits the version.
+  /// simply omits the version and build.
   static PlatformIdentity get current =>
       _current ?? PlatformIdentity.forCurrentOs(version: '');
 
   static Future<PlatformIdentity> load() async {
     var version = '';
+    var buildNumber = '';
     try {
-      version = (await PackageInfo.fromPlatform()).version;
+      final info = await PackageInfo.fromPlatform();
+      version = info.version;
+      buildNumber = info.buildNumber;
     } catch (_) {
       // A missing platform channel must not block startup; the label stays
-      // OS-correct without a version.
+      // OS-correct without a version or build.
     }
-    final identity = PlatformIdentity.forCurrentOs(version: version);
+    final identity = PlatformIdentity.forCurrentOs(
+      version: version,
+      buildNumber: buildNumber,
+    );
     _current = identity;
     return identity;
   }

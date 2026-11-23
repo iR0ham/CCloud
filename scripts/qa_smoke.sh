@@ -84,7 +84,15 @@ expect CFBundleExecutable "CCloud"
 expect CFBundleIdentifier "ir.ccloud.macapp"
 expect CFBundleIconFile "AppIcon"
 expect CFBundlePackageType "APPL"
-expect CFBundleShortVersionString "2.0.0"
+# The expected version comes from the canonical source, not a literal: a
+# version bump must not make this smoke test fail falsely.
+CANONICAL_VERSION="$(python3 "$ROOT/scripts/version.py" show 2>/dev/null \
+  | python3 -c 'import json, sys; print(json.load(sys.stdin)["version"])' 2>/dev/null)"
+if [ -n "$CANONICAL_VERSION" ]; then
+  expect CFBundleShortVersionString "$CANONICAL_VERSION"
+else
+  bad "cannot read canonical version (scripts/version.py show)"
+fi
 expect LSMinimumSystemVersion "15.0"
 expect NSHighResolutionCapable "true"
 expect NSAppTransportSecurity.NSAllowsArbitraryLoads "true"

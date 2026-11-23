@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:ccloud/core/platform_identity.dart';
 import 'package:ccloud/core/platform_info.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 
 void main() {
   test('each OS maps to one exact display string', () {
@@ -25,10 +26,13 @@ void main() {
   test(
     'this macOS host produces the macOS label through the real path',
     () {
-      final identity = PlatformIdentity.forCurrentOs(version: '1.0.6');
+      final identity = PlatformIdentity.forCurrentOs(
+        version: '1.0.6',
+        buildNumber: '22',
+      );
       expect(identity.platform, AppPlatform.macos);
       expect(identity.displayName, 'نسخه مک (macOS)');
-      expect(identity.versionLabel, 'نسخه مک (macOS) • ۱.۰.۶');
+      expect(identity.versionLabel, 'نسخه مک (macOS) • ۱.۰.۶ (۲۲)');
     },
     // The suite also runs on Windows and Linux; only a macOS host can assert
     // the real `Platform.operatingSystem` path. The OS→string mapping above is
@@ -36,15 +40,53 @@ void main() {
     skip: !Platform.isMacOS,
   );
 
-  test('version labels stay OS-correct and omit an empty version', () {
-    final windows = PlatformIdentity(
-      platform: AppPlatform.windows,
-      version: '2.1.0',
-    );
-    expect(windows.versionLabel, 'نسخه ویندوز • ۲.۱.۰');
+  test(
+    'version labels stay OS-correct, add the build, and omit empty parts',
+    () {
+      final windows = PlatformIdentity(
+        platform: AppPlatform.windows,
+        version: '2.1.0',
+      );
+      expect(windows.versionLabel, 'نسخه ویندوز • ۲.۱.۰');
 
-    const empty = PlatformIdentity(platform: AppPlatform.android, version: ' ');
-    expect(empty.versionLabel, 'نسخه اندروید');
+      final windowsWithBuild = PlatformIdentity(
+        platform: AppPlatform.windows,
+        version: '2.0.0',
+        buildNumber: '22',
+      );
+      expect(windowsWithBuild.versionLabel, 'نسخه ویندوز • ۲.۰.۰ (۲۲)');
+
+      final whitespaceBuild = PlatformIdentity(
+        platform: AppPlatform.windows,
+        version: '2.0.0',
+        buildNumber: ' ',
+      );
+      expect(whitespaceBuild.versionLabel, 'نسخه ویندوز • ۲.۰.۰');
+
+      const emptyVersion = PlatformIdentity(
+        platform: AppPlatform.android,
+        version: ' ',
+        buildNumber: '22',
+      );
+      expect(emptyVersion.versionLabel, 'نسخه اندروید');
+    },
+  );
+
+  test('load reads the version and build from package metadata', () async {
+    PackageInfo.setMockInitialValues(
+      appName: 'CCloud',
+      packageName: 'com.ccloud.ccloud',
+      version: '2.0.0',
+      buildNumber: '22',
+      buildSignature: '',
+    );
+
+    final identity = await PlatformIdentity.load();
+
+    expect(identity.version, '2.0.0');
+    expect(identity.buildNumber, '22');
+    expect(identity.versionLabel, '${identity.displayName} • ۲.۰.۰ (۲۲)');
+    expect(PlatformIdentity.current, same(identity));
   });
 
   test('feature blurb names only the running platform', () {

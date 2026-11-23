@@ -21,7 +21,7 @@
             actionRow('پاک‌کردن تاریخچه', 'clear-hist', CC.faDigits(CC.history.entries().length) + ' مورد') +
             actionRow('بازنشانی تنظیمات', 'reset', 'بازگشت به پیش‌فرض')) +
           section('درباره',
-            '<div class="about-row"><span>نسخه</span><span class="about-val">' + CC.faDigits('1.0.0') + ' · webOS</span></div>' +
+            '<div class="about-row"><span>نسخه</span><span class="about-val">' + versionLabel() + '</span></div>' +
             '<div class="about-row"><span>میزبان فعال</span><span class="about-val" id="about-host">' + CC.esc(CC.api.activeHost) + '</span></div>' +
             '<p class="about-note">پورت غیررسمی CCloud برای تلویزیون‌های LG webOS. همان کاتالوگ و منابع نسخهٔ اندروید.</p>') +
         '</div>';
@@ -73,6 +73,14 @@
     focusFirst: function (container) { CC.focus.first(container); }
   };
 
+  // Version and build come from js/version.js, generated from version.json by
+  // scripts/version.py. webOS metadata (appinfo.json, package.json) carries no
+  // separate build field, so the build number reaches the UI through here.
+  function versionLabel() {
+    var version = window.CCLOUD_VERSION ? CC.faDigits(window.CCLOUD_VERSION) : '—';
+    var build = window.CCLOUD_BUILD ? CC.faDigits(window.CCLOUD_BUILD) : '';
+    return version + (build ? ' (' + build + ')' : '') + ' · webOS';
+  }
   function bind(scope, action, fn) {
     var el = scope.querySelector('[data-action="' + action + '"]');
     if (el) el.addEventListener('click', fn);

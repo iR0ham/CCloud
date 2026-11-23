@@ -33,7 +33,7 @@ struct SplashView: View {
 
                 VStack {
                     Spacer()
-                    Text("نسخه مک • ۲.۰.۰")
+                    Text("نسخه مک • \(AppVersion.version)")
                         .font(.ccloud(11, weight: .medium))
                         .foregroundStyle(Theme.textSecondary)
                         .padding(.bottom, 24)

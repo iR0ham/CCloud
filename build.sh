@@ -12,6 +12,10 @@ TMPD="$BUILD/tmp"
 BIN="$MACOS_DIR/CCloud"
 SDK="$(xcrun --show-sdk-path)"
 
+echo "==> Syncing version metadata from version.json"
+python3 "$ROOT/scripts/version.py" sync
+python3 "$ROOT/scripts/version.py" check
+
 mkdir -p "$MACOS_DIR" "$RES_DIR" "$CACHE" "$TMPD"
 export TMPDIR="$TMPD"
 mkdir -p "$TMPDIR"
@@ -41,8 +45,8 @@ if [ -d "$ROOT/Resources" ]; then
   rsync -a --delete "$ROOT/Resources/" "$RES_DIR/"
 fi
 # (icon & assets are copied by the rsync above; no self-copy here)
-# Version stamp
-printf 'CFBundleVersion=%s\n' "$(date +%Y%m%d%H%M)" > /dev/null
+# Version metadata is written by scripts/version.py at the top of this script
+# and copied with Info.plist above; there is no timestamp build stamp.
 
 echo "==> Signing (ad-hoc)"
 codesign --force --deep --sign - --timestamp=none "$APP" >/dev/null 2>&1 || \
