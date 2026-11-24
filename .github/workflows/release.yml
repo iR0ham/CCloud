@@ -57,10 +57,12 @@ jobs:
           VERSION="$(python3 scripts/version.py show | python3 -c 'import json,sys; print(json.load(sys.stdin)["version"])')"
           BUILD="$(python3 scripts/version.py show | python3 -c 'import json,sys; print(json.load(sys.stdin)["build"])')"
           COMMIT="$(git rev-parse HEAD)"
-          echo "product=$PRODUCT" >> "$GITHUB_OUTPUT"
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "build=$BUILD" >> "$GITHUB_OUTPUT"
-          echo "commit=$COMMIT" >> "$GITHUB_OUTPUT"
+          {
+            echo "product=$PRODUCT"
+            echo "version=$VERSION"
+            echo "build=$BUILD"
+            echo "commit=$COMMIT"
+          } >> "$GITHUB_OUTPUT"
           echo "release tag: $TAG"
           echo "version: $PRODUCT $VERSION build $BUILD"
           echo "commit: $COMMIT"
@@ -125,10 +127,12 @@ jobs:
           ANDROID_SIGNING="$(cat release-artifacts/SIGNING-Android.txt 2>/dev/null || echo missing)"
           WINDOWS_SIGNING="$(cat release-artifacts/SIGNING-Windows.txt 2>/dev/null || echo missing)"
           WEBOS_SIGNING="$(cat release-artifacts/SIGNING-webOS.txt 2>/dev/null || echo missing)"
-          echo "macos_signing=$MACOS_SIGNING" >> "$GITHUB_OUTPUT"
-          echo "android_signing=$ANDROID_SIGNING" >> "$GITHUB_OUTPUT"
-          echo "windows_signing=$WINDOWS_SIGNING" >> "$GITHUB_OUTPUT"
-          echo "webos_signing=$WEBOS_SIGNING" >> "$GITHUB_OUTPUT"
+          {
+            echo "macos_signing=$MACOS_SIGNING"
+            echo "android_signing=$ANDROID_SIGNING"
+            echo "windows_signing=$WINDOWS_SIGNING"
+            echo "webos_signing=$WEBOS_SIGNING"
+          } >> "$GITHUB_OUTPUT"
           printf 'macOS=%s Android=%s Windows=%s webOS=%s\n' \
             "$MACOS_SIGNING" "$ANDROID_SIGNING" "$WINDOWS_SIGNING" "$WEBOS_SIGNING"
       - name: Generate checksums and manifest

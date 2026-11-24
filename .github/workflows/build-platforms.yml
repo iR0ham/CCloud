@@ -27,6 +27,10 @@ on:
         required: false
         type: boolean
         default: false
+  # Working-branch integration evidence only; release.yml owns publication.
+  push:
+    branches:
+      - ci/github-first-foundation
 
 permissions:
   contents: read
@@ -40,7 +44,7 @@ jobs:
     uses: ./.github/workflows/build-macos.yml
     with:
       ref: ${{ inputs.ref }}
-      ui_smoke: ${{ inputs.ui_smoke }}
+      ui_smoke: ${{ inputs.ui_smoke || false }}
     secrets: inherit
   windows:
     uses: ./.github/workflows/build-windows.yml
