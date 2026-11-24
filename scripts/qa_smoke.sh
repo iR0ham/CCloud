@@ -254,7 +254,37 @@ fi
 
 # ---------------------------------------------------------------- 7. API + live data
 section "backend / live data"
-GENRE_PATH="/api/genre/all/4F5A9C3D9A86FA54EACEDDD635185/"
+# BackendConfig.swift is the macOS source of truth. Capture the value directly
+# into the shell variable; never echo it into the QA evidence.
+if ! PUBLIC_API_PATH_IDENTIFIER="$(
+  python3 - "$ROOT/Sources/Core/BackendConfig.swift" <<'PY'
+import re
+import sys
+from pathlib import Path
+
+config_path = Path(sys.argv[1])
+try:
+    source = config_path.read_text(encoding="utf-8")
+except (OSError, UnicodeError) as exc:
+    raise SystemExit(f"Cannot read BackendConfig.swift: {exc}")
+
+matches = re.findall(
+    r'^[ \t]*static[ \t]+let[ \t]+publicApiPathIdentifier[ \t]*=[ \t]*"([^"\\\s/?#]+)"[ \t]*$',
+    source,
+    re.MULTILINE,
+)
+if len(matches) != 1:
+    raise SystemExit(
+        "BackendConfig.swift must contain exactly one non-empty, path-safe "
+        "static let publicApiPathIdentifier string literal"
+    )
+print(matches[0])
+PY
+)"; then
+  bad "cannot parse publicApiPathIdentifier from Sources/Core/BackendConfig.swift"
+  exit 1
+fi
+GENRE_PATH="/api/genre/all/$PUBLIC_API_PATH_IDENTIFIER/"
 API_OK=0
 for host in server-hi-speed-iran.info hostinnegar.com windowsdiba.info; do
   for scheme in http https; do
