@@ -2,7 +2,9 @@
  * app's ApiClient / LiveTvClient / models so behaviour and Persian copy match. */
 (function () {
   var HOSTS = ['server-hi-speed-iran.info', 'hostinnegar.com', 'windowsdiba.info'];
-  var KEY = '4F5A9C3D9A86FA54EACEDDD635185';
+  // Public, revocable API path identifier required by the upstream catalog API;
+  // it is not authentication or a secret.
+  var PUBLIC_API_PATH_IDENTIFIER = '4F5A9C3D9A86FA54EACEDDD635185';
   var KNOWN = {};
   HOSTS.forEach(function (h) { KNOWN[h] = true; KNOWN['www.' + h] = true; });
   var CACHE_TTL = 75000;
@@ -155,46 +157,46 @@
     get activeHost() { return activeHost; },
     invalidate: function () { cache = {}; },
     genres: function () {
-      return fetchPath('/api/genre/all/' + KEY + '/').then(function (l) {
+      return fetchPath('/api/genre/all/' + PUBLIC_API_PATH_IDENTIFIER + '/').then(function (l) {
         return dedupe(l.map(normGenre), function (g) { return String(g.id); });
       });
     },
     movies: function (opt) {
       opt = opt || {};
       var page = Math.max(0, opt.page || 0), genre = opt.genreId || 0, sort = opt.sort || 'created';
-      return fetchPath('/api/movie/by/filtres/' + genre + '/' + sort + '/' + page + '/' + KEY + '/')
+      return fetchPath('/api/movie/by/filtres/' + genre + '/' + sort + '/' + page + '/' + PUBLIC_API_PATH_IDENTIFIER + '/')
         .then(function (l) { return dedupe(l.map(normItem), itemKey); });
     },
     series: function (opt) {
       opt = opt || {};
       var page = Math.max(0, opt.page || 0), genre = opt.genreId || 0, sort = opt.sort || 'created';
-      return fetchPath('/api/serie/by/filtres/' + genre + '/' + sort + '/' + page + '/' + KEY + '/')
+      return fetchPath('/api/serie/by/filtres/' + genre + '/' + sort + '/' + page + '/' + PUBLIC_API_PATH_IDENTIFIER + '/')
         .then(function (l) { return dedupe(l.map(normItem), itemKey); });
     },
     seasons: function (seriesId) {
       if (seriesId <= 0) return Promise.reject(new Error('شناسه سریال نامعتبر'));
-      return fetchPath('/api/season/by/serie/' + seriesId + '/' + KEY + '/')
+      return fetchPath('/api/season/by/serie/' + seriesId + '/' + PUBLIC_API_PATH_IDENTIFIER + '/')
         .then(function (l) { return dedupe(l.map(normSeason), function (s) { return String(s.id); }); });
     },
     search: function (query) {
       var q = CC.normalizeSearch(query);
       if (!q) return Promise.resolve([]);
-      return fetchPath('/api/search/' + encodeURIComponent(q) + '/' + KEY + '/')
+      return fetchPath('/api/search/' + encodeURIComponent(q) + '/' + PUBLIC_API_PATH_IDENTIFIER + '/')
         .then(function (l) { return dedupe(l.map(normItem), itemKey); });
     },
     countries: function () {
-      return fetchPath('/api/country/all/' + KEY + '/')
+      return fetchPath('/api/country/all/' + PUBLIC_API_PATH_IDENTIFIER + '/')
         .then(function (l) { return dedupe(l.map(normCountry), function (c) { return String(c.id); }); });
     },
     countryPosters: function (opt) {
       opt = opt || {};
       if (!opt.countryId || opt.countryId <= 0) return Promise.reject(new Error('شناسه کشور نامعتبر'));
       var page = Math.max(0, opt.page || 0), sort = opt.sort || 'created';
-      return fetchPath('/api/poster/by/filtres/0/' + opt.countryId + '/' + sort + '/' + page + '/' + KEY + '/')
+      return fetchPath('/api/poster/by/filtres/0/' + opt.countryId + '/' + sort + '/' + page + '/' + PUBLIC_API_PATH_IDENTIFIER + '/')
         .then(function (l) { return dedupe(l.map(normItem), itemKey); });
     },
     healthCheck: function () {
-      return fetchPath('/api/genre/all/' + KEY + '/', false).then(function (l) { return l.length > 0; }, function () { return false; });
+      return fetchPath('/api/genre/all/' + PUBLIC_API_PATH_IDENTIFIER + '/', false).then(function (l) { return l.length > 0; }, function () { return false; });
     },
     imageUrl: function (path) {
       var raw = String(path || '').trim();

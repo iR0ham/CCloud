@@ -22,17 +22,19 @@ Deliverable: a launchable **`build/CCloud.app`**, ad‑hoc signed, that browses 
 
 API base hosts, tried in order (helper hosts substitute the host in the URL):
 `server-hi-speed-iran.info` → `hostinnegar.com` → `windowsdiba.info`.
-API key path component: `4F5A9C3D9A86FA54EACEDDD635185`.
+The public, revocable API path identifier required by the upstream catalog API is centralized in
+platform backend configuration and intentionally not reproduced in this documentation. It is not
+authentication or a secret.
 
 | Endpoint | URL suffix (after host) |
 |---|---|
-| Genres | `/api/genre/all/{KEY}/` |
-| Movies page | `/api/movie/by/filtres/{genreId}/{sort}/{page}/{KEY}/` |
-| Series page | `/api/serie/by/filtres/{genreId}/{sort}/{page}/{KEY}/` |
-| Seasons of a series | `/api/season/by/serie/{seriesId}/{KEY}/` |
-| Search | `/api/search/{urlEncodedQuery}/{KEY}/` |
-| Countries | `/api/country/all/{KEY}/` |
-| Posters by country | `/api/poster/by/filtres/0/{countryId}/{sort}/{page}/{KEY}/` |
+| Genres | `/api/genre/all/{publicApiPathIdentifier}/` |
+| Movies page | `/api/movie/by/filtres/{genreId}/{sort}/{page}/{publicApiPathIdentifier}/` |
+| Series page | `/api/serie/by/filtres/{genreId}/{sort}/{page}/{publicApiPathIdentifier}/` |
+| Seasons of a series | `/api/season/by/serie/{seriesId}/{publicApiPathIdentifier}/` |
+| Search | `/api/search/{urlEncodedQuery}/{publicApiPathIdentifier}/` |
+| Countries | `/api/country/all/{publicApiPathIdentifier}/` |
+| Posters by country | `/api/poster/by/filtres/0/{countryId}/{sort}/{page}/{publicApiPathIdentifier}/` |
 
 - `sort` ∈ `created` (newest), `year`, `imdb`. `page` is **0-based**; 30 items per page.
 - The server 301-redirects paths without the trailing slash → always use the trailing slash

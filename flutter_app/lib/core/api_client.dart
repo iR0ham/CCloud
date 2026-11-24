@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:http/http.dart' as http;
 
 import 'api_cache.dart';
+import 'backend_config.dart';
 import 'connectivity.dart';
 import 'models.dart';
 
@@ -32,25 +33,14 @@ class ApiClient {
 
   static final ApiClient instance = ApiClient._();
 
-  static const String apiKey = '4F5A9C3D9A86FA54EACEDDD635185';
-  static const List<String> hosts = [
-    'server-hi-speed-iran.info',
-    'hostinnegar.com',
-    'windowsdiba.info',
-  ];
-
   static const Duration _cacheTtl = Duration(seconds: 75);
   static const Duration _requestTimeout = Duration(seconds: 20);
   static const Duration _overallTimeout = Duration(seconds: 90);
   static const int maxSearchLength = 120;
 
-  static const Set<String> _knownHosts = {
-    'server-hi-speed-iran.info',
-    'www.server-hi-speed-iran.info',
-    'hostinnegar.com',
-    'www.hostinnegar.com',
-    'windowsdiba.info',
-    'www.windowsdiba.info',
+  static final Set<String> _knownHosts = {
+    for (final host in BackendConfig.hosts) host,
+    for (final host in BackendConfig.hosts) 'www.$host',
   };
 
   final http.Client _client = http.Client();
@@ -59,12 +49,13 @@ class ApiClient {
   final List<void Function(String host)> _hostListeners = [];
 
   /// Real-request reachability, shared with the sidebar and the settings card.
-  final ConnectivityState connectivity = ConnectivityState(hosts.first);
+  final ConnectivityState connectivity =
+      ConnectivityState(BackendConfig.hosts.first);
 
   OfflineCache? _offlineCache;
 
   int _preferredIndex = 0;
-  String _activeHost = hosts.first;
+  String _activeHost = BackendConfig.hosts.first;
 
   String get activeHost => _activeHost;
 
@@ -86,7 +77,7 @@ class ApiClient {
   // MARK: - Endpoints
 
   Future<List<Genre>> genres() async {
-    final items = await _fetch('/api/genre/all/$apiKey/');
+    final items = await _fetch('/api/genre/all/${BackendConfig.publicApiPathIdentifier}/');
     return _dedupe(items.map(Genre.fromJson), (g) => '${g.id}');
   }
 
@@ -96,7 +87,7 @@ class ApiClient {
     SortOption sort = SortOption.newest,
   }) async {
     final items = await _fetch(
-      '/api/movie/by/filtres/$genreId/${sort.apiPath}/${page < 0 ? 0 : page}/$apiKey/',
+      '/api/movie/by/filtres/$genreId/${sort.apiPath}/${page < 0 ? 0 : page}/${BackendConfig.publicApiPathIdentifier}/',
     );
     return _dedupe(
       items.map(MediaItem.fromJson),
@@ -110,7 +101,7 @@ class ApiClient {
     SortOption sort = SortOption.newest,
   }) async {
     final items = await _fetch(
-      '/api/serie/by/filtres/$genreId/${sort.apiPath}/${page < 0 ? 0 : page}/$apiKey/',
+      '/api/serie/by/filtres/$genreId/${sort.apiPath}/${page < 0 ? 0 : page}/${BackendConfig.publicApiPathIdentifier}/',
     );
     return _dedupe(
       items.map(MediaItem.fromJson),
@@ -120,7 +111,7 @@ class ApiClient {
 
   Future<List<Season>> seasons(int seriesId) async {
     if (seriesId <= 0) throw const ApiException('شناسه سریال نامعتبر');
-    final items = await _fetch('/api/season/by/serie/$seriesId/$apiKey/');
+    final items = await _fetch('/api/season/by/serie/$seriesId/${BackendConfig.publicApiPathIdentifier}/');
     return _dedupe(items.map(Season.fromJson), (s) => '${s.id}');
   }
 
@@ -128,7 +119,7 @@ class ApiClient {
     final normalized = normalizeSearchQuery(query);
     if (normalized.isEmpty) return const [];
     final encoded = Uri.encodeComponent(normalized);
-    final items = await _fetch('/api/search/$encoded/$apiKey/');
+    final items = await _fetch('/api/search/$encoded/${BackendConfig.publicApiPathIdentifier}/');
     return _dedupe(
       items.map(MediaItem.fromJson),
       (m) => '${m.type.toLowerCase()}:${m.id}',
@@ -136,7 +127,7 @@ class ApiClient {
   }
 
   Future<List<Country>> countries() async {
-    final items = await _fetch('/api/country/all/$apiKey/');
+    final items = await _fetch('/api/country/all/${BackendConfig.publicApiPathIdentifier}/');
     return _dedupe(items.map(Country.fromJson), (c) => '${c.id}');
   }
 
@@ -147,7 +138,7 @@ class ApiClient {
   }) async {
     if (countryId <= 0) throw const ApiException('شناسه کشور نامعتبر');
     final items = await _fetch(
-      '/api/poster/by/filtres/0/$countryId/${sort.apiPath}/${page < 0 ? 0 : page}/$apiKey/',
+      '/api/poster/by/filtres/0/$countryId/${sort.apiPath}/${page < 0 ? 0 : page}/${BackendConfig.publicApiPathIdentifier}/',
     );
     return _dedupe(
       items.map(MediaItem.fromJson),
@@ -157,7 +148,7 @@ class ApiClient {
 
   Future<bool> healthCheck() async {
     try {
-      final items = await _fetch('/api/genre/all/$apiKey/', allowCache: false);
+      final items = await _fetch('/api/genre/all/${BackendConfig.publicApiPathIdentifier}/', allowCache: false);
       return items.isNotEmpty;
     } catch (_) {
       return false;
@@ -271,8 +262,8 @@ class ApiClient {
 
       final order = pass == 0
           ? List<int>.generate(
-              hosts.length,
-              (i) => (i + _preferredIndex) % hosts.length,
+              BackendConfig.hosts.length,
+              (i) => (i + _preferredIndex) % BackendConfig.hosts.length,
             )
           : retryHosts;
 
@@ -284,7 +275,7 @@ class ApiClient {
             : _requestTimeout;
 
         try {
-          final data = await _fetchOnce(hosts[index], path, timeout);
+          final data = await _fetchOnce(BackendConfig.hosts[index], path, timeout);
           _noteSuccess(index);
           return data;
         } on _TransientFailure catch (failure) {
@@ -380,7 +371,7 @@ class ApiClient {
 
   void _noteSuccess(int index) {
     _preferredIndex = index;
-    final host = hosts[index];
+    final host = BackendConfig.hosts[index];
     if (host != _activeHost) {
       _activeHost = host;
       for (final listener in _hostListeners) {

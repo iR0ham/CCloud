@@ -43,8 +43,8 @@ final class APIClient {
     /// Called when the API starts serving fresh data (`true`) or the on-disk fallback (`false`).
     var onConnectivityChange: ((Bool) -> Void)?
 
-    let apiKey = "4F5A9C3D9A86FA54EACEDDD635185"
-    let hosts = ["server-hi-speed-iran.info", "hostinnegar.com", "windowsdiba.info"]
+    /// Hosts in fallback order, retained as a computed view for diagnostics.
+    var hosts: [String] { BackendConfig.hosts }
 
     /// Host that produced the most recent successful response (diagnostics + QA).
     private(set) var activeHost: String
@@ -70,11 +70,9 @@ final class APIClient {
 
     /// Hosts whose `uploads/...` paths are mirrors of each other; poster URLs may be rewritten
     /// to whichever host is currently reachable.
-    private static let knownAPIHosts: Set<String> = [
-        "server-hi-speed-iran.info", "www.server-hi-speed-iran.info",
-        "hostinnegar.com", "www.hostinnegar.com",
-        "windowsdiba.info", "www.windowsdiba.info"
-    ]
+    private static let knownAPIHosts: Set<String> = Set(
+        BackendConfig.hosts.flatMap { [$0, "www." + $0] }
+    )
 
     // MARK: State
 
@@ -95,7 +93,7 @@ final class APIClient {
     // MARK: Init
 
     private init() {
-        activeHost = hosts[0]
+        activeHost = BackendConfig.hosts[0]
 
         // Ephemeral configuration: no HTTP cache on disk or in memory, no cookies, no credentials.
         // Combined with `Cache-Control: no-cache` this guarantees stale API payloads are never used.
@@ -136,7 +134,7 @@ final class APIClient {
     func movies(page: Int, genreId: Int = 0, sort: SortOption = .newest) async throws -> [Movie] {
         let safePage = max(0, page)
         let safeGenre = max(0, genreId)
-        let path = "/api/movie/by/filtres/\(safeGenre)/\(sort.apiPath)/\(safePage)/\(apiKey)/"
+        let path = "/api/movie/by/filtres/\(safeGenre)/\(sort.apiPath)/\(safePage)/\(BackendConfig.publicApiPathIdentifier)/"
         let items: [Movie] = try await fetchList(path: path, endpoint: "movies")
         return Self.dedupe(items, key: { "\($0.type.lowercased()):\($0.id)" })
     }
@@ -144,14 +142,14 @@ final class APIClient {
     func series(page: Int, genreId: Int = 0, sort: SortOption = .newest) async throws -> [Series] {
         let safePage = max(0, page)
         let safeGenre = max(0, genreId)
-        let path = "/api/serie/by/filtres/\(safeGenre)/\(sort.apiPath)/\(safePage)/\(apiKey)/"
+        let path = "/api/serie/by/filtres/\(safeGenre)/\(sort.apiPath)/\(safePage)/\(BackendConfig.publicApiPathIdentifier)/"
         let items: [Series] = try await fetchList(path: path, endpoint: "series")
         return Self.dedupe(items, key: { "\($0.type.lowercased()):\($0.id)" })
     }
 
     func seasons(seriesId: Int) async throws -> [Season] {
         guard seriesId > 0 else { throw APIError.empty("شناسه سریال نامعتبر") }
-        let path = "/api/season/by/serie/\(seriesId)/\(apiKey)/"
+        let path = "/api/season/by/serie/\(seriesId)/\(BackendConfig.publicApiPathIdentifier)/"
         let items: [Season] = try await fetchList(path: path, endpoint: "seasons")
         return Self.dedupe(items, key: { "\($0.id)" })
     }
@@ -162,7 +160,7 @@ final class APIClient {
         let normalized = Self.normalizedSearchQuery(query)
         guard !normalized.isEmpty else { return [] }
         let encoded = Self.urlEncodedPathComponent(normalized)
-        let path = "/api/search/\(encoded)/\(apiKey)/"
+        let path = "/api/search/\(encoded)/\(BackendConfig.publicApiPathIdentifier)/"
         let items: [Movie] = try await fetchList(path: path, endpoint: "search")
         return Self.dedupe(items, key: { "\($0.type.lowercased()):\($0.id)" })
     }
@@ -176,7 +174,7 @@ final class APIClient {
     func countryPosters(countryId: Int, page: Int, sort: SortOption = .newest) async throws -> [Movie] {
         guard countryId > 0 else { throw APIError.empty("شناسه کشور نامعتبر") }
         let safePage = max(0, page)
-        let path = "/api/poster/by/filtres/0/\(countryId)/\(sort.apiPath)/\(safePage)/\(apiKey)/"
+        let path = "/api/poster/by/filtres/0/\(countryId)/\(sort.apiPath)/\(safePage)/\(BackendConfig.publicApiPathIdentifier)/"
         let items: [Movie] = try await fetchList(path: path, endpoint: "country posters")
         return Self.dedupe(items, key: { "\($0.type.lowercased()):\($0.id)" })
     }
@@ -246,7 +244,7 @@ final class APIClient {
 
     /// Force the first host used for the next request (the fallback order still applies afterwards).
     func preferHost(_ host: String) {
-        guard let index = hosts.firstIndex(where: { $0.caseInsensitiveCompare(host) == .orderedSame })
+        guard let index = BackendConfig.hosts.firstIndex(where: { $0.caseInsensitiveCompare(host) == .orderedSame })
         else { return }
         preferredHostIndex = index
     }
@@ -258,8 +256,8 @@ final class APIClient {
 
     // MARK: - Paths
 
-    private var genresPath: String { "/api/genre/all/\(apiKey)/" }
-    private var countriesPath: String { "/api/country/all/\(apiKey)/" }
+    private var genresPath: String { "/api/genre/all/\(BackendConfig.publicApiPathIdentifier)/" }
+    private var countriesPath: String { "/api/country/all/\(BackendConfig.publicApiPathIdentifier)/" }
 
     // MARK: - Fetch pipeline (cache → in-flight → hosts)
 
@@ -322,7 +320,7 @@ final class APIClient {
             }
 
             let order: [Int] = pass == 0
-                ? (0..<hosts.count).map { (preferredHostIndex + $0) % hosts.count }
+                ? (0..<BackendConfig.hosts.count).map { (preferredHostIndex + $0) % BackendConfig.hosts.count }
                 : retryHosts
 
             for index in order {
@@ -332,7 +330,7 @@ final class APIClient {
 
                 let timeout = min(Self.requestTimeout, max(3, remaining))
                 do {
-                    let data = try await fetchOnce(host: hosts[index], path: path, timeout: timeout)
+                    let data = try await fetchOnce(host: BackendConfig.hosts[index], path: path, timeout: timeout)
                     noteSuccess(hostIndex: index)
                     return data
                 } catch let failure as AttemptFailure {
@@ -409,7 +407,7 @@ final class APIClient {
 
     private func noteSuccess(hostIndex index: Int) {
         preferredHostIndex = index
-        let host = hosts[index]
+        let host = BackendConfig.hosts[index]
         activeHost = host
         if reportedHost != host {
             reportedHost = host
