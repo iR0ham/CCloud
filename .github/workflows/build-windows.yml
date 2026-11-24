@@ -1,30 +1,54 @@
 name: Build Windows
 
 # Windows builds cannot be cross-compiled from macOS, so they run on a Windows
-# runner. There is no release/publish step: the workflow only produces an
-# artifact that can be downloaded and tested.
+# runner. There is no release/publish step here: this workflow only produces
+# artifacts; release publication is owned by release.yml.
 on:
+  workflow_call:
+    inputs:
+      ref:
+        description: Git ref to check out; defaults to the caller's ref
+        required: false
+        type: string
+        default: ''
+    outputs:
+      installer:
+        description: true when an Inno Setup installer was produced
+        value: ${{ jobs.build-windows.outputs.installer }}
+      signing:
+        description: Windows Authenticode signing status (currently unsigned)
+        value: ${{ jobs.build-windows.outputs.signing }}
   workflow_dispatch:
-  push:
-    tags:
-      - 'v*'
+    inputs:
+      ref:
+        description: Git ref to check out; defaults to the selected branch/tag
+        required: false
+        type: string
+        default: ''
 
 permissions:
   contents: read
+
+concurrency:
+  group: build-windows-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   analyze:
     name: Dart analyze
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: flutter_app
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
 
       - name: Set up Flutter
-        uses: subosito/flutter-action@v2
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
           flutter-version: '3.47.8'
           cache: true
@@ -39,23 +63,48 @@ jobs:
     name: Windows release build
     runs-on: windows-latest
     timeout-minutes: 60
-    # The installer job is optional (a runner without Inno Setup must not fail a
+    # The installer is best effort (a runner without Inno Setup must not fail a
     # build), so the install test needs to know whether an installer exists at
     # all instead of failing on a missing artifact.
     outputs:
       installer: ${{ steps.installer.outputs.created }}
+      signing: ${{ steps.signing.outputs.label }}
     defaults:
       run:
         working-directory: flutter_app
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
 
       - name: Set up Flutter
-        uses: subosito/flutter-action@v2
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
           flutter-version: '3.47.8'
           cache: true
+
+      - name: Read canonical version and sync metadata
+        id: version
+        working-directory: .
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python scripts/version.py sync
+          if ($LASTEXITCODE -ne 0) { throw "version sync failed" }
+          python scripts/version.py check
+          if ($LASTEXITCODE -ne 0) { throw "version check failed" }
+          $raw = python scripts/version.py show
+          if ($LASTEXITCODE -ne 0) { throw "version show failed" }
+          $version = $raw | ConvertFrom-Json
+          "version=$($version.version)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "build=$($version.build)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          Write-Host "Canonical version: $($version.version) build $($version.build)"
 
       - name: Enable Windows desktop
         run: flutter config --enable-windows-desktop
@@ -90,7 +139,7 @@ jobs:
       # it sat between the assert and the upload, so its crash swallowed the
       # package. windows/CMakeLists.txt now declares the requirement instead.
       - name: Upload portable build
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: CCloud-windows-x64
           path: ${{ runner.temp }}/ccloud-release/windows/
@@ -102,36 +151,77 @@ jobs:
       # the step cannot fail the job either - ISCC problems still show up in the
       # step log and the skipped upload.
       #
-      # 'created' starts out false so that an ISCC crash - which aborts the
-      # script before it can write the output - cannot leave the flag unset and
-      # look like an intentional skip downstream.
-      - name: Assume no installer until one is built
-        shell: pwsh
-        run: echo "created=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
-
       - name: Build installer (Inno Setup)
         id: installer
         continue-on-error: true
         shell: pwsh
         run: |
-          # Never hardcode the version here: pubspec.yaml is the single source,
-          # so a bump cannot ship an installer labelled with the old number.
-          $line = (Select-String -Path pubspec.yaml -Pattern '^version:' |
-            Select-Object -First 1).Line
-          $AppVersion = ($line -split ':', 2)[1].Trim().Split('+')[0]
-          if (-not $AppVersion) { throw "Could not read the version from pubspec.yaml ($line)" }
-          Write-Host "Installer version: $AppVersion"
+          # 'created' starts out false so that an ISCC crash - which aborts the
+          # script before it can write the output - cannot leave the flag unset
+          # and look like an intentional skip downstream. It is written from
+          # inside this step so it belongs to the same step id the outputs read.
+          "created=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          # Version and build come from the canonical version.json interface;
+          # this step must not parse pubspec.yaml itself.
           ../scripts/windows-installer.ps1 `
             -ReleaseDir (Join-Path $env:RUNNER_TEMP 'ccloud-release\windows') `
             -OutputDir (Join-Path $env:RUNNER_TEMP 'ccloud-release\installer') `
-            -AppVersion $AppVersion
+            -AppVersion '${{ steps.version.outputs.version }}' `
+            -Build '${{ steps.version.outputs.build }}'
 
       - name: Upload installer
         if: steps.installer.outputs.created == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: CCloud-windows-x64-setup
           path: ${{ runner.temp }}/ccloud-release/installer/CCloud-*-setup.exe
+          if-no-files-found: error
+
+      - name: Record Windows signing status
+        id: signing
+        shell: pwsh
+        run: |
+          "label=unsigned" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          Write-Host "Windows signing: unsigned (no Authenticode certificate configured)."
+
+      - name: Package portable ZIP and checksums
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $stage = Join-Path $env:RUNNER_TEMP 'release-staging\windows'
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+          $zipName = "CCloud-Windows-${{ steps.version.outputs.version }}-${{ steps.version.outputs.build }}.zip"
+          $zipPath = Join-Path $stage $zipName
+          $package = Join-Path $env:RUNNER_TEMP 'ccloud-release\windows'
+          Compress-Archive -Path (Join-Path $package '*') -DestinationPath $zipPath -Force
+          $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $zipPath).Hash.ToLowerInvariant()
+          "$hash  $zipName" | Out-File -FilePath (Join-Path $stage 'SHA256SUMS-Windows.txt') -Encoding ascii
+          "$hash" | Out-File -FilePath (Join-Path $stage ($zipName -replace '\.zip$', '.sha256')) -Encoding ascii
+          # Only copy the installer the compiler step actually reported as
+          # created; a failed ISCC can leave a partial setup.exe in the output
+          # folder, and that must never become a release asset.
+          $installer = $null
+          if ('${{ steps.installer.outputs.created }}' -eq 'true') {
+            $installer = Get-ChildItem -LiteralPath (Join-Path $env:RUNNER_TEMP 'ccloud-release\installer') `
+              -Filter 'CCloud-*-setup.exe' -ErrorAction SilentlyContinue |
+              Sort-Object LastWriteTime -Descending | Select-Object -First 1
+          }
+          if ($installer) {
+            Copy-Item -LiteralPath $installer.FullName -Destination $stage -Force
+            $installerHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $installer.FullName).Hash.ToLowerInvariant()
+            "$installerHash  $($installer.Name)" |
+              Out-File -FilePath (Join-Path $stage 'SHA256SUMS-Windows.txt') -Append -Encoding ascii
+            "$installerHash" |
+              Out-File -FilePath (Join-Path $stage ($installer.Name + '.sha256')) -Encoding ascii
+          }
+          "unsigned" | Out-File -FilePath (Join-Path $stage 'SIGNING-Windows.txt') -Encoding utf8
+          Get-ChildItem -LiteralPath $stage | ForEach-Object { Write-Host $_.Name }
+
+      - name: Upload Windows release artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-Windows-${{ steps.version.outputs.version }}-${{ steps.version.outputs.build }}
+          path: ${{ runner.temp }}/release-staging/windows/
           if-no-files-found: error
 
   # Escape hatch for machines whose GPU/driver path keeps Impeller from
@@ -150,10 +240,12 @@ jobs:
         working-directory: flutter_app
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
 
       - name: Set up Flutter
-        uses: subosito/flutter-action@v2
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
           flutter-version: '3.47.8'
           cache: true
@@ -184,7 +276,7 @@ jobs:
             -PackageDir (Join-Path $env:RUNNER_TEMP 'ccloud-release\windows-compat')
 
       - name: Upload compatibility build
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: CCloud-windows-x64-compat
           path: ${{ runner.temp }}/ccloud-release/windows-compat/
@@ -201,7 +293,7 @@ jobs:
 
       - name: Upload compatibility run evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: windows-smoke-compat-evidence
           path: flutter_app/windows-smoke-compat.png
@@ -221,10 +313,12 @@ jobs:
       actions: read
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
 
       - name: Download portable build
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: CCloud-windows-x64
           path: windows-release
@@ -235,7 +329,7 @@ jobs:
 
       - name: Upload run evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: windows-smoke-evidence
           path: windows-smoke.png
@@ -258,10 +352,12 @@ jobs:
       actions: read
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
 
       - name: Download installer
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: CCloud-windows-x64-setup
           path: installer-download
@@ -270,8 +366,9 @@ jobs:
         shell: pwsh
         run: |
           # The download step lays the artifact out as
-          # installer-download/CCloud-<ver>-windows-x64-setup.exe, but recurse so
-          # a changed upload layout cannot silently produce 'no setup found'.
+          # installer-download/CCloud-Windows-<ver>-<build>-setup.exe, but
+          # recurse so a changed upload layout cannot silently produce
+          # 'no setup found'.
           $setup = Get-ChildItem -LiteralPath installer-download -Recurse -Filter 'CCloud-*-setup.exe' |
               Sort-Object Length -Descending | Select-Object -First 1
           if (-not $setup) {
@@ -306,7 +403,7 @@ jobs:
       # defaults.working-directory here would silently break the evidence upload.
       - name: Upload installed run evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: windows-installer-smoke-evidence
           path: |

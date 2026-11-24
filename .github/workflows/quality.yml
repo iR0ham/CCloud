@@ -1,0 +1,137 @@
+name: Quality
+
+# Repository quality gates. All third-party actions are pinned to full SHAs.
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: Git ref to check out; defaults to the caller's ref
+        required: false
+        type: string
+        default: ''
+  pull_request:
+  push:
+  schedule:
+    - cron: '0 4 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: quality-${{ github.workflow }}-${{ inputs.ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  actionlint:
+    name: Workflow lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: '1.23.x'
+          cache: false
+      - name: Install actionlint
+        run: go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+      - name: Lint workflows
+        run: '"$(go env GOPATH)/bin/actionlint" -color'
+
+  gitleaks:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+          fetch-depth: 0
+      # GITLEAKS_LICENSE is only needed when this repository is owned by an
+      # organization. It must never be committed; set it as a repository secret.
+      - uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_ENABLE_COMMENTS: false
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: false
+
+  version:
+    name: Version consistency
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+      - name: Check canonical and generated version metadata
+        run: python3 scripts/version.py check
+      - name: Run version tests
+        run: python3 Tests/test_version.py
+
+  hygiene:
+    name: Repository hygiene
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+      - name: Reject tracked build outputs and local files
+        run: |
+          if git ls-files | grep -E '(^|/)(build|dist|qa|\.dart_tool)/|(^|/)Tests/(api|player)/(out|build)/|(^|/)Resources/ffmpeg-bin/|(^|/)\.DS_Store$'; then
+            echo "::error::tracked generated or local files found; see .gitignore"
+            exit 1
+          fi
+          if git ls-files | grep -Ei '\.(apk|aab|ipk|exe|dll|dmg|pkg|zip|p12|jks|keystore|mobileprovision)$'; then
+            echo "::error::tracked binary/signing material found"
+            exit 1
+          fi
+
+  required-notices:
+    # NOTICE and THIRD_PARTY_NOTICES.md are mandatory release evidence.
+    # A repository-level LICENSE is an owner policy decision; it is deliberately
+    # not invented or required by this gate.
+    # This remains a hard failing gate: do not add continue-on-error or downgrade
+    # a missing NOTICE file to a warning.
+    name: Required NOTICE files
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+      - name: Require non-empty NOTICE and THIRD_PARTY_NOTICES.md
+        run: |
+          missing=0
+          for file in NOTICE THIRD_PARTY_NOTICES.md; do
+            if [ ! -s "$file" ]; then
+              echo "::error::$file is missing or empty"
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            echo "::error::required NOTICE files are missing or empty; release publication is blocked; do not downgrade this gate to a warning."
+            exit 1
+          fi
+
+  dependencies:
+    name: Dependency vulnerability scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+      # The available lockfile is flutter_app/pubspec.lock; the recursive scan
+      # also covers any future npm/Gradle lockfiles. OSV scanner exits non-zero
+      # when it finds a vulnerability, so this is a failing gate.
+      - uses: google/osv-scanner-action/osv-scanner-action@32d3cd482bdadfb38b186c0ad1b031902d55d932 # v2.7.1
+        with:
+          scan-args: |-
+            --recursive
+            ./

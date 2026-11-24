@@ -1,0 +1,161 @@
+name: Build webOS
+
+# Reusable webOS IPK build. The IPK is not signed here; device/luna runtime
+# installation remains a manual, NOT VERIFIED step.
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: Git ref to check out; defaults to the caller's ref
+        required: false
+        type: string
+        default: ''
+    outputs:
+      signing:
+        description: webOS package signing status (currently unsigned)
+        value: ${{ jobs.build.outputs.signing }}
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Git ref to check out; defaults to the selected branch/tag
+        required: false
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-webos-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: webOS IPK
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      signing: unsigned
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '20'
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ~/.npm
+          key: npm-ares-cli-2.4.0-${{ runner.os }}
+          restore-keys: |
+            npm-ares-cli-2.4.0-
+      - name: Sync and validate canonical version
+        id: version
+        run: |
+          python3 scripts/version.py sync
+          python3 scripts/version.py check
+          VERSION="$(python3 scripts/version.py show | python3 -c 'import json,sys; print(json.load(sys.stdin)["version"])')"
+          BUILD="$(python3 scripts/version.py show | python3 -c 'import json,sys; print(json.load(sys.stdin)["build"])')"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "build=$BUILD" >> "$GITHUB_OUTPUT"
+      - name: Check JavaScript syntax
+        run: |
+          find webos_app/app webos_app/service -name '*.js' -print0 \
+            | xargs -0 -r -n1 node --check
+      - name: Install webOS ares CLI
+        run: npm install --global @webosose/ares-cli@2.4.0
+      - name: Package app and service
+        run: |
+          rm -rf webos_app/dist
+          cd webos_app
+          ares-package app service/com.ccloud.tv.service -o dist
+      - name: Inspect IPK, assert package contents, rename, and checksum
+        shell: bash
+        env:
+          EXPECTED_VERSION: ${{ steps.version.outputs.version }}
+          EXPECTED_BUILD: ${{ steps.version.outputs.build }}
+        run: |
+          set -euo pipefail
+          IPK="$(find webos_app/dist -maxdepth 1 -name '*.ipk' -print -quit)"
+          if [ -z "$IPK" ]; then
+            echo "::error::ares-package produced no IPK"
+            exit 1
+          fi
+          TARGET="CCloud-webOS-${EXPECTED_VERSION}-${EXPECTED_BUILD}.ipk"
+          mkdir -p release-artifacts
+          cp "$IPK" "release-artifacts/$TARGET"
+
+          DATA_ROOT="$RUNNER_TEMP/ipk-data"
+          rm -rf "$DATA_ROOT"
+          mkdir -p "$DATA_ROOT"
+          # ares-cli has produced both .tar.gz and .tar.xz members across
+          # releases; accept either (and plain/bzip2) instead of pinning one.
+          DATA_MEMBER="$(ar t "$IPK" | grep -E '^(\./)?data\.tar(\.(gz|xz|bz2))?$' | head -1 || true)"
+          if [ -z "$DATA_MEMBER" ]; then
+            echo "::error::the IPK has no data.tar, data.tar.gz, data.tar.xz or data.tar.bz2 member"
+            ar t "$IPK" || true
+            exit 1
+          fi
+          case "$DATA_MEMBER" in
+            *.tar.gz) TAR_FLAG=z ;;
+            *.tar.xz) TAR_FLAG=J ;;
+            *.tar.bz2) TAR_FLAG=j ;;
+            *) TAR_FLAG='' ;;
+          esac
+          ar p "$IPK" "$DATA_MEMBER" | tar -x${TAR_FLAG}f - -C "$DATA_ROOT"
+
+          APPINFO="$DATA_ROOT/usr/palm/applications/com.ccloud.tv/appinfo.json"
+          VERSION_JS="$DATA_ROOT/usr/palm/applications/com.ccloud.tv/js/version.js"
+          SERVICE_DIR="$DATA_ROOT/usr/palm/services/com.ccloud.tv.service"
+          test -f "$APPINFO"
+          test -f "$VERSION_JS"
+          test -f "$SERVICE_DIR/ccloud_service.js"
+          test -f "$SERVICE_DIR/services.json"
+          grep -Fq "service.register('fetch'" "$SERVICE_DIR/ccloud_service.js"
+          grep -Fq "service.register('ping'" "$SERVICE_DIR/ccloud_service.js"
+          if find "$DATA_ROOT" -name server.js -print -quit | grep -q .; then
+            echo "::error::server.js must not be present in the webOS IPK"
+            exit 1
+          fi
+
+          python3 - "$APPINFO" "$VERSION_JS" "$SERVICE_DIR/services.json" \
+            "$EXPECTED_VERSION" "$EXPECTED_BUILD" <<'PY'
+          import json
+          import re
+          import sys
+
+          appinfo = json.load(open(sys.argv[1], encoding='utf-8'))
+          assert appinfo.get('id') == 'com.ccloud.tv', appinfo
+          assert appinfo.get('version') == sys.argv[4], appinfo
+
+          text = open(sys.argv[2], encoding='utf-8').read()
+          version_match = re.search(r"CCLOUD_VERSION\s*=\s*[\"']([^\"']+)[\"']", text)
+          build_match = re.search(r"CCLOUD_BUILD\s*=\s*[\"']([^\"']+)[\"']", text)
+          assert version_match and version_match.group(1) == sys.argv[4], text
+          assert build_match and build_match.group(1) == sys.argv[5], text
+
+          services = json.load(open(sys.argv[3], encoding='utf-8'))
+          entries = services.get('services')
+          assert isinstance(entries, list), services
+          match = next((entry for entry in entries if entry.get('name') == 'com.ccloud.tv.service'), None)
+          assert match is not None, services
+          commands = {command.get('name') for command in match.get('commands', [])}
+          assert {'fetch', 'ping'} <= commands, match
+          print(f"IPK OK: appinfo version={sys.argv[4]} build={sys.argv[5]}")
+          PY
+
+          (cd release-artifacts && sha256sum "$TARGET" > SHA256SUMS-webOS.txt)
+          printf '%s\n' unsigned > release-artifacts/SIGNING-webOS.txt
+          cat release-artifacts/SHA256SUMS-webOS.txt
+      - name: Upload webOS release artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-webOS-${{ steps.version.outputs.version }}-${{ steps.version.outputs.build }}
+          path: release-artifacts/
+          if-no-files-found: error
+      - name: Remove temporary webOS package output
+        if: always()
+        run: rm -rf webos_app/dist

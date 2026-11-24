@@ -1,0 +1,228 @@
+name: Release
+
+# Tag-driven release workflow. The tag is validated before any expensive job.
+# Publication is gated on tag validation, CI, quality gates, and all platform
+# builds plus the repository variable RELEASE_PRODUCTION_READY being exactly
+# "true"; signing is checked separately.
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to validate and publish (e.g. v2.0.0)
+        required: true
+        type: string
+      ui_smoke:
+        description: Run hosted macOS UI smoke + snapshots
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  tag-check:
+    name: Validate release tag and canonical metadata
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+      product: ${{ steps.meta.outputs.product }}
+      version: ${{ steps.meta.outputs.version }}
+      build: ${{ steps.meta.outputs.build }}
+      commit: ${{ steps.meta.outputs.commit }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+      - name: Validate the tag before any expensive job
+        id: meta
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          TAG="${INPUT_TAG:-$GITHUB_REF_NAME}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          python3 scripts/version.py check --tag "$TAG"
+          PRODUCT="$(python3 scripts/version.py show | python3 -c 'import json,sys; print(json.load(sys.stdin)["product"])')"
+          VERSION="$(python3 scripts/version.py show | python3 -c 'import json,sys; print(json.load(sys.stdin)["version"])')"
+          BUILD="$(python3 scripts/version.py show | python3 -c 'import json,sys; print(json.load(sys.stdin)["build"])')"
+          COMMIT="$(git rev-parse HEAD)"
+          echo "product=$PRODUCT" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "build=$BUILD" >> "$GITHUB_OUTPUT"
+          echo "commit=$COMMIT" >> "$GITHUB_OUTPUT"
+          echo "release tag: $TAG"
+          echo "version: $PRODUCT $VERSION build $BUILD"
+          echo "commit: $COMMIT"
+
+  quality:
+    name: Quality gates
+    needs: tag-check
+    uses: ./.github/workflows/quality.yml
+    with:
+      ref: refs/tags/${{ needs.tag-check.outputs.tag }}
+    secrets: inherit
+
+  ci:
+    name: CI
+    needs: tag-check
+    uses: ./.github/workflows/ci.yml
+    with:
+      live_api: false
+      ref: refs/tags/${{ needs.tag-check.outputs.tag }}
+
+  builds:
+    name: Platform builds
+    needs: tag-check
+    uses: ./.github/workflows/build-platforms.yml
+    with:
+      ref: refs/tags/${{ needs.tag-check.outputs.tag }}
+      ui_smoke: ${{ inputs.ui_smoke || false }}
+    secrets: inherit
+
+  publish:
+    name: Publish or retain internal artifacts
+    needs: [tag-check, ci, quality, builds]
+    if: needs.tag-check.result == 'success' && needs.ci.result == 'success' && needs.quality.result == 'success' && needs.builds.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      actions: read
+    env:
+      PRODUCT: ${{ needs.tag-check.outputs.product }}
+      VERSION: ${{ needs.tag-check.outputs.version }}
+      BUILD: ${{ needs.tag-check.outputs.build }}
+      TAG: ${{ needs.tag-check.outputs.tag }}
+      COMMIT: ${{ needs.tag-check.outputs.commit }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: refs/tags/${{ needs.tag-check.outputs.tag }}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+      - name: Download platform release artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: 'release-*'
+          path: release-artifacts
+          merge-multiple: true
+      - name: Read artifact signing labels
+        id: labels
+        run: |
+          MACOS_SIGNING="$(cat release-artifacts/SIGNING-macOS.txt 2>/dev/null || echo missing)"
+          ANDROID_SIGNING="$(cat release-artifacts/SIGNING-Android.txt 2>/dev/null || echo missing)"
+          WINDOWS_SIGNING="$(cat release-artifacts/SIGNING-Windows.txt 2>/dev/null || echo missing)"
+          WEBOS_SIGNING="$(cat release-artifacts/SIGNING-webOS.txt 2>/dev/null || echo missing)"
+          echo "macos_signing=$MACOS_SIGNING" >> "$GITHUB_OUTPUT"
+          echo "android_signing=$ANDROID_SIGNING" >> "$GITHUB_OUTPUT"
+          echo "windows_signing=$WINDOWS_SIGNING" >> "$GITHUB_OUTPUT"
+          echo "webos_signing=$WEBOS_SIGNING" >> "$GITHUB_OUTPUT"
+          printf 'macOS=%s Android=%s Windows=%s webOS=%s\n' \
+            "$MACOS_SIGNING" "$ANDROID_SIGNING" "$WINDOWS_SIGNING" "$WEBOS_SIGNING"
+      - name: Generate checksums and manifest
+        run: |
+          python3 scripts/release_manifest.py \
+            --artifacts release-artifacts \
+            --product "$PRODUCT" \
+            --version "$VERSION" \
+            --build "$BUILD" \
+            --commit "$COMMIT" \
+            --tag "$TAG" \
+            --run-id "$GITHUB_RUN_ID" \
+            --timestamp "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --output release-artifacts/release-manifest.json
+      - name: Decide whether publication is allowed
+        id: gate
+        env:
+          PRODUCTION_READY: ${{ vars.RELEASE_PRODUCTION_READY }}
+          MACOS_SIGNING: ${{ steps.labels.outputs.macos_signing }}
+          ANDROID_SIGNING: ${{ steps.labels.outputs.android_signing }}
+          WINDOWS_SIGNING: ${{ steps.labels.outputs.windows_signing }}
+          WEBOS_SIGNING: ${{ steps.labels.outputs.webos_signing }}
+        run: |
+          reasons=()
+          if [ "$PRODUCTION_READY" != "true" ]; then
+            reasons+=("RELEASE_PRODUCTION_READY is not exactly true (production approval absent)")
+          fi
+          if [ "$MACOS_SIGNING" != "developer-id-notarized" ]; then
+            reasons+=("macOS artifact is ${MACOS_SIGNING:-missing}, not Developer ID signed and notarized")
+          fi
+          if [ "$ANDROID_SIGNING" != "release-signed" ]; then
+            reasons+=("Android artifact is ${ANDROID_SIGNING:-missing}, not release-signed")
+          fi
+          # Windows and webOS are unsigned by design, but the label file must
+          # still exist: 'missing' means the platform artifact never arrived,
+          # which is not an acceptable partial release.
+          if [ -z "$WINDOWS_SIGNING" ] || [ "$WINDOWS_SIGNING" = "missing" ]; then
+            reasons+=("Windows artifact signing label is missing (artifact absent)")
+          fi
+          if [ -z "$WEBOS_SIGNING" ] || [ "$WEBOS_SIGNING" = "missing" ]; then
+            reasons+=("webOS artifact signing label is missing (artifact absent)")
+          fi
+          if [ "${#reasons[@]}" -eq 0 ]; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            REASON="$(IFS='; '; echo "${reasons[*]}")"
+            echo "not published: signing/production approval absent — $REASON"
+            {
+              echo "### Not published: signing/production approval absent"
+              echo ""
+              echo "$REASON"
+              echo ""
+              echo "Internal artifacts are retained for inspection."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::notice::not published: signing/production approval absent — $REASON"
+          fi
+      - name: Write release notes
+        if: steps.gate.outputs.publish == 'true'
+        env:
+          MACOS_SIGNING: ${{ steps.labels.outputs.macos_signing }}
+          ANDROID_SIGNING: ${{ steps.labels.outputs.android_signing }}
+          WINDOWS_SIGNING: ${{ steps.labels.outputs.windows_signing }}
+          WEBOS_SIGNING: ${{ steps.labels.outputs.webos_signing }}
+        run: |
+          {
+            echo "## CCloud ${VERSION} (build ${BUILD})"
+            echo ""
+            echo "Tag: ${TAG}"
+            echo "Commit: ${COMMIT}"
+            echo "Workflow run: ${GITHUB_RUN_ID}"
+            echo ""
+            echo "| Platform | Signing |"
+            echo "| --- | --- |"
+            echo "| macOS | ${MACOS_SIGNING} |"
+            echo "| Android/TV | ${ANDROID_SIGNING} |"
+            echo "| Windows | ${WINDOWS_SIGNING} |"
+            echo "| webOS | ${WEBOS_SIGNING} |"
+            echo ""
+            echo "Checksums and the machine-readable manifest are attached."
+          } > "$RUNNER_TEMP/release-notes.md"
+      - name: Publish GitHub Release
+        if: steps.gate.outputs.publish == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "$TAG" release-artifacts/* \
+            --title "$PRODUCT $VERSION (build $BUILD)" \
+            --notes-file "$RUNNER_TEMP/release-notes.md" \
+            --verify-tag
+      - name: Retain internal artifacts when publication is not allowed
+        if: steps.gate.outputs.publish != 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-internal-${{ env.VERSION }}-${{ env.BUILD }}
+          path: release-artifacts/
+          if-no-files-found: error

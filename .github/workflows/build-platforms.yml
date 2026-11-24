@@ -1,0 +1,59 @@
+name: Build all platforms
+
+# Orchestrates the reusable platform workflows. No build logic is duplicated
+# here; each platform artifact comes from its own workflow.
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: Git ref to check out; defaults to the caller's ref
+        required: false
+        type: string
+        default: ''
+      ui_smoke:
+        description: Run hosted macOS UI smoke + snapshots
+        required: false
+        type: boolean
+        default: false
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Git ref to check out; defaults to the selected branch/tag
+        required: false
+        type: string
+        default: ''
+      ui_smoke:
+        description: Run hosted macOS UI smoke + snapshots
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-platforms-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  macos:
+    uses: ./.github/workflows/build-macos.yml
+    with:
+      ref: ${{ inputs.ref }}
+      ui_smoke: ${{ inputs.ui_smoke }}
+    secrets: inherit
+  windows:
+    uses: ./.github/workflows/build-windows.yml
+    with:
+      ref: ${{ inputs.ref }}
+    secrets: inherit
+  android:
+    uses: ./.github/workflows/build-android.yml
+    with:
+      ref: ${{ inputs.ref }}
+    secrets: inherit
+  webos:
+    uses: ./.github/workflows/build-webos.yml
+    with:
+      ref: ${{ inputs.ref }}
+    secrets: inherit

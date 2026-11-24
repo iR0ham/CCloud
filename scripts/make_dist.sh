@@ -1,19 +1,19 @@
 #!/bin/bash
-# Packages build/CCloud.app into dist/CCloud-macOS.zip + SHA-256, then verifies the archive
-# by extracting it to a clean directory and checking the extracted app.
+# Packages build/CCloud.app into dist/CCloud-macOS-<version>-<build>.zip + SHA-256,
+# then verifies the archive by extracting it to a clean directory and checking the
+# extracted app.
 #
 #   scripts/make_dist.sh
 #
 # Output:
-#   dist/CCloud-macOS.zip
+#   dist/CCloud-macOS-<version>-<build>.zip
 #   dist/SHA256SUMS.txt
-#   dist/CCloud-macOS.sha256   (single-line checksum, easy to paste in a release note)
+#   dist/CCloud-macOS-<version>-<build>.sha256   (single-line checksum)
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 APP="$ROOT/build/CCloud.app"
 DIST="$ROOT/dist"
-ZIP="$DIST/CCloud-macOS.zip"
 VERIFY="$ROOT/build/tmp/dist-verify"
 BUILD="$ROOT/build"
 export TMPDIR="$BUILD/tmp"
@@ -24,8 +24,13 @@ if [ ! -x "$APP/Contents/MacOS/CCloud" ]; then
   exit 1
 fi
 
-VERSION="$(plutil -extract CFBundleShortVersionString raw -o - "$APP/Contents/Info.plist" 2>/dev/null || echo "?")"
-BUILD_NUM="$(plutil -extract CFBundleVersion raw -o - "$APP/Contents/Info.plist" 2>/dev/null || echo "?")"
+VERSION="$(plutil -extract CFBundleShortVersionString raw -o - "$APP/Contents/Info.plist" 2>/dev/null || true)"
+BUILD_NUM="$(plutil -extract CFBundleVersion raw -o - "$APP/Contents/Info.plist" 2>/dev/null || true)"
+if [ -z "$VERSION" ] || [ -z "$BUILD_NUM" ]; then
+  echo "error: the built app has no CFBundleShortVersionString/CFBundleVersion" >&2
+  exit 1
+fi
+ZIP="$DIST/CCloud-macOS-$VERSION-$BUILD_NUM.zip"
 echo "==> Packaging CCloud.app (version $VERSION build $BUILD_NUM)"
 
 # Fresh archive; --keepParent keeps the CCloud.app wrapper so drag-to-Applications works.
@@ -34,8 +39,8 @@ ditto -c -k --keepParent --sequesterRsrc "$APP" "$ZIP"
 ls -lh "$ZIP" | awk '{print "    "$5"  "$9}'
 
 echo "==> Checksums"
-(cd "$DIST" && shasum -a 256 "CCloud-macOS.zip" > SHA256SUMS.txt)
-shasum -a 256 "$ZIP" | cut -d' ' -f1 > "$DIST/CCloud-macOS.sha256"
+(cd "$DIST" && shasum -a 256 "$(basename "$ZIP")" > SHA256SUMS.txt)
+shasum -a 256 "$ZIP" | cut -d' ' -f1 > "$DIST/CCloud-macOS-$VERSION-$BUILD_NUM.sha256"
 cat "$DIST/SHA256SUMS.txt" | sed 's/^/    /'
 
 echo "==> Verifying the archive round-trips"

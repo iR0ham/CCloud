@@ -1,0 +1,204 @@
+name: Build Android/TV
+
+# Reusable Android/TV build. One universal release APK is produced (never
+# --split-per-abi), so the global versionCode stays exactly the canonical build
+# number; an AAB is produced from the same version.
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: Git ref to check out; defaults to the caller's ref
+        required: false
+        type: string
+        default: ''
+    secrets:
+      ANDROID_KEYSTORE_BASE64:
+        required: false
+      ANDROID_KEYSTORE_PASSWORD:
+        required: false
+      ANDROID_KEY_ALIAS:
+        required: false
+      ANDROID_KEY_PASSWORD:
+        required: false
+    outputs:
+      signing:
+        description: release-signed or internal-debug-signed
+        value: ${{ jobs.build.outputs.signing }}
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Git ref to check out; defaults to the selected branch/tag
+        required: false
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-android-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Android/TV universal APK + AAB
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    outputs:
+      signing: ${{ steps.signing.outputs.label }}
+    defaults:
+      run:
+        working-directory: flutter_app
+    env:
+      # Secret names/formats (documented here; values are never committed):
+      #   ANDROID_KEYSTORE_BASE64: base64 of the release .jks/.keystore
+      #   ANDROID_KEYSTORE_PASSWORD: keystore password
+      #   ANDROID_KEY_ALIAS: key alias inside the keystore
+      #   ANDROID_KEY_PASSWORD: key password
+      ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          flutter-version: '3.47.8'
+          channel: stable
+          cache: true
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+      - name: Sync and validate canonical version
+        id: version
+        working-directory: .
+        run: |
+          python3 scripts/version.py sync
+          python3 scripts/version.py check
+          VERSION="$(python3 scripts/version.py show | python3 -c 'import json,sys; print(json.load(sys.stdin)["version"])')"
+          BUILD="$(python3 scripts/version.py show | python3 -c 'import json,sys; print(json.load(sys.stdin)["build"])')"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "build=$BUILD" >> "$GITHUB_OUTPUT"
+      - name: Configure Android signing
+        id: signing
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -n "$ANDROID_KEYSTORE_BASE64" ]; then
+            echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > android/app/ccloud-release.jks
+            chmod 600 android/app/ccloud-release.jks
+            cat > android/key.properties <<EOF
+          storePassword=$ANDROID_KEYSTORE_PASSWORD
+          keyPassword=$ANDROID_KEY_PASSWORD
+          keyAlias=$ANDROID_KEY_ALIAS
+          storeFile=app/ccloud-release.jks
+          EOF
+            echo "label=release-signed" >> "$GITHUB_OUTPUT"
+            echo "Android signing: release-signed (keystore secrets present)."
+          else
+            echo "label=internal-debug-signed" >> "$GITHUB_OUTPUT"
+            echo "::notice::Android signing secrets absent; outputs are internal/debug-signed and are not production releases."
+          fi
+      - name: Resolve dependencies
+        run: flutter pub get
+      - name: Analyze
+        run: flutter analyze
+      - name: Test
+        run: flutter test
+      - name: Build universal release APK (no split-per-ABI)
+        run: flutter build apk --release
+      - name: Build release App Bundle
+        run: flutter build appbundle --release
+      - name: Assert APK identity, version, TV launcher/banner, and activity configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="build/app/outputs/flutter-apk/app-release.apk"
+          test -f "$APK"
+          SDK="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
+          if [ -z "$SDK" ]; then
+            echo "::error::Android SDK environment is missing"
+            exit 1
+          fi
+          APKANALYZER="$(command -v apkanalyzer || true)"
+          if [ -z "$APKANALYZER" ]; then
+            APKANALYZER="$(find "$SDK/cmdline-tools" -path '*/bin/apkanalyzer' -type f 2>/dev/null | sort -V | tail -1)"
+          fi
+          if [ -z "$APKANALYZER" ]; then
+            echo "::error::apkanalyzer not found"
+            exit 1
+          fi
+          AAPT="$(find "$SDK/build-tools" -name aapt -type f 2>/dev/null | sort -V | tail -1)"
+          if [ -z "$AAPT" ]; then
+            echo "::error::aapt not found"
+            exit 1
+          fi
+          APP_ID="$("$APKANALYZER" manifest application-id "$APK")"
+          VERSION_CODE="$("$APKANALYZER" manifest version-code "$APK")"
+          VERSION_NAME="$("$APKANALYZER" manifest version-name "$APK")"
+          echo "applicationId=$APP_ID versionName=$VERSION_NAME versionCode=$VERSION_CODE"
+          test "$APP_ID" = "com.ccloud.ccloud"
+          test "$VERSION_CODE" = "${{ steps.version.outputs.build }}"
+          test "$VERSION_NAME" = "${{ steps.version.outputs.version }}"
+          MANIFEST="$RUNNER_TEMP/android-manifest.xml"
+          "$APKANALYZER" manifest print "$APK" > "$MANIFEST"
+          grep -Fq 'android.software.leanback' "$MANIFEST"
+          grep -Fq 'android.intent.category.LEANBACK_LAUNCHER' "$MANIFEST"
+          grep -Fq 'android:banner=' "$MANIFEST"
+          grep -Fq '@drawable/tv_banner' "$MANIFEST"
+          grep -Fq 'android:launchMode="singleTop"' "$MANIFEST"
+          grep -Fq 'android:taskAffinity=""' "$MANIFEST"
+          # Orientation/focus/back contract:
+          # - the activity handles orientation/screen-size changes itself, so a
+          #   TV/phone rotation does not recreate the Flutter engine;
+          # - the soft keyboard resizes instead of panning, which keeps the
+          #   focused field visible on a TV/phone;
+          # - touchscreen is optional, so a D-pad-only TV can install it;
+          # - singleTop + empty taskAffinity keep back/relaunch inside this app.
+          grep -Fq 'android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"' "$MANIFEST"
+          grep -Fq 'android:windowSoftInputMode="adjustResize"' "$MANIFEST"
+          grep -Fq 'android.hardware.touchscreen' "$MANIFEST"
+          if grep -Fq 'android:screenOrientation="portrait"' "$MANIFEST"; then
+            echo "::error::the activity must not be locked to portrait; Android TV is landscape"
+            exit 1
+          fi
+          BADGING="$RUNNER_TEMP/android-badging.txt"
+          "$AAPT" dump badging "$APK" > "$BADGING"
+          grep -Fq "package: name='com.ccloud.ccloud' versionCode='${{ steps.version.outputs.build }}' versionName='${{ steps.version.outputs.version }}'" "$BADGING"
+          grep -Fq 'leanback-launchable-activity' "$BADGING"
+          grep -Fq 'banner=' "$BADGING"
+          AAB="build/app/outputs/bundle/release/app-release.aab"
+          test -f "$AAB"
+          unzip -l "$AAB" | grep -Fq 'base/manifest/AndroidManifest.xml'
+          echo "APK/AAB assertions passed."
+      - name: Name and checksum Android artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release-artifacts
+          LABEL="${{ steps.signing.outputs.label }}"
+          APK="CCloud-Android-${{ steps.version.outputs.version }}-${{ steps.version.outputs.build }}-${LABEL}.apk"
+          AAB="CCloud-Android-${{ steps.version.outputs.version }}-${{ steps.version.outputs.build }}-${LABEL}.aab"
+          cp build/app/outputs/flutter-apk/app-release.apk "release-artifacts/$APK"
+          cp build/app/outputs/bundle/release/app-release.aab "release-artifacts/$AAB"
+          printf '%s\n' "$LABEL" > release-artifacts/SIGNING-Android.txt
+          (cd release-artifacts && sha256sum "$APK" "$AAB" > SHA256SUMS-Android.txt)
+          cat release-artifacts/SHA256SUMS-Android.txt
+      - name: Upload Android release artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-Android-${{ steps.version.outputs.version }}-${{ steps.version.outputs.build }}
+          path: flutter_app/release-artifacts/
+          if-no-files-found: error
+      - name: Remove temporary Android signing material
+        if: always()
+        shell: bash
+        run: |
+          rm -f android/key.properties android/app/ccloud-release.jks

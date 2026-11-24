@@ -17,7 +17,10 @@ param(
     [string]$OutputDir,
 
     [Parameter(Mandatory = $true)]
-    [string]$AppVersion
+    [string]$AppVersion,
+
+    [Parameter(Mandatory = $true)]
+    [string]$Build
 )
 
 $ErrorActionPreference = 'Stop'
@@ -93,7 +96,8 @@ catch {
 }
 Write-Host "Source: $source"
 Write-Host "Output: $out"
-& $iscc "/DSourceDir=$source" "/DOutputDir=$out" "/DAppVersion=$AppVersion" $iss
+Write-Host "Version: $AppVersion build $Build"
+& $iscc "/DSourceDir=$source" "/DOutputDir=$out" "/DAppVersion=$AppVersion" "/DBuild=$Build" $iss
 if ($LASTEXITCODE -ne 0) {
     throw "ISCC failed with exit code $LASTEXITCODE"
 }

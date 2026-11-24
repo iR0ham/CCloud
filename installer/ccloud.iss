@@ -2,16 +2,19 @@
 ;
 ; ISCC is invoked by scripts/windows-installer.ps1 with:
 ;   /DSourceDir=<staged release folder> /DOutputDir=<installer folder>
-;   /DAppVersion=<version from pubspec>
+;   /DAppVersion=<version from version.json> /DBuild=<build from version.json>
 ;
 ; The staged folder already contains ccloud.exe, flutter_windows.dll,
 ; libmpv-2.dll, the data/ folder and the three MSVC runtime DLLs, so the
 ; installed copy runs without a separate Visual C++ redistributable install.
 
-; The version is a required input: a missing /DAppVersion must fail the compile
-; instead of silently producing an installer labelled with a stale number.
+; Version and build are required inputs: a missing define must fail the compile
+; instead of silently producing an installer labelled with stale numbers.
 #ifndef AppVersion
   #error AppVersion must be provided with /DAppVersion=<version>
+#endif
+#ifndef Build
+  #error Build must be provided with /DBuild=<build>
 #endif
 #ifndef SourceDir
   #define SourceDir "..\flutter_app\build\windows\x64\runner\Release"
@@ -28,16 +31,17 @@
 AppId={{5A1C0F5E-7E42-4C61-9B7D-2F0C9E4B8A31}
 AppName={#MyAppName}
 AppVersion={#AppVersion}
-AppVerName={#MyAppName} {#AppVersion}
+AppVerName={#MyAppName} {#AppVersion} (build {#Build})
 AppPublisher={#MyAppPublisher}
 AppPublisherURL={#MyAppURL}
 AppSupportURL={#MyAppURL}
 AppUpdatesURL={#MyAppURL}
+VersionInfoVersion={#AppVersion}.{#Build}
 DefaultDirName={autopf}\{#MyAppName}
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
 OutputDir={#OutputDir}
-OutputBaseFilename=CCloud-{#AppVersion}-windows-x64-setup
+OutputBaseFilename=CCloud-Windows-{#AppVersion}-{#Build}-setup
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
