@@ -6,7 +6,13 @@ const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
 const vm = require('node:vm');
-const { URL } = require('node:url');
+// ccloud_service.js binds `var URL = require('url')` and then calls the LEGACY
+// module functions `url.parse(target)` and `url.resolve(target, location)`. The
+// sandbox must inject the whole module, not the WHATWG `URL` class: static
+// `URL.parse` only exists on Node >= 22.1.0, while the runners pin Node 20
+// (.github/workflows/ci.yml:160, build-webos.yml:45). If the service ever moves
+// to WHATWG URL, both sides must change together.
+const urlModule = require('node:url');
 
 const ROOT = path.resolve(__dirname, '../..');
 const SERVICE_PATH = path.join(
@@ -25,6 +31,17 @@ const MULTIBYTE_UTF8_CHUNK = Buffer.from(
 );
 
 function loadService(httpsMock) {
+  // Fail loudly rather than silently exercising the service's invalid-address
+  // branch if the injected module ever stops providing the legacy API that
+  // production calls. This guard is version-independent by design.
+  for (const member of ['parse', 'resolve']) {
+    if (typeof urlModule[member] !== 'function') {
+      assert.fail(
+        'test harness defect: the injected url module must expose the legacy ' +
+          `url.${member}() used by ccloud_service.js`
+      );
+    }
+  }
   const handlers = {};
   function Service() {}
   Service.prototype.register = function (name, handler) {
@@ -39,7 +56,7 @@ function loadService(httpsMock) {
       if (name === 'webos-service') return Service;
       if (name === 'https') return httpsMock;
       if (name === 'http') return {};
-      if (name === 'url') return { URL: URL };
+      if (name === 'url') return urlModule;
       throw new Error('Unexpected service dependency: ' + name);
     }
   };
