@@ -184,13 +184,41 @@ jobs:
           test "$VERSION_CODE" = "${{ steps.version.outputs.build }}"
           test "$VERSION_NAME" = "${{ steps.version.outputs.version }}"
           MANIFEST="$RUNNER_TEMP/android-manifest.xml"
-          "$APKANALYZER" manifest print "$APK" > "$MANIFEST"
-          grep -Fq 'android.software.leanback' "$MANIFEST"
-          grep -Fq 'android.intent.category.LEANBACK_LAUNCHER' "$MANIFEST"
-          grep -Fq 'android:banner=' "$MANIFEST"
-          grep -Fq '@drawable/tv_banner' "$MANIFEST"
-          grep -Fq 'android:launchMode="singleTop"' "$MANIFEST"
-          grep -Fq 'android:taskAffinity=""' "$MANIFEST"
+          BADGING="$RUNNER_TEMP/android-badging.txt"
+          if ! "$APKANALYZER" manifest print "$APK" > "$MANIFEST"; then
+            echo "::error::apkanalyzer manifest print failed; the APK manifest contract cannot be checked"
+            exit 1
+          fi
+          if [ ! -s "$MANIFEST" ]; then
+            echo "::error::apkanalyzer manifest print produced an empty manifest"
+            exit 1
+          fi
+          # Every token below stays mandatory. require_token keeps that gate but
+          # names the condition that failed and dumps the decoded artifacts, so a
+          # hosted run says which contract broke instead of aborting on a silent
+          # grep exit (the manifest and badging text contain no secrets).
+          require_token() {
+            label="$1"
+            file="$2"
+            token="$3"
+            if ! grep -Fq -- "$token" "$file"; then
+              echo "::error::$label is missing the expected token: $token"
+              echo "----- decoded AndroidManifest.xml -----"
+              cat "$MANIFEST"
+              if [ -s "$BADGING" ]; then
+                echo "----- aapt dump badging -----"
+                cat "$BADGING"
+              fi
+              exit 1
+            fi
+            echo "ok: $label contains $token"
+          }
+          require_token "APK manifest" "$MANIFEST" 'android.software.leanback'
+          require_token "APK manifest" "$MANIFEST" 'android.intent.category.LEANBACK_LAUNCHER'
+          require_token "APK manifest" "$MANIFEST" 'android:banner='
+          require_token "APK manifest" "$MANIFEST" '@drawable/tv_banner'
+          require_token "APK manifest" "$MANIFEST" 'android:launchMode="singleTop"'
+          require_token "APK manifest" "$MANIFEST" 'android:taskAffinity=""'
           # Orientation/focus/back contract:
           # - the activity handles orientation/screen-size changes itself, so a
           #   TV/phone rotation does not recreate the Flutter engine;
@@ -198,18 +226,21 @@ jobs:
           #   focused field visible on a TV/phone;
           # - touchscreen is optional, so a D-pad-only TV can install it;
           # - singleTop + empty taskAffinity keep back/relaunch inside this app.
-          grep -Fq 'android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"' "$MANIFEST"
-          grep -Fq 'android:windowSoftInputMode="adjustResize"' "$MANIFEST"
-          grep -Fq 'android.hardware.touchscreen' "$MANIFEST"
+          require_token "APK manifest" "$MANIFEST" 'android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"'
+          require_token "APK manifest" "$MANIFEST" 'android:windowSoftInputMode="adjustResize"'
+          require_token "APK manifest" "$MANIFEST" 'android.hardware.touchscreen'
           if grep -Fq 'android:screenOrientation="portrait"' "$MANIFEST"; then
             echo "::error::the activity must not be locked to portrait; Android TV is landscape"
+            cat "$MANIFEST"
             exit 1
           fi
-          BADGING="$RUNNER_TEMP/android-badging.txt"
-          "$AAPT" dump badging "$APK" > "$BADGING"
-          grep -Fq "package: name='com.ccloud.ccloud' versionCode='${{ steps.version.outputs.build }}' versionName='${{ steps.version.outputs.version }}'" "$BADGING"
-          grep -Fq 'leanback-launchable-activity' "$BADGING"
-          grep -Fq 'banner=' "$BADGING"
+          if ! "$AAPT" dump badging "$APK" > "$BADGING"; then
+            echo "::error::aapt dump badging failed; the APK badging contract cannot be checked"
+            exit 1
+          fi
+          require_token "APK badging" "$BADGING" "package: name='com.ccloud.ccloud' versionCode='${{ steps.version.outputs.build }}' versionName='${{ steps.version.outputs.version }}'"
+          require_token "APK badging" "$BADGING" 'leanback-launchable-activity'
+          require_token "APK badging" "$BADGING" 'banner='
           AAB="build/app/outputs/bundle/release/app-release.aab"
           test -f "$AAB"
           AAB_LIST="$RUNNER_TEMP/aab-list.txt"
