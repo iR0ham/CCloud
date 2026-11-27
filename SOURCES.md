@@ -100,13 +100,25 @@ The GPL/LGPL bodies are authoritative GNU plain-text copies:
 
 ### Windows native media
 
-- Wrapper: `media_kit_libs_windows_video` 1.0.11, archive hash recorded above.
-- Referenced mpv archive SHA-256:
-  `652a1dd90711839acdccc08004056d25514ef2d8`.
+- Wrapper: `media_kit_libs_windows_video` 1.0.11, whose pub.dev archive
+  SHA-256 is `dff76da2778729ab650229e6b4ec6ec111eb5151431002cbd7ea304ff1f112ab`
+  (the verified row in the media_kit table above).
+- Upstream-attested mpv source commit (a 40-hex git SHA-1, not an archive
+  checksum): `652a1dd90711839acdccc08004056d25514ef2d8`. The wrapper states it
+  in `CHANGELOG.md` and encodes it in the archive name
+  `mpv-dev-x86_64-20230924-git-652a1dd.7z`.
+- Attested binary archive:
+  `https://github.com/media-kit/libmpv-win32-video-build/releases/download/2023-09-24/mpv-dev-x86_64-20230924-git-652a1dd.7z`.
+  The only integrity field the wrapper publishes for it is the MD5 download
+  check `a832ef24b3a6ff97cd2560b5b9d04cd8`, recorded here as-is. A SHA-256 of
+  the downloaded archive was not independently captured.
 - Default mpv license: GPLv2+.
 - Inferred FFmpeg recipe: `--enable-gpl --enable-version3 --enable-nonfree`.
-- Missing evidence: exact mpv build commit, complete DLL inventory, and a
-  complete corresponding source package.
+- Missing evidence: independent confirmation that the shipped bytes were built
+  from the attested commit, the full build inputs of
+  `libmpv-win32-video-build`, a complete DLL inventory, and a complete
+  corresponding source package. Naming an upstream candidate commit does not
+  satisfy the corresponding-source obligation.
 
 ## Evidence boundary
 

@@ -57,16 +57,20 @@ that a written offer or relinking kit exists.
 
 ### Windows
 
-The pinned `media_kit_libs_windows_video` 1.0.11 wrapper references mpv archive
-SHA-256 `652a1dd90711839acdccc08004056d25514ef2d8`. The wrapper's default mpv
-recipe is GPLv2+, and the inferred FFmpeg recipe enables `--enable-gpl
+The pinned `media_kit_libs_windows_video` 1.0.11 wrapper names the mpv source
+commit `652a1dd90711839acdccc08004056d25514ef2d8` (a 40-hex git SHA-1, not an
+archive checksum) and downloads
+`mpv-dev-x86_64-20230924-git-652a1dd.7z`, which the wrapper verifies only with
+the MD5 download check `a832ef24b3a6ff97cd2560b5b9d04cd8`. The wrapper's default
+mpv recipe is GPLv2+, and the inferred FFmpeg recipe enables `--enable-gpl
 --enable-version3 --enable-nonfree`.
 
-The exact mpv build commit, complete DLL inventory, and corresponding source
-package are not verified. Windows production redistribution is therefore
-blocked for GPL/nonfree and incomplete-provenance reasons. The MIT license of
-the Dart wrapper does not change the licenses of the native libraries it
-packages.
+The upstream-attested commit is a candidate revision, not proof that the shipped
+binaries were built from it. Independent build-input confirmation, a complete DLL
+inventory, and the corresponding source package remain unverified. Windows
+production redistribution is therefore blocked for GPL/nonfree and
+incomplete-provenance reasons. The MIT license of the Dart wrapper does not
+change the licenses of the native libraries it packages.
 
 ### webOS
 
