@@ -23,7 +23,21 @@ $required = @(
     'vcruntime140.dll',
     'vcruntime140_1.dll',
     'libmpv-2.dll',
-    'data\app.so'
+    'data\app.so',
+    'NOTICE',
+    'THIRD_PARTY_NOTICES.md',
+    'SOURCES.md',
+    'Legal\DISTRIBUTION_STATUS.md',
+    'Legal\licenses\MIT-code3-dev-CCloud.txt',
+    'Legal\licenses\MIT-media_kit.txt',
+    'Legal\licenses\MIT-famelack-data.txt',
+    'Legal\licenses\OFL-1.1-Vazirmatn.txt',
+    'Legal\licenses\Unlicense-iptv-org.txt',
+    'Legal\licenses\BSD-3-Clause-ANGLE.txt',
+    'Legal\licenses\GPL-2.0.txt',
+    'Legal\licenses\GPL-3.0.txt',
+    'Legal\licenses\LGPL-2.1.txt',
+    'Legal\licenses\LGPL-3.0.txt'
 )
 $missing = @($required | Where-Object {
     -not (Test-Path -LiteralPath (Join-Path $root $_))
@@ -32,7 +46,7 @@ if ($missing.Count -gt 0) {
     throw "Package is incomplete ($root): $($missing -join ', ')"
 }
 
-Write-Host "Package contains the exe, Flutter DLL, MSVC runtime, libmpv and data/app.so: $root"
+Write-Host "Package contains the exe, Flutter DLL, MSVC runtime, libmpv, data/app.so and canonical legal files: $root"
 Get-ChildItem -LiteralPath $root -File | Sort-Object Name | ForEach-Object {
     Write-Host ("  {0,12}  {1}" -f $_.Length, $_.Name)
 }

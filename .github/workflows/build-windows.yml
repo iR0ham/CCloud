@@ -53,6 +53,10 @@ jobs:
           flutter-version: '3.47.8'
           cache: true
 
+      - name: Stage canonical legal Flutter assets
+        working-directory: .
+        run: python3 scripts/stage_legal.py android
+
       - name: Resolve dependencies
         run: flutter pub get
 
@@ -108,6 +112,13 @@ jobs:
 
       - name: Enable Windows desktop
         run: flutter config --enable-windows-desktop
+
+      - name: Stage canonical legal Flutter assets
+        working-directory: .
+        shell: pwsh
+        run: |
+          python scripts/stage_legal.py android
+          if ($LASTEXITCODE -ne 0) { throw "legal asset staging failed" }
 
       - name: Resolve dependencies
         run: flutter pub get
@@ -215,6 +226,8 @@ jobs:
               Out-File -FilePath (Join-Path $stage ($installer.Name + '.sha256')) -Encoding ascii
           }
           "unsigned" | Out-File -FilePath (Join-Path $stage 'SIGNING-Windows.txt') -Encoding utf8
+          "INTERNAL-ONLY-BLOCKED-GPL-NONFREE" |
+            Out-File -FilePath (Join-Path $stage 'DISTRIBUTION-Windows.txt') -Encoding utf8 -NoNewline
           Get-ChildItem -LiteralPath $stage | ForEach-Object { Write-Host $_.Name }
 
       - name: Upload Windows release artifacts
@@ -252,6 +265,13 @@ jobs:
 
       - name: Enable Windows desktop
         run: flutter config --enable-windows-desktop
+
+      - name: Stage canonical legal Flutter assets
+        working-directory: .
+        shell: pwsh
+        run: |
+          python scripts/stage_legal.py android
+          if ($LASTEXITCODE -ne 0) { throw "legal asset staging failed" }
 
       - name: Resolve dependencies
         run: flutter pub get

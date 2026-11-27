@@ -109,6 +109,9 @@ jobs:
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: '3.12'
+      - name: Stage canonical legal Flutter assets
+        working-directory: .
+        run: python3 scripts/stage_legal.py android
       - name: Sync and validate canonical version
         id: version
         working-directory: .
@@ -209,7 +212,40 @@ jobs:
           grep -Fq 'banner=' "$BADGING"
           AAB="build/app/outputs/bundle/release/app-release.aab"
           test -f "$AAB"
-          unzip -l "$AAB" | grep -Fq 'base/manifest/AndroidManifest.xml'
+          AAB_LIST="$RUNNER_TEMP/aab-list.txt"
+          unzip -l "$AAB" > "$AAB_LIST"
+          grep -Fq 'base/manifest/AndroidManifest.xml' "$AAB_LIST"
+          python3 - "$APK" "$AAB" <<'PY'
+          import sys
+          import zipfile
+          from pathlib import Path
+
+          apk = Path(sys.argv[1])
+          aab = Path(sys.argv[2])
+          root = Path('..').resolve()
+          documents = ('NOTICE', 'THIRD_PARTY_NOTICES.md', 'SOURCES.md')
+          licenses = tuple(sorted((root / 'Legal/licenses').glob('*.txt')))
+          assert len(licenses) == 10, f'expected 10 canonical licenses, found {len(licenses)}'
+
+          status = root / 'Legal/DISTRIBUTION_STATUS.md'
+          expected = [(name, root / name, f'assets/legal/{name}') for name in documents]
+          expected.append(
+              (status.name, status, 'assets/legal/Legal/DISTRIBUTION_STATUS.md')
+          )
+          expected.extend(
+              (path.name, path, f'assets/legal/Legal/licenses/{path.name}')
+              for path in licenses
+          )
+          for archive, prefix in ((apk, 'assets/flutter_assets/'), (aab, 'base/assets/flutter_assets/')):
+              with zipfile.ZipFile(archive) as package:
+                  for name, canonical, relative in expected:
+                      member = prefix + relative
+                      assert member in package.namelist(), f'{archive}: missing {member}'
+                      assert package.read(member) == canonical.read_bytes(), (
+                          f'{archive}: legal payload differs from canonical source: {member}'
+                      )
+          print(f'APK/AAB legal assertions passed: {len(expected)} files per package')
+          PY
           echo "APK/AAB assertions passed."
       - name: Name and checksum Android artifacts
         shell: bash
@@ -222,6 +258,7 @@ jobs:
           cp build/app/outputs/flutter-apk/app-release.apk "release-artifacts/$APK"
           cp build/app/outputs/bundle/release/app-release.aab "release-artifacts/$AAB"
           printf '%s\n' "$LABEL" > release-artifacts/SIGNING-Android.txt
+          printf '%s\n' INTERNAL-ONLY-BLOCKED-RELINKING > release-artifacts/DISTRIBUTION-Android.txt
           (cd release-artifacts && sha256sum "$APK" "$AAB" > SHA256SUMS-Android.txt)
           cat release-artifacts/SHA256SUMS-Android.txt
       - name: Upload Android release artifacts

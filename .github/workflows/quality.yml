@@ -72,6 +72,8 @@ jobs:
         run: python3 scripts/version.py check
       - name: Run version tests
         run: python3 Tests/test_version.py
+      - name: Run legal staging regression tests
+        run: python3 Tests/test_stage_legal.py
 
   hygiene:
     name: Repository hygiene

@@ -227,6 +227,19 @@ $pwsh = if (Get-Command pwsh -ErrorAction SilentlyContinue) {
 else {
     Join-Path $PSHOME 'pwsh.exe'
 }
+$assertPackage = Join-Path (Split-Path -Parent $PSScriptRoot) 'scripts\assert-windows-package.ps1'
+if (-not (Test-Path -LiteralPath $assertPackage)) {
+    Write-Failure 'assert-windows-package.ps1 was not found next to this script'
+    exit 1
+}
+
+& $pwsh -NoProfile -ExecutionPolicy Bypass -File $assertPackage -PackageDir $installed
+$assertExit = $LASTEXITCODE
+if ($assertExit -ne 0) {
+    Write-Failure "the installed package failed its legal-file assertions (exit $assertExit)"
+    Show-InstallLog
+    exit $assertExit
+}
 
 & $pwsh -NoProfile -ExecutionPolicy Bypass -File $smoke `
     -ReleaseDir $installed `

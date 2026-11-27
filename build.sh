@@ -38,11 +38,20 @@ swiftc \
   "${SOURCES[@]}" \
   -o "$BIN"
 
+echo "==> Staging canonical legal files"
+python3 "$ROOT/scripts/stage_legal.py" macos
+
 echo "==> Assembling bundle"
 cp "$ROOT/Info.plist" "$APP/Contents/Info.plist"
-# Resources (fonts, icon, logo, optional bundled ffmpeg)
+# Resources (fonts, icon, logo, optional bundled ffmpeg). Legal files are
+# staged separately from the canonical root and must survive this sync.
 if [ -d "$ROOT/Resources" ]; then
-  rsync -a --delete "$ROOT/Resources/" "$RES_DIR/"
+  rsync -a --delete \
+    --exclude '/NOTICE' \
+    --exclude '/THIRD_PARTY_NOTICES.md' \
+    --exclude '/SOURCES.md' \
+    --exclude '/Legal/' \
+    "$ROOT/Resources/" "$RES_DIR/"
 fi
 # (icon & assets are copied by the rsync above; no self-copy here)
 # Version metadata is written by scripts/version.py at the top of this script

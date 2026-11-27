@@ -187,7 +187,9 @@ jobs:
           cp dist/CCloud-macOS-*.sha256 "$STAGE/"
           cp dist/SHA256SUMS.txt "$STAGE/SHA256SUMS-macOS.txt"
           printf '%s\n' "${{ steps.signing_label.outputs.label }}" > "$STAGE/SIGNING-macOS.txt"
+          printf '%s\n' INTERNAL-ONLY-PENDING-SOURCE-MATERIAL > "$STAGE/DISTRIBUTION-macOS.txt"
           cat "$STAGE/SIGNING-macOS.txt"
+          cat "$STAGE/DISTRIBUTION-macOS.txt"
       - name: Upload macOS release artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:

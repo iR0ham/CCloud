@@ -1,0 +1,22 @@
+CCloud
+
+This repository includes code derived from code3-dev/CCloud at commit
+6db96e34a352eafa91876d32cfeb007a378894fd:
+
+  Copyright (c) 2025 Hossein Pira
+  Licensed under the MIT License.
+
+The exact upstream MIT license text is retained at
+Legal/licenses/MIT-code3-dev-CCloud.txt.
+
+Third-party component notices, native-media obligations, source identities,
+and distribution limitations are documented in:
+
+  THIRD_PARTY_NOTICES.md
+  SOURCES.md
+  Legal/DISTRIBUTION_STATUS.md
+  Legal/licenses/
+
+This NOTICE provides attribution and distribution evidence only. It does not
+grant a license to this repository as a whole and does not replace any
+component license.

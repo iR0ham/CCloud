@@ -67,6 +67,8 @@ jobs:
             | xargs -0 -r -n1 node --check
       - name: Install webOS ares CLI
         run: npm install --global @webosose/ares-cli@2.4.0
+      - name: Stage canonical webOS legal files
+        run: python3 scripts/stage_legal.py webos
       - name: Package app and service
         run: |
           rm -rf webos_app/dist
@@ -107,13 +109,22 @@ jobs:
           esac
           ar p "$IPK" "$DATA_MEMBER" | tar -x${TAR_FLAG}f - -C "$DATA_ROOT"
 
-          APPINFO="$DATA_ROOT/usr/palm/applications/com.ccloud.tv/appinfo.json"
-          VERSION_JS="$DATA_ROOT/usr/palm/applications/com.ccloud.tv/js/version.js"
+          APP_DIR="$DATA_ROOT/usr/palm/applications/com.ccloud.tv"
+          APPINFO="$APP_DIR/appinfo.json"
+          VERSION_JS="$APP_DIR/js/version.js"
           SERVICE_DIR="$DATA_ROOT/usr/palm/services/com.ccloud.tv.service"
           test -f "$APPINFO"
           test -f "$VERSION_JS"
           test -f "$SERVICE_DIR/ccloud_service.js"
           test -f "$SERVICE_DIR/services.json"
+          for canonical in NOTICE THIRD_PARTY_NOTICES.md SOURCES.md; do
+            cmp "$canonical" "$APP_DIR/legal/$canonical"
+          done
+          cmp Legal/DISTRIBUTION_STATUS.md "$APP_DIR/legal/Legal/DISTRIBUTION_STATUS.md"
+          for canonical in Legal/licenses/*.txt; do
+            cmp "$canonical" "$APP_DIR/legal/Legal/licenses/$(basename "$canonical")"
+          done
+          test "$(find "$APP_DIR/legal/Legal/licenses" -maxdepth 1 -type f -name '*.txt' | wc -l | tr -d ' ')" = "10"
           grep -Fq "service.register('fetch'" "$SERVICE_DIR/ccloud_service.js"
           grep -Fq "service.register('ping'" "$SERVICE_DIR/ccloud_service.js"
           if find "$DATA_ROOT" -name server.js -print -quit | grep -q .; then
@@ -149,6 +160,7 @@ jobs:
 
           (cd release-artifacts && sha256sum "$TARGET" > SHA256SUMS-webOS.txt)
           printf '%s\n' unsigned > release-artifacts/SIGNING-webOS.txt
+          printf '%s\n' INTERNAL-ONLY-PENDING-DEVICE-ACCEPTANCE > release-artifacts/DISTRIBUTION-webOS.txt
           cat release-artifacts/SHA256SUMS-webOS.txt
       - name: Upload webOS release artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

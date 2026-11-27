@@ -19,6 +19,19 @@ BUILD="$ROOT/build"
 export TMPDIR="$BUILD/tmp"
 mkdir -p "$DIST" "$BUILD/tmp"
 
+assert_legal_files() {
+  local resources="$1"
+  local canonical
+  for canonical in NOTICE THIRD_PARTY_NOTICES.md SOURCES.md; do
+    cmp "$ROOT/$canonical" "$resources/$canonical"
+  done
+  cmp "$ROOT/Legal/DISTRIBUTION_STATUS.md" "$resources/Legal/DISTRIBUTION_STATUS.md"
+  for canonical in "$ROOT"/Legal/licenses/*.txt; do
+    cmp "$canonical" "$resources/Legal/licenses/$(basename "$canonical")"
+  done
+  test "$(find "$resources/Legal/licenses" -maxdepth 1 -type f -name '*.txt' | wc -l | tr -d ' ')" = "10"
+}
+
 if [ ! -x "$APP/Contents/MacOS/CCloud" ]; then
   echo "error: $APP is missing or incomplete — build first (./build.sh)" >&2
   exit 1
@@ -31,6 +44,7 @@ if [ -z "$VERSION" ] || [ -z "$BUILD_NUM" ]; then
   exit 1
 fi
 ZIP="$DIST/CCloud-macOS-$VERSION-$BUILD_NUM.zip"
+assert_legal_files "$APP/Contents/Resources"
 echo "==> Packaging CCloud.app (version $VERSION build $BUILD_NUM)"
 
 # Fresh archive; --keepParent keeps the CCloud.app wrapper so drag-to-Applications works.
@@ -51,6 +65,7 @@ EXTRACTED="$VERIFY/CCloud.app"
 [ -x "$EXTRACTED/Contents/MacOS/CCloud" ] || { echo "error: extracted app executable missing" >&2; exit 1; }
 [ -f "$EXTRACTED/Contents/Resources/AppIcon.icns" ] || { echo "error: extracted AppIcon.icns missing" >&2; exit 1; }
 [ -x "$EXTRACTED/Contents/Resources/ffmpeg-bin/ffmpeg" ] || { echo "error: extracted bundled ffmpeg missing" >&2; exit 1; }
+assert_legal_files "$EXTRACTED/Contents/Resources"
 if codesign --verify --deep --strict "$EXTRACTED" >/dev/null 2>&1; then
   echo "    extracted signature: valid"
 else

@@ -3,7 +3,7 @@ name: Release
 # Tag-driven release workflow. The tag is validated before any expensive job.
 # Publication is gated on tag validation, CI, quality gates, and all platform
 # builds plus the repository variable RELEASE_PRODUCTION_READY being exactly
-# "true"; signing is checked separately.
+# "true"; signing and redistribution permission are checked separately.
 on:
   push:
     tags:
@@ -120,21 +120,31 @@ jobs:
           pattern: 'release-*'
           path: release-artifacts
           merge-multiple: true
-      - name: Read artifact signing labels
+      - name: Read artifact signing and distribution labels
         id: labels
         run: |
           MACOS_SIGNING="$(cat release-artifacts/SIGNING-macOS.txt 2>/dev/null || echo missing)"
           ANDROID_SIGNING="$(cat release-artifacts/SIGNING-Android.txt 2>/dev/null || echo missing)"
           WINDOWS_SIGNING="$(cat release-artifacts/SIGNING-Windows.txt 2>/dev/null || echo missing)"
           WEBOS_SIGNING="$(cat release-artifacts/SIGNING-webOS.txt 2>/dev/null || echo missing)"
+          MACOS_DISTRIBUTION="$(cat release-artifacts/DISTRIBUTION-macOS.txt 2>/dev/null || echo missing)"
+          ANDROID_DISTRIBUTION="$(cat release-artifacts/DISTRIBUTION-Android.txt 2>/dev/null || echo missing)"
+          WINDOWS_DISTRIBUTION="$(cat release-artifacts/DISTRIBUTION-Windows.txt 2>/dev/null || echo missing)"
+          WEBOS_DISTRIBUTION="$(cat release-artifacts/DISTRIBUTION-webOS.txt 2>/dev/null || echo missing)"
           {
             echo "macos_signing=$MACOS_SIGNING"
             echo "android_signing=$ANDROID_SIGNING"
             echo "windows_signing=$WINDOWS_SIGNING"
             echo "webos_signing=$WEBOS_SIGNING"
+            echo "macos_distribution=$MACOS_DISTRIBUTION"
+            echo "android_distribution=$ANDROID_DISTRIBUTION"
+            echo "windows_distribution=$WINDOWS_DISTRIBUTION"
+            echo "webos_distribution=$WEBOS_DISTRIBUTION"
           } >> "$GITHUB_OUTPUT"
-          printf 'macOS=%s Android=%s Windows=%s webOS=%s\n' \
+          printf 'signing: macOS=%s Android=%s Windows=%s webOS=%s\n' \
             "$MACOS_SIGNING" "$ANDROID_SIGNING" "$WINDOWS_SIGNING" "$WEBOS_SIGNING"
+          printf 'distribution: macOS=%s Android=%s Windows=%s webOS=%s\n' \
+            "$MACOS_DISTRIBUTION" "$ANDROID_DISTRIBUTION" "$WINDOWS_DISTRIBUTION" "$WEBOS_DISTRIBUTION"
       - name: Generate checksums and manifest
         run: |
           python3 scripts/release_manifest.py \
@@ -155,6 +165,10 @@ jobs:
           ANDROID_SIGNING: ${{ steps.labels.outputs.android_signing }}
           WINDOWS_SIGNING: ${{ steps.labels.outputs.windows_signing }}
           WEBOS_SIGNING: ${{ steps.labels.outputs.webos_signing }}
+          MACOS_DISTRIBUTION: ${{ steps.labels.outputs.macos_distribution }}
+          ANDROID_DISTRIBUTION: ${{ steps.labels.outputs.android_distribution }}
+          WINDOWS_DISTRIBUTION: ${{ steps.labels.outputs.windows_distribution }}
+          WEBOS_DISTRIBUTION: ${{ steps.labels.outputs.webos_distribution }}
         run: |
           reasons=()
           if [ "$PRODUCTION_READY" != "true" ]; then
@@ -175,20 +189,35 @@ jobs:
           if [ -z "$WEBOS_SIGNING" ] || [ "$WEBOS_SIGNING" = "missing" ]; then
             reasons+=("webOS artifact signing label is missing (artifact absent)")
           fi
+          # Signing proves origin/integrity; it does not grant permission to
+          # redistribute native media. Every platform must carry the exact
+          # production-approved distribution label or publication stays closed.
+          if [ "$MACOS_DISTRIBUTION" != "production-approved" ]; then
+            reasons+=("macOS redistribution permission is ${MACOS_DISTRIBUTION:-missing}, not production-approved")
+          fi
+          if [ "$ANDROID_DISTRIBUTION" != "production-approved" ]; then
+            reasons+=("Android redistribution permission is ${ANDROID_DISTRIBUTION:-missing}, not production-approved")
+          fi
+          if [ "$WINDOWS_DISTRIBUTION" != "production-approved" ]; then
+            reasons+=("Windows redistribution permission is ${WINDOWS_DISTRIBUTION:-missing}, not production-approved")
+          fi
+          if [ "$WEBOS_DISTRIBUTION" != "production-approved" ]; then
+            reasons+=("webOS redistribution permission is ${WEBOS_DISTRIBUTION:-missing}, not production-approved")
+          fi
           if [ "${#reasons[@]}" -eq 0 ]; then
             echo "publish=true" >> "$GITHUB_OUTPUT"
           else
             echo "publish=false" >> "$GITHUB_OUTPUT"
             REASON="$(IFS='; '; echo "${reasons[*]}")"
-            echo "not published: signing/production approval absent — $REASON"
+            echo "not published: signing/production approval/redistribution permission absent — $REASON"
             {
-              echo "### Not published: signing/production approval absent"
+              echo "### Not published: signing/production approval/redistribution permission absent"
               echo ""
               echo "$REASON"
               echo ""
               echo "Internal artifacts are retained for inspection."
             } >> "$GITHUB_STEP_SUMMARY"
-            echo "::notice::not published: signing/production approval absent — $REASON"
+            echo "::notice::not published: signing/production approval/redistribution permission absent — $REASON"
           fi
       - name: Write release notes
         if: steps.gate.outputs.publish == 'true'
@@ -197,6 +226,10 @@ jobs:
           ANDROID_SIGNING: ${{ steps.labels.outputs.android_signing }}
           WINDOWS_SIGNING: ${{ steps.labels.outputs.windows_signing }}
           WEBOS_SIGNING: ${{ steps.labels.outputs.webos_signing }}
+          MACOS_DISTRIBUTION: ${{ steps.labels.outputs.macos_distribution }}
+          ANDROID_DISTRIBUTION: ${{ steps.labels.outputs.android_distribution }}
+          WINDOWS_DISTRIBUTION: ${{ steps.labels.outputs.windows_distribution }}
+          WEBOS_DISTRIBUTION: ${{ steps.labels.outputs.webos_distribution }}
         run: |
           {
             echo "## CCloud ${VERSION} (build ${BUILD})"
@@ -205,12 +238,12 @@ jobs:
             echo "Commit: ${COMMIT}"
             echo "Workflow run: ${GITHUB_RUN_ID}"
             echo ""
-            echo "| Platform | Signing |"
-            echo "| --- | --- |"
-            echo "| macOS | ${MACOS_SIGNING} |"
-            echo "| Android/TV | ${ANDROID_SIGNING} |"
-            echo "| Windows | ${WINDOWS_SIGNING} |"
-            echo "| webOS | ${WEBOS_SIGNING} |"
+            echo "| Platform | Signing | Distribution |"
+            echo "| --- | --- | --- |"
+            echo "| macOS | ${MACOS_SIGNING} | ${MACOS_DISTRIBUTION} |"
+            echo "| Android/TV | ${ANDROID_SIGNING} | ${ANDROID_DISTRIBUTION} |"
+            echo "| Windows | ${WINDOWS_SIGNING} | ${WINDOWS_DISTRIBUTION} |"
+            echo "| webOS | ${WEBOS_SIGNING} | ${WEBOS_DISTRIBUTION} |"
             echo ""
             echo "Checksums and the machine-readable manifest are attached."
           } > "$RUNNER_TEMP/release-notes.md"

@@ -34,6 +34,26 @@ if (-not [System.IO.Path]::IsPathRooted($dest)) {
 New-Item -ItemType Directory -Force -Path $dest | Out-Null
 Copy-Item (Join-Path $source '*') $dest -Recurse -Force
 
+$repoRoot = Split-Path -Parent $PSScriptRoot
+foreach ($file in @('NOTICE', 'THIRD_PARTY_NOTICES.md', 'SOURCES.md', 'Legal\DISTRIBUTION_STATUS.md')) {
+    $canonical = Join-Path $repoRoot $file
+    if (-not (Test-Path -LiteralPath $canonical -PathType Leaf)) {
+        throw "Canonical legal file is missing: $canonical"
+    }
+}
+$canonicalLicenses = Join-Path $repoRoot 'Legal\licenses'
+if (-not (Test-Path -LiteralPath $canonicalLicenses -PathType Container)) {
+    throw "Canonical license directory is missing: $canonicalLicenses"
+}
+foreach ($file in @('NOTICE', 'THIRD_PARTY_NOTICES.md', 'SOURCES.md')) {
+    Copy-Item -LiteralPath (Join-Path $repoRoot $file) -Destination (Join-Path $dest $file) -Force
+}
+$legalDest = Join-Path $dest 'Legal'
+if (Test-Path -LiteralPath $legalDest) {
+    Remove-Item -LiteralPath $legalDest -Recurse -Force
+}
+Copy-Item -LiteralPath (Join-Path $repoRoot 'Legal') -Destination $legalDest -Recurse -Force
+
 $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
 if (-not (Test-Path -LiteralPath $vswhere)) {
     throw "vswhere.exe not found at $vswhere"

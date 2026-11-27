@@ -29,3 +29,8 @@ flutter_app/.idea/
 *.iml
 .DS_Store
 webos_app/dist/
+
+# Generated legal staging copies; canonical sources live at the repository root.
+# macOS copies live under the already-ignored build/ directory.
+flutter_app/assets/legal/
+webos_app/app/legal/
