@@ -270,3 +270,38 @@ Parallelism is safe only after shared fixtures and contracts are frozen:
 The immediate critical path is **not new feature work**. The Team must first finish the remediation slice that is already implemented but not committed or hosted-verified, then obtain an independent re-review. Only after that evidence is available may Phase B implementation begin.
 
 The final release outcome is currently **DEVELOPMENT BUILDS PARTIALLY VERIFIED — REMEDIATION NOT COMMITTED — RELEASE BLOCKED**, based on the `3d6e876` hosted ledger. The next task is to convert the remediated worktree into a hosted-verified commit.
+
+---
+
+## 7. Dated correction — 2026-11-28 (after the hosted run at `7b2db7b`)
+
+This section supersedes nothing above it; the snapshot in sections 1-6 described the
+worktree before the remediation slice was committed and is retained as history.
+
+### 7.1 Classification corrections
+
+| Item | Section 1-6 state | Actual state after `7b2db7b` |
+| --- | --- | --- |
+| Legal packaging slice | REVIEWED — NOT COMMITTED | **PUSHED — HOSTED VERIFIED (Quality success)** |
+| Android pipefail-safe AAB read | expected to clear the Android gate | committed, but **not the cause** of the Android failure; failure is earlier |
+| Windows builds | BLOCKED (runner comms loss at `3d6e876`) | **hosted success** at `7b2db7b` (analyze, release build, runtime smoke, installer install/startup smoke) |
+| webOS transport tests | TESTED — NOT REVIEWED | **REVIEWED — REJECTED**: 3 of 8 tests fail on the Node 20 pinned runner because the injected `url` mock hides the legacy module API the service uses |
+| Phase A/B audit documents | not committed | committed in `7b2db7b` |
+
+Section 1-6 listed the inventory before any of it was committed; the commit/push task is now
+done, and the remaining critical path is the two defects below.
+
+### 7.2 New inventory items
+
+| # | Task | State | Files | Remains | Priority | Acceptance |
+| --- | --- | --- | --- | --- | --- | --- |
+| N1 | webOS test-harness `url` mock | IN PROGRESS (diagnosed, fix specified) | `Tests/webos/transport.test.js:9,42` | inject the whole `node:url` module and add a guard so a missing legacy `parse`/`resolve` fails loudly | P0 | 8/8 tests green in the hosted `webOS static` job at the new SHA |
+| N2 | Android APK-manifest assertion is undebuggable | IN PROGRESS | `.github/workflows/build-android.yml:158-244` | check `apkanalyzer manifest print` status, label every token assertion, dump manifest/badging on failure; keep every token mandatory | P0 | either green, or one `::error::` naming the exact missing token |
+| N3 | mpv digest mislabel | **RESOLVED in worktree** (pending hosted + review) | `SOURCES.md:101-118`, `THIRD_PARTY_NOTICES.md:58-72` | hosted Quality must re-confirm the staged bytes | P1 | documents distinguish git SHA-1, MD5 download check and pub.dev SHA-256 |
+| N4 | Ledger integrity | RESOLVED in worktree | `EXECUTION_LOG.md` | none | P1 | dated addenda only; prior entries untouched apart from the explicit correction wording |
+
+### 7.3 Consequence for sequencing
+
+Phase B still may not start until N1 and N2 have hosted evidence at one SHA and the
+Code Reviewer re-approves that head. The dependency graph in section 4 is unchanged; only
+the P0 completion states moved.
