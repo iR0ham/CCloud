@@ -113,6 +113,9 @@ jobs:
             libwayland-dev \
             libdrm-dev \
             libgbm-dev
+      - name: Stage canonical legal Flutter assets
+        working-directory: .
+        run: python3 scripts/stage_legal.py android
       - name: Resolve dependencies
         run: flutter pub get
       - name: Analyze
@@ -161,6 +164,8 @@ jobs:
         run: |
           find webos_app/app webos_app/service -name '*.js' -print0 \
             | xargs -0 -r -n1 node --check
+      - name: Run webOS transport regressions
+        run: node --test Tests/webos/transport.test.js
       - name: Validate webOS JSON and service manifest
         run: |
           python3 - <<'PY'

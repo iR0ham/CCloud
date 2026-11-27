@@ -3,6 +3,14 @@
  * desktop browser they go through the local dev proxy. */
 (function () {
   var SERVICE = 'luna://com.ccloud.tv.service/';
+  var MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
+  var ERROR_RESPONSE_TOO_LARGE = 'response-too-large';
+
+  function lunaError(resp, fallback) {
+    var error = new Error((resp && resp.errorText) || fallback);
+    if (resp && resp.errorCode) error.code = resp.errorCode;
+    return error;
+  }
 
   function lunaFetch(url) {
     return new Promise(function (resolve, reject) {
@@ -16,7 +24,7 @@
       }
       function handle(resp) {
         if (!resp || resp.returnValue === false) {
-          finish(reject, new Error((resp && resp.errorText) || 'اتصال به سرور برقرار نشد'));
+          finish(reject, lunaError(resp, 'اتصال به سرور برقرار نشد'));
           return;
         }
         var code = resp.statusCode || 0;
@@ -33,7 +41,7 @@
             parameters: { url: url },
             onSuccess: handle,
             onFailure: function (err) {
-              finish(reject, new Error((err && err.errorText) || 'سرویس شبکه در دسترس نیست'));
+              finish(reject, lunaError(err, 'سرویس شبکه در دسترس نیست'));
             }
           });
         } else if (window.PalmServiceBridge) {
@@ -61,10 +69,56 @@
       });
   }
 
+  function responseTooLargeError() {
+    var error = new Error('حجم پاسخ بیش از حد مجاز است');
+    error.code = ERROR_RESPONSE_TOO_LARGE;
+    return error;
+  }
+
+  function readBoundedText(response) {
+    if (response.body === null) return Promise.resolve('');
+    if (!response.body || typeof response.body.getReader !== 'function') {
+      throw new Error('خواندن پاسخ شبکه پشتیبانی نمی‌شود');
+    }
+
+    var reader = response.body.getReader();
+    var decoder = new TextDecoder('utf-8');
+    var chunks = [];
+    var receivedBytes = 0;
+    return new Promise(function (resolve, reject) {
+      function rejectWith(error) {
+        chunks.length = 0;
+        reject(error);
+      }
+      function read() {
+        reader.read().then(function (result) {
+          if (result.done) {
+            resolve(chunks.join('') + decoder.decode());
+            return;
+          }
+          receivedBytes += result.value.byteLength;
+          if (receivedBytes > MAX_RESPONSE_BYTES) {
+            var error = responseTooLargeError();
+            try {
+              Promise.resolve(reader.cancel()).catch(function () {});
+            } catch (cancelError) {
+              // The policy error still wins if cancellation itself fails.
+            }
+            rejectWith(error);
+            return;
+          }
+          chunks.push(decoder.decode(result.value, { stream: true }));
+          read();
+        }).catch(rejectWith);
+      }
+      read();
+    });
+  }
+
   function directFetch(url) {
     return fetch(url, { cache: 'no-cache' }).then(function (r) {
       if (!r.ok) throw new Error('خطای سرور (کد ' + r.status + ')');
-      return r.text();
+      return readBoundedText(r);
     });
   }
 
@@ -72,7 +126,10 @@
     getText: function (url) {
       var hasLuna = !!(window.webOS && window.webOS.service && window.webOS.service.request) || !!window.PalmServiceBridge;
       if (CC.isWebOS() && hasLuna) {
-        return lunaFetch(url).catch(function () { return directFetch(url); });
+        return lunaFetch(url).catch(function (error) {
+          if (error && error.code === ERROR_RESPONSE_TOO_LARGE) throw error;
+          return directFetch(url);
+        });
       }
       var localDev = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);
       if (localDev) return proxyFetch(url);

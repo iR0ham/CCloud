@@ -8,6 +8,7 @@ var URL = require('url');
 var service = new Service('com.ccloud.tv.service');
 
 var MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
+var ERROR_RESPONSE_TOO_LARGE = 'response-too-large';
 
 function fetchUrl(target, redirects, done, completion) {
   completion = completion || { finished: false };
@@ -49,16 +50,18 @@ function fetchUrl(target, redirects, done, completion) {
       finish({ returnValue: false, errorText: 'اتصال به سرور برقرار نشد', detail: String(err && err.message || err) });
     });
     if (status >= 300 && status < 400 && res.headers.location && redirects < 5) {
+      var location = res.headers.location;
+      var next = URL.resolve(target, location);
       active = false;
-      res.resume();
-      var next = URL.resolve(target, res.headers.location);
+      res.destroy();
+      req.destroy();
       fetchUrl(next, redirects + 1, done, completion);
       return;
     }
 
     var contentLength = Number(res.headers['content-length']);
     if (isFinite(contentLength) && contentLength > MAX_RESPONSE_BYTES) {
-      finish({ returnValue: false, errorText: 'حجم پاسخ بیش از حد مجاز است' });
+      finish({ returnValue: false, errorCode: ERROR_RESPONSE_TOO_LARGE, errorText: 'حجم پاسخ بیش از حد مجاز است' });
       res.destroy();
       req.destroy();
       return;
@@ -72,7 +75,7 @@ function fetchUrl(target, redirects, done, completion) {
       receivedBytes += Buffer.byteLength(c, 'utf8');
       if (receivedBytes > MAX_RESPONSE_BYTES) {
         chunks.length = 0;
-        finish({ returnValue: false, errorText: 'حجم پاسخ بیش از حد مجاز است' });
+        finish({ returnValue: false, errorCode: ERROR_RESPONSE_TOO_LARGE, errorText: 'حجم پاسخ بیش از حد مجاز است' });
         res.destroy();
         req.destroy();
         return;
