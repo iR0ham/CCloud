@@ -74,7 +74,13 @@ function loadContracts(moduleName) {
   // landing on the test process. `Function` compiles in this realm, which is the whole
   // point; `modulePath` stays in the thrown message because a same-realm load has no
   // filename channel of its own.
-  const factory = new Function.apply(
+  // `Function.apply` builds the factory; `new Function.apply(…)` would not. The `new`
+  // expression binds tighter than the member call, so it reads the constructor as
+  // `Function.apply` itself and the runner answers "Function.apply is not a constructor" —
+  // which is what the first attempt at this loader did on every one of the 20 tests below.
+  // Calling `Function` without `new` is the same construction, and the parenthesised form
+  // below makes the intended parse visible to a reader instead of leaving it to precedence.
+  const factory = Function.apply(
     null,
     SEALED_GLOBALS.concat(['"use strict";\n' + fs.readFileSync(modulePath, 'utf8')])
   );
