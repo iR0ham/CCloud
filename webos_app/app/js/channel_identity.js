@@ -355,16 +355,49 @@ window.CC = window.CC || {};
     return rebuild(state, sources, associations, mapping);
   }
 
+  // Gives every member that has no logical ID yet a channel of its own: `memberId -> memberId`.
+  //
+  // A freshly parsed playlist has an empty `logicalIdByMemberId`, because registration only produces members
+  // and sources. `associate` refuses a preferred channel that is not a key of that map, so without this step
+  // the first merge a user attempts on a newly added playlist fails with `unknownPreferredLogicalChannel` on
+  // every port — the state is valid, the action simply has no anchor yet. An unseeded member already behaves
+  // as its own singleton through `logicalIdOf`, so this makes that implicit reality explicit rather than
+  // creating an association the user did not ask for.
+  //
+  // Only missing keys are added: an entry that already points somewhere else is a recorded user decision, so
+  // the call is idempotent and safe to run on every load. A playlist whose members are temporarily absent
+  // (disabled, or still refreshing) cannot wipe yesterday's merge, because nothing here removes a key.
+  function seedSingletonChannels(state) {
+    var memberRows = (state && state.members) || [];
+    var mapping = copyMap(state && state.logicalIdByMemberId);
+    var added = 0;
+    for (var m = 0; m < memberRows.length; m++) {
+      var id = memberRows[m].memberId;
+      if (!hasOwn(mapping, id)) {
+        mapping[id] = id;
+        added = added + 1;
+      }
+    }
+    // Returning the original state when nothing was added keeps a repeated load free of a new allocation and
+    // makes idempotence something a caller can test rather than infer.
+    if (added === 0) return state;
+    // Fresh copies, not the original array references: the returned state must be independent of the one it
+    // came from, exactly as `associate` and `separate` return states that share no mutable row list.
+    return rebuild(state, copyList(state.sources), copyList(state.associations), mapping);
+  }
+
   // `logicalIdOf` and `membersOfLogicalChannel` are public here as they are in Dart and Swift, and
   // `unified_catalog.js` reads them from this namespace rather than re-deriving the mapping rule a second
   // time. `ambiguityFloor` is exposed so a screen warns on the same number the scorer used instead of
-  // hardcoding 85.
+  // hardcoding 85. `seedSingletonChannels` is exposed because the app, not the library, decides when a loaded
+  // catalog becomes mergeable, and all three ports have to make that decision the same way.
   CC.channelIdentity = {
     ambiguityFloor: AMBIGUITY_FLOOR,
     findCandidate: findCandidate,
     logicalIdOf: logicalIdOf,
     membersOfLogicalChannel: membersOfLogicalChannel,
     associate: associate,
-    separate: separate
+    separate: separate,
+    seedSingletonChannels: seedSingletonChannels
   };
 })();

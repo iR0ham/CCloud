@@ -294,6 +294,39 @@ LiveCatalogState separateChannel({
   );
 }
 
+/// Gives every member that has no logical ID yet a channel of its own: `memberId -> memberId`.
+///
+/// A freshly parsed playlist has an empty [LiveCatalogState.logicalIdByMemberId], because registration only
+/// produces members and sources. [associateChannels] refuses a preferred channel that is not a key of that
+/// map, so without this step the first merge a user attempts on a newly added playlist fails with
+/// `unknownPreferredLogicalChannel` on every port — the state is valid, the action simply has no anchor yet.
+/// An unseeded member already behaves as its own singleton through [logicalIdOf], so this makes that implicit
+/// reality explicit rather than creating an association the user did not ask for.
+///
+/// The function only ever *adds* missing keys. An entry that already points somewhere else is a recorded
+/// user decision and is left alone, which makes the call idempotent and safe to run on every load: a
+/// playlist whose members are temporarily absent (disabled, or still refreshing) cannot wipe the merge the
+/// user made yesterday, because nothing here removes a key. Rebuilding a group after such a load is B4's
+/// migration job, not this function's.
+LiveCatalogState seedSingletonChannels(LiveCatalogState state) {
+  final logicalIdByMemberId = Map<String, String>.of(state.logicalIdByMemberId);
+  for (final member in state.members) {
+    logicalIdByMemberId.putIfAbsent(member.memberId, () => member.memberId);
+  }
+  if (logicalIdByMemberId.length == state.logicalIdByMemberId.length) return state;
+
+  return LiveCatalogState(
+    schemaVersion: state.schemaVersion,
+    playlists: state.playlists,
+    members: state.members,
+    sources: state.sources,
+    associations: state.associations,
+    preferences: state.preferences,
+    recentWatches: state.recentWatches,
+    logicalIdByMemberId: logicalIdByMemberId,
+  );
+}
+
 /// Re-parents a source without touching its identity, priority or history.
 ChannelSourceRecord _moveSource(ChannelSourceRecord source, String channelId) {
   return ChannelSourceRecord(

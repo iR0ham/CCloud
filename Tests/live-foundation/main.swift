@@ -2024,6 +2024,65 @@ let idnBuiltInView = buildUnifiedChannels(identityState(
 check(idnBuiltInView.count == 3 && idnBuiltInView.allSatisfy { $0.automaticFailoverEnabled && $0.sourcePolicy == .standard },
       "the built-in catalog projects into three independent channels with the standard recovery defaults")
 
+// MARK: - Task B4 precondition: seeding the logical-id map
+
+// Every fixture state above is built with `identityMapping`, which is the same rule `seedSingletonChannels`
+// now implements. A real catalog comes from `LiveSourceRegistry.register` and carries no map at all, so the
+// first merge a user attempts is refused on all three ports until something seeds it. These checks are the
+// conditions under which that helper is allowed to exist: it reproduces the fixture rule exactly, never
+// rewrites a recorded decision, and does not change what a screen displays.
+
+let idnSeedMembers = [
+    identityMember("member:sd1", name: "One"),
+    identityMember("member:sd2", name: "Two", playlistId: "playlist:b"),
+    identityMember("member:sd3", name: "Three", playlistId: "playlist:c"),
+]
+let idnUnseeded = identityState(
+    playlists: identityAllPlaylists,
+    members: idnSeedMembers,
+    mapping: [:]
+)
+expectIdentityError("a fresh catalog has no key to name a preferred channel", .unknownPreferredLogicalChannel) {
+    try associateChannels(idnUnseeded, memberIds: ["member:sd1", "member:sd2"], preferredLogicalId: "member:sd1")
+}
+check(idnUnseeded.logicalIdByMemberId.isEmpty,
+      "the refusal comes from an empty map rather than from the member rows, so it is a real contract consequence")
+check(logicalIdOf(idnUnseeded, "member:sd1") == "member:sd1",
+      "reading already treats an unmapped member as its own channel, which is why seeding is a formality and not a policy change")
+
+let idnSeeded = seedSingletonChannels(idnUnseeded)
+check(idnSeeded.logicalIdByMemberId == identityMapping(idnSeedMembers),
+      "the library produces exactly what every suite hand-built, so no port can drift on the recipe")
+check(idnSeeded.members == idnUnseeded.members && idnSeeded.sources == idnUnseeded.sources
+    && idnSeeded.playlists == idnUnseeded.playlists && idnSeeded.associations == idnUnseeded.associations
+    && idnSeeded.preferences == idnUnseeded.preferences && idnSeeded.schemaVersion == idnUnseeded.schemaVersion,
+      "seeding adds map entries and carries every other collection over untouched")
+check(idnUnseeded.logicalIdByMemberId.isEmpty, "seeding never edits the state it was given")
+check(membersOfLogicalChannel(idnSeeded, "member:sd1") == ["member:sd1"],
+      "a seeded singleton holds one member, so the memberAssociatedElsewhere rule still lets it join a merge")
+
+let idnSeedOnce = seedSingletonChannels(idnUnseeded)
+check(seedSingletonChannels(idnSeedOnce) == idnSeedOnce,
+      "seeding an already-seeded state is the same state, so a load-time call costs nothing and cannot loop")
+let idnSeedMerged = must("associating two seeded singletons") {
+    try associateChannels(idnSeedOnce, memberIds: ["member:sd2", "member:sd3"], preferredLogicalId: "member:sd2")
+}
+check(idnSeedMerged.logicalIdByMemberId["member:sd3"] == "member:sd2", "the merge is recorded on the map")
+check(seedSingletonChannels(idnSeedMerged).logicalIdByMemberId == idnSeedMerged.logicalIdByMemberId,
+      "a recorded user decision is never revisited by a load-time helper, even when it points elsewhere than the key")
+
+let idnSeedHand = identityState(playlists: identityAllPlaylists, members: idnSeedMembers)
+let idnSeedMerge = must("merging seeded singletons") {
+    try associateChannels(idnSeeded, memberIds: ["member:sd2", "member:sd3"], preferredLogicalId: "member:sd2")
+}
+let idnHandMerge = must("merging hand-mapped singletons") {
+    try associateChannels(idnSeedHand, memberIds: ["member:sd2", "member:sd3"], preferredLogicalId: "member:sd2")
+}
+check(idnSeedMerge == idnHandMerge,
+      "a seeded merge lands on exactly the state the hand-mapped fixtures produce, so B4 adds no second merge semantics")
+check(buildUnifiedChannels(idnSeeded).map(\.channelId) == buildUnifiedChannels(idnUnseeded).map(\.channelId),
+      "seeding changes what may be merged, not what the screen shows: three rows stay three rows in the same order")
+
 // MARK: - Result
 
 print("live foundation fixtures: \(fixtureDirectory)")

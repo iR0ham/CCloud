@@ -54,7 +54,8 @@ const IDENTITY_API = [
   'logicalIdOf',
   'membersOfLogicalChannel',
   'associate',
-  'separate'
+  'separate',
+  'seedSingletonChannels'
 ];
 
 const SEALED_GLOBALS = [
@@ -1494,6 +1495,106 @@ function codeOnly(source) {
 function stringsBlanked(code) {
   return code.replace(/"[^"]*"/g, '""').replace(/'[^']*'/g, "''");
 }
+
+// ---- 11. seeding the logical-id map: the precondition task B4 needs ---------------------------------
+
+// Every fixture above builds its map with `identityMapping`, the same rule the Swift and Dart suites
+// hand-build. Task B4 cannot: a real catalog comes from `registerParsedPlaylist`, which emits members and
+// sources and no mapping at all, so the first merge a user attempts has no anchor and is refused on all three
+// ports. `seedSingletonChannels` is that hand-built rule promoted into library code, and the checks below are
+// the conditions under which it is allowed to exist: it must reproduce the fixture rule exactly, must never
+// rewrite a recorded decision, and must not change what a screen displays.
+
+const seedMembers = [
+  memberRow('member:sd1', 'One'),
+  memberRow('member:sd2', 'Two', { playlistId: 'playlist:b' }),
+  memberRow('member:sd3', 'Three', { playlistId: 'playlist:c' })
+];
+const unseededState = stateOf({ members: seedMembers, mapping: {} });
+
+test('an unseeded catalog refuses its first merge: the gap is real, not a fixture accident', function () {
+  expectRefusal(
+    'unknownPreferredLogicalChannel',
+    function () {
+      ID.associate(unseededState, ['member:sd1', 'member:sd2'], 'member:sd1');
+    },
+    'the map is keyed on member ids, so a freshly registered catalog has no key to name a preferred channel'
+  );
+  assert.deepEqual(unseededState.logicalIdByMemberId, {}, 'the refusal comes from an empty map, not from the members');
+  assert.deepEqual(
+    ID.logicalIdOf(unseededState, 'member:sd1'),
+    'member:sd1',
+    'an unseeded member is already its own channel for reading, which is what makes seeding a formality rather than a policy change'
+  );
+});
+
+test('seeding gives each member its own channel and reproduces the fixture rule exactly', function () {
+  const seeded = ID.seedSingletonChannels(unseededState);
+  assert.deepEqual(
+    seeded.logicalIdByMemberId,
+    identityMapping(seedMembers),
+    'the library now produces what every suite previously wrote by hand, so no port can drift on the recipe'
+  );
+  assert.deepEqual(
+    Object.keys(seeded.logicalIdByMemberId).sort(),
+    ['member:sd1', 'member:sd2', 'member:sd3']
+  );
+  assert.equal(seeded.schemaVersion, unseededState.schemaVersion);
+  assert.deepEqual(seeded.playlists, unseededState.playlists);
+  assert.deepEqual(seeded.sources, unseededState.sources);
+  assert.deepEqual(seeded.associations, unseededState.associations);
+  assert.deepEqual(seeded.preferences, unseededState.preferences);
+  assert.notEqual(seeded.members, unseededState.members, 'the returned state shares no mutable list with its input');
+  assert.notEqual(unseededState.logicalIdByMemberId, seeded.logicalIdByMemberId);
+  assert.deepEqual(unseededState.logicalIdByMemberId, {}, 'seeding never edits the state it was given');
+  assert.deepEqual(
+    ID.membersOfLogicalChannel(seeded, 'member:sd1'),
+    ['member:sd1'],
+    'a seeded singleton is one member, so the memberAssociatedElsewhere rule still lets it join a merge'
+  );
+});
+
+test('seeding is idempotent and never rewrites a recorded merge', function () {
+  const once = ID.seedSingletonChannels(unseededState);
+  const twice = ID.seedSingletonChannels(once);
+  assert.equal(twice, once, 'a second load adds nothing, so calling this on every start costs no new state');
+
+  const merged = ID.associate(once, ['member:sd2', 'member:sd3'], 'member:sd2');
+  assert.equal(merged.logicalIdByMemberId['member:sd3'], 'member:sd2');
+  const reseeded = ID.seedSingletonChannels(merged);
+  assert.equal(reseeded, merged, 'every member already has a key, so there is nothing to seed');
+  assert.equal(
+    reseeded.logicalIdByMemberId['member:sd3'],
+    'member:sd2',
+    'a user decision is data, and a load-time helper must not get to revisit it'
+  );
+});
+
+test('a seeded merge lands on exactly the state the hand-mapped fixture merge produces', function () {
+  const handMapped = stateOf({ members: seedMembers });
+  assert.deepEqual(
+    ID.associate(ID.seedSingletonChannels(unseededState), ['member:sd2', 'member:sd3'], 'member:sd2'),
+    ID.associate(handMapped, ['member:sd2', 'member:sd3'], 'member:sd2'),
+    'seeding is the same starting point the suites already assumed, so B4 adds no second merge semantics'
+  );
+});
+
+test('seeding changes what may be merged, not what a screen shows', function () {
+  assert.deepEqual(
+    UC.build(ID.seedSingletonChannels(unseededState)),
+    UC.build(unseededState),
+    'three unassociated rows stay three rows: seeding creates no phantom channel and reorders nothing'
+  );
+});
+
+test('a seeded state is a document the codec round-trips', function () {
+  const seeded = ID.seedSingletonChannels(unseededState);
+  assert.deepEqual(
+    K.decodeState(K.encodeState(seeded)),
+    seeded,
+    'the seeded map is encodable, so task B4 can persist it rather than rebuild it on every launch'
+  );
+});
 
 test('the three new modules stay inside the language ceiling the webOS build is checked against', function () {
   const runtimeCeiling = [

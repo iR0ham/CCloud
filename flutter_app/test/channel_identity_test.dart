@@ -1064,4 +1064,99 @@ void main() {
       expect(input.map((LiveTvChannel c) => c.name).toList(), ['IRIB 1', 'Press TV', 'بی بی سی فارسی']);
     });
   });
+
+  // Task B4 precondition. Every state above is built with a hand-written `logicalIdByMemberId`, which is the
+  // same rule `seedSingletonChannels` now implements; a real catalog comes from `registerParsedPlaylist` and
+  // has no map at all, so the first merge a user attempts is refused on all three ports until something seeds
+  // it. These groups are the conditions under which that helper is allowed to exist: it reproduces the
+  // fixture rule exactly, never rewrites a recorded decision, and does not change what a screen displays.
+  group('singleton seeding', () {
+    final members = [
+      _member(memberId: 'member:sd1', name: 'One'),
+      _member(memberId: 'member:sd2', name: 'Two', playlistId: 'playlist:b'),
+      _member(memberId: 'member:sd3', name: 'Three', playlistId: 'playlist:c'),
+    ];
+    const seededMapping = {
+      'member:sd1': 'member:sd1',
+      'member:sd2': 'member:sd2',
+      'member:sd3': 'member:sd3',
+    };
+    final unseeded = _state(members: members);
+
+    test('an unseeded catalog refuses its first merge', () {
+      expect(
+        () => associateChannels(
+          state: unseeded,
+          memberIds: const ['member:sd1', 'member:sd2'],
+          preferredLogicalId: 'member:sd1',
+        ),
+        throwsA(_identityError('unknownPreferredLogicalChannel')),
+        reason: 'the map is keyed on member ids, so a fresh catalog has no key to name a preferred channel',
+      );
+      expect(unseeded.logicalIdByMemberId, isEmpty);
+      expect(
+        logicalIdOf(unseeded, 'member:sd1'),
+        'member:sd1',
+        reason: 'reading already treats an unmapped member as its own channel',
+      );
+    });
+
+    test('seeding maps every member to itself and touches nothing else', () {
+      final seeded = seedSingletonChannels(unseeded);
+      expect(seeded.logicalIdByMemberId, seededMapping);
+      expect(seeded.members.length, 3);
+      expect(
+        unseeded.logicalIdByMemberId,
+        isEmpty,
+        reason: 'the input state is unmodifiable and stays untouched',
+      );
+      expect(identical(seeded, unseeded), isFalse);
+      expect(membersOfLogicalChannel(seeded, 'member:sd1'), ['member:sd1']);
+    });
+
+    test('seeding is idempotent and never rewrites a recorded merge', () {
+      final once = seedSingletonChannels(unseeded);
+      expect(
+        identical(seedSingletonChannels(once), once),
+        isTrue,
+        reason: 'a second load adds nothing, so calling it on every start costs no new state',
+      );
+      final merged = associateChannels(
+        state: once,
+        memberIds: const ['member:sd2', 'member:sd3'],
+        preferredLogicalId: 'member:sd2',
+      );
+      expect(merged.logicalIdByMemberId['member:sd3'], 'member:sd2');
+      expect(
+        identical(seedSingletonChannels(merged), merged),
+        isTrue,
+        reason: 'a user decision is data; a load-time helper must not get to revisit it',
+      );
+    });
+
+    test('a seeded merge lands on the state the hand-mapped groups produce', () {
+      final handMapped = _state(members: members, logicalIdByMemberId: seededMapping);
+      expect(
+        associateChannels(
+          state: seedSingletonChannels(unseeded),
+          memberIds: const ['member:sd2', 'member:sd3'],
+          preferredLogicalId: 'member:sd2',
+        ).logicalIdByMemberId,
+        associateChannels(
+          state: handMapped,
+          memberIds: const ['member:sd2', 'member:sd3'],
+          preferredLogicalId: 'member:sd2',
+        ).logicalIdByMemberId,
+        reason: 'seeding is the same starting point the suites already assumed',
+      );
+    });
+
+    test('seeding changes what may be merged, not what a screen shows', () {
+      List<String> ids(List<LogicalChannel> channels) =>
+          channels.map((LogicalChannel c) => c.channelId).toList();
+      expect(ids(buildUnifiedChannels(seedSingletonChannels(unseeded))),
+          ids(buildUnifiedChannels(unseeded)),
+          reason: 'three unassociated rows stay three rows, in the same order');
+    });
+  });
 }
