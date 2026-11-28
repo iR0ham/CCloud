@@ -432,3 +432,55 @@ The remediation-and-evidence arc is finished. The critical path is now: H1–H3 
 Phase B1-D (Dart contracts + frozen shared fixtures) → B1-S → B1-J → B2 cross-language agreement.
 Device/runtime acceptance, native-media relinking, corresponding-source material, and signing or
 notarization remain owner-side blockers and are unchanged by any of the green CI evidence above.
+
+## 11. Dated update — 2026-11-28 (hardening slice closed, Phase B1-D landed)
+
+Section 10.2 listed H1, H2 and H3 as the gate-hardening slice that had to precede Phase B1. All three
+are landed and hosted green, and Task B1-D of
+`docs/superpowers/plans/2026-11-25-multi-source-subtitles.md` is landed behind them with a real RED run
+and a real GREEN run. The commits are `4c80ad3` (H1), `e1eb4db` (H2), `5a9ad4a` (H3), `4570277` (B1-D
+fixtures and failing test), `ea28b29` (B1-D contracts and codec) and `eb052b2` (B1-D analyzer cleanup,
+the branch head). `EXECUTION_LOG.md` carries the runner-line detail; this section only moves the
+inventory.
+
+### 11.1 Item outcomes
+
+| Item | Previous state | Now | Evidence |
+| --- | --- | --- | --- |
+| H1 (`N1`) | fallback picked the first `*release*` manifest in sort order | **closed** | the discovered path is now an explicit candidate, the glob is narrowed to `*/merged_manifest/release/*`, more than one remainder is a hard failure, and `$APP_ID` from the APK is asserted in both artifacts — run `46093092524`, job `140818355917`, line `merged manifest artifact: build/app/intermediates/merged_manifest/release/outputReleaseAppLinkSettings/AndroidManifest.xml` |
+| H2 (`N2`) | comment claimed the optional-touchscreen contract, code checked the feature name | **closed** | `ok: APK manifest contains android:required="false"` and `ok: APK manifest pairs android.hardware.touchscreen with android:required="false"` in the same job |
+| H3 (`N3`) | containment was lexical, so a committed symlink could leave the checkout | **closed** | `_resolve_within` canonicalizes both sides and re-checks containment; `Tests/test_verify_provenance.py` grew the escaping-symlink vector, `Ran 14 tests` / `OK` in run `46094277018` |
+| Phase B1-D | next item on the critical path | **closed for Dart** | RED `46093489869` (`uri_does_not_exist` for both new libraries) then GREEN `46094276971` (`No issues found!`, `🎉 133 tests passed, 1 skipped.`) |
+| Shared fixtures for B1-S / B1-J | not present | **present** | `Tests/fixtures/migration/catalog-v1.json`, `Tests/fixtures/migration/flutter-legacy-prefs.json`, both byte-identical to the plan's Shared Fixtures block |
+| Gate integrity | fifteen `require_token` call sites at `1382a93` | **eighteen**, none deleted | three added at `build-android.yml:273`, `:274` and `:288` (merged-manifest identity, shipped-package identity, `android:required="false"`), plus the touchscreen pairing check that is not a `require_token` |
+
+### 11.2 What did not change
+
+`Legal/DISTRIBUTION_STATUS.md`, the four `INTERNAL-ONLY-*` labels, `RELEASE_PRODUCTION_READY`, and the
+canonical identity `2.0.0` / build `22` are untouched. No assertion was downgraded, no step gained
+`continue-on-error`, and no `skip`/`todo` was introduced; the only `continue-on-error: true` in the
+repository is still the pre-existing Inno Setup artifact step at `.github/workflows/build-windows.yml:167`.
+`main` is still `6dfd925…`, no tag was created, and nothing was published or released. `Tests/fixtures/`
+gained only the two migration fixtures named in the plan — `Tests/fixtures/multi-source/*` belongs to B2
+and was not authored here.
+
+### 11.3 Deliberate non-work
+
+No Swift (B1-S) and no JavaScript (B1-J) file was touched, so the three-platform parity claim is still
+unproven and can only be made after B2. No dependency was added: `file_picker` and `flutter_secure_storage`
+stay behind the B4 gate, which means `streamSecretRef` has a persisted shape but no verified store behind it
+on any platform. No UI, no version bump, no release action, no local build or test run.
+
+### 11.4 Falsifiability status
+
+The B1-D RED is executed evidence. The H1, H2 and H3 mutation regressions are stated with their exact
+expected `::error::` text in `EXECUTION_LOG.md` and are **NOT EXECUTED**, by instruction not to push a
+deliberately broken commit; the passing assertions themselves are runner-quoted, so the gate is proven
+to run even where the RED half is only specified.
+
+### 11.5 Consequence for sequencing
+
+The critical path is now B1-S (Swift mirror) → B1-J (webOS JavaScript mirror) → B2 (cross-language
+agreement fixtures over the same `Tests/fixtures/migration/catalog-v1.json`). Device and runtime
+acceptance, native-media relinking, corresponding-source material, signing/notarization and any EPG
+programme data remain owner-side blockers, and no green runner in this range changes that.
