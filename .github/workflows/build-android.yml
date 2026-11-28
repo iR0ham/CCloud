@@ -195,6 +195,7 @@ jobs:
           # actually compiled into this APK, while the decoded APK manifest still
           # proves every governed attribute survived into the shipped package.
           MERGED=""
+          MERGED_SOURCE=""
           # The fourth path is the one both green hosted runs actually resolved
           # (runs 46087125808 / 46089580637 logged it as the "merged manifest
           # artifact:"), and it was not one of the three explicit candidates, so the
@@ -207,6 +208,7 @@ jobs:
             build/app/intermediates/merged_manifest/release/outputReleaseAppLinkSettings/AndroidManifest.xml; do
             if [ -s "$candidate" ]; then
               MERGED="$candidate"
+              MERGED_SOURCE="explicit candidate"
               break
             fi
           done
@@ -223,6 +225,7 @@ jobs:
             fi
             if [ "${#MERGED_FALLBACK[@]}" -eq 1 ]; then
               MERGED="${MERGED_FALLBACK[0]}"
+              MERGED_SOURCE="narrowed fallback"
             fi
           fi
           if [ -z "$MERGED" ] || [ ! -s "$MERGED" ]; then
@@ -232,6 +235,11 @@ jobs:
             exit 1
           fi
           echo "merged manifest artifact: $MERGED"
+          # The selection mechanism is itself evidence: without this line a log
+          # cannot tell whether the artifact came from the explicit candidate list
+          # or from the narrowed */merged_manifest/release/* fallback, which is
+          # exactly the ambiguity that left the merged-manifest row unverifiable.
+          echo "merged manifest selected by: $MERGED_SOURCE"
           if ! "$APKANALYZER" manifest print "$APK" > "$MANIFEST"; then
             echo "::error::apkanalyzer manifest print failed; the APK manifest contract cannot be checked"
             exit 1
@@ -279,26 +287,31 @@ jobs:
           require_token "APK manifest" "$MANIFEST" 'android:banner='
           require_token "APK manifest" "$MANIFEST" 'android:taskAffinity=""'
           require_token "APK manifest" "$MANIFEST" 'android.hardware.touchscreen'
-          # The optional-touchscreen contract, not just the feature name. Before this
-          # step the assertion above only proved the feature was mentioned, so
-          # `android:required="true"` would have passed while a D-pad-only TV could not
-          # install the APK. apkanalyzer renders uses-feature values faithfully (the
-          # 6fb03bf failure dump showed `android:required="false"` for both features),
-          # so the value is asserted here and bound to the feature it governs below.
-          require_token "APK manifest" "$MANIFEST" 'android:required="false"'
-          # The context window is written to a file first because this step runs under
-          # `set -o pipefail`, where a `grep -q` that exits early can SIGPIPE the
-          # upstream grep and turn a passing condition into a spurious failure.
+          # The optional-touchscreen contract, not just the feature name. The
+          # whole-manifest assertion this replaced was provably non-binding: the
+          # decoded manifest carries four matches for android:required="false"
+          # (android.software.leanback, android.hardware.touchscreen and the two
+          # androidx.window <uses-library> entries), so it stayed green even with the
+          # touchscreen declared required. apkanalyzer renders uses-feature values
+          # faithfully (the 6fb03bf failure dump showed android:required="false" for
+          # both features), so the value is now asserted inside the touchscreen
+          # element itself.
           TOUCHSCREEN="$RUNNER_TEMP/android-touchscreen.txt"
-          grep -A2 -F 'android:name="android.hardware.touchscreen"' "$MANIFEST" > "$TOUCHSCREEN" || true
-          if ! grep -Fq -- 'android:required="false"' "$TOUCHSCREEN"; then
-            echo '::error::the shipped package does not pair android.hardware.touchscreen with android:required="false"; a D-pad-only TV cannot install it'
-            echo "----- decoded AndroidManifest.xml -----"
-            cat "$MANIFEST"
-            if [ -s "$BADGING" ]; then
-              echo "----- aapt dump badging -----"
-              cat "$BADGING"
-            fi
+          # The window is bounded by the element's own closing tag instead of a fixed
+          # line count, so it does not depend on how apkanalyzer reflows the file. The
+          # redirect creates $TOUCHSCREEN before awk runs, so a manifest without the
+          # uses-feature leaves an empty window, and an empty window cannot contain the
+          # token: the assertion below fails closed rather than passing vacuously.
+          awk '/android:name="android.hardware.touchscreen"/{f=1} f{print} f&&/\/>/{exit}' \
+            "$MANIFEST" > "$TOUCHSCREEN" || true
+          require_token "APK touchscreen element" "$TOUCHSCREEN" 'android:required="false"'
+          # The opposite declaration is a hard failure in its own right: it names the
+          # attribute that breaks Android TV installation instead of only reporting a
+          # missing token.
+          if grep -Fq -- 'android:required="true"' "$TOUCHSCREEN"; then
+            echo '::error::the touchscreen uses-feature declares android:required="true"; a D-pad-only Android TV cannot install this package'
+            echo "----- touchscreen element -----"
+            cat "$TOUCHSCREEN"
             exit 1
           fi
           echo 'ok: APK manifest pairs android.hardware.touchscreen with android:required="false"'
