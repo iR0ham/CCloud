@@ -185,6 +185,35 @@ jobs:
           test "$VERSION_NAME" = "${{ steps.version.outputs.version }}"
           MANIFEST="$RUNNER_TEMP/android-manifest.xml"
           BADGING="$RUNNER_TEMP/android-badging.txt"
+          # Hosted evidence at 6fb03bf: apkanalyzer decodes the APK manifest from
+          # binary resources, so resource references and flag enumerations come back
+          # as opaque values (android:banner="@ref/0x7f070077",
+          # android:launchMode="1", android:configChanges="0x40003fb4",
+          # android:windowSoftInputMode="0x10"). Asserting literal declarations
+          # against that rendering can never pass, so the mandatory literal tokens
+          # below are asserted against the merged release manifest that aapt2
+          # actually compiled into this APK, while the decoded APK manifest still
+          # proves every governed attribute survived into the shipped package.
+          MERGED=""
+          for candidate in \
+            build/app/intermediates/merged_manifests/release/AndroidManifest.xml \
+            build/app/intermediates/packaged_manifests/release/AndroidManifest.xml \
+            build/app/intermediates/merged_manifest/release/AndroidManifest.xml; do
+            if [ -s "$candidate" ]; then
+              MERGED="$candidate"
+              break
+            fi
+          done
+          if [ -z "$MERGED" ]; then
+            MERGED="$(find build/app/intermediates -type f -path '*release*' -name AndroidManifest.xml 2>/dev/null | sort | head -1 || true)"
+          fi
+          if [ -z "$MERGED" ] || [ ! -s "$MERGED" ]; then
+            echo "::error::the release merged AndroidManifest.xml was not found; the literal manifest contract cannot be checked"
+            echo "----- intermediate manifest candidates -----"
+            find build/app/intermediates -maxdepth 3 -type f -name AndroidManifest.xml 2>/dev/null | sort | head -40 || true
+            exit 1
+          fi
+          echo "merged manifest artifact: $MERGED"
           if ! "$APKANALYZER" manifest print "$APK" > "$MANIFEST"; then
             echo "::error::apkanalyzer manifest print failed; the APK manifest contract cannot be checked"
             exit 1
@@ -194,15 +223,18 @@ jobs:
             exit 1
           fi
           # Every token below stays mandatory. require_token keeps that gate but
-          # names the condition that failed and dumps the decoded artifacts, so a
-          # hosted run says which contract broke instead of aborting on a silent
-          # grep exit (the manifest and badging text contain no secrets).
+          # names the artifact and condition that failed and dumps the checked
+          # artifacts, so a hosted run says which contract broke instead of
+          # aborting on a silent grep exit (the manifest and badging text contain
+          # no secrets).
           require_token() {
             label="$1"
             file="$2"
             token="$3"
             if ! grep -Fq -- "$token" "$file"; then
               echo "::error::$label is missing the expected token: $token"
+              echo "----- checked artifact: $file -----"
+              cat "$file"
               echo "----- decoded AndroidManifest.xml -----"
               cat "$MANIFEST"
               if [ -s "$BADGING" ]; then
@@ -213,24 +245,44 @@ jobs:
             fi
             echo "ok: $label contains $token"
           }
+          # Shipped-package contract, asserted where the decoded APK manifest
+          # renders the value faithfully:
           require_token "APK manifest" "$MANIFEST" 'android.software.leanback'
           require_token "APK manifest" "$MANIFEST" 'android.intent.category.LEANBACK_LAUNCHER'
           require_token "APK manifest" "$MANIFEST" 'android:banner='
-          require_token "APK manifest" "$MANIFEST" '@drawable/tv_banner'
-          require_token "APK manifest" "$MANIFEST" 'android:launchMode="singleTop"'
           require_token "APK manifest" "$MANIFEST" 'android:taskAffinity=""'
-          # Orientation/focus/back contract:
+          require_token "APK manifest" "$MANIFEST" 'android.hardware.touchscreen'
+          # Existence of each governed attribute in the shipped package (the value
+          # itself is opaque here and is asserted literally further below):
+          require_token "APK manifest" "$MANIFEST" 'android:launchMode='
+          require_token "APK manifest" "$MANIFEST" 'android:configChanges='
+          require_token "APK manifest" "$MANIFEST" 'android:windowSoftInputMode='
+          # Orientation/focus/back contract, asserted against the merged manifest
+          # that aapt2 compiled into this APK:
+          # - the TV banner is the project's own @drawable/tv_banner;
           # - the activity handles orientation/screen-size changes itself, so a
           #   TV/phone rotation does not recreate the Flutter engine;
           # - the soft keyboard resizes instead of panning, which keeps the
           #   focused field visible on a TV/phone;
-          # - touchscreen is optional, so a D-pad-only TV can install it;
+          # - touchscreen is optional, asserted on the shipped package above, so a
+          #   D-pad-only TV can install it;
           # - singleTop + empty taskAffinity keep back/relaunch inside this app.
-          require_token "APK manifest" "$MANIFEST" 'android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"'
-          require_token "APK manifest" "$MANIFEST" 'android:windowSoftInputMode="adjustResize"'
-          require_token "APK manifest" "$MANIFEST" 'android.hardware.touchscreen'
-          if grep -Fq 'android:screenOrientation="portrait"' "$MANIFEST"; then
+          require_token "merged manifest" "$MERGED" '@drawable/tv_banner'
+          require_token "merged manifest" "$MERGED" 'android:launchMode="singleTop"'
+          require_token "merged manifest" "$MERGED" 'android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"'
+          require_token "merged manifest" "$MERGED" 'android:windowSoftInputMode="adjustResize"'
+          # Android TV is landscape, so the launcher activity may not carry any
+          # orientation lock. screenOrientation is an enum whose value the decoded
+          # manifest cannot name, so the prohibition is that the attribute is
+          # absent from the shipped package entirely, and never "portrait" in the
+          # merged declaration.
+          if grep -Fq 'android:screenOrientation="portrait"' "$MERGED"; then
             echo "::error::the activity must not be locked to portrait; Android TV is landscape"
+            cat "$MERGED"
+            exit 1
+          fi
+          if grep -Fq 'android:screenOrientation=' "$MANIFEST"; then
+            echo "::error::the shipped package declares an orientation lock; Android TV is landscape"
             cat "$MANIFEST"
             exit 1
           fi
