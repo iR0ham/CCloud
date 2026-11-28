@@ -306,10 +306,10 @@ test('the shared composer fixture carries exactly eight cases', function () {
 });
 
 for (const caseJson of cases) {
-  test(case.id + ': composes to the shared expectation', function () {
+  test(caseJson.id + ': composes to the shared expectation', function () {
     const device = boot();
     const expect = caseJson.expect;
-    assert.ok(expect && typeof expect === 'object', case.id + ': expect block is missing');
+    assert.ok(expect && typeof expect === 'object', caseJson.id + ': expect block is missing');
     const built = rowsFor(caseJson.rows);
     const builtSnapshot = shapes(built);
     const builtInstances = built.slice();
@@ -325,7 +325,7 @@ for (const caseJson of cases) {
     ];
     let formCount = 0;
     for (const taken of forms) if (taken) formCount += 1;
-    assert.equal(formCount, 1, case.id + ': states exactly one document form — an object, a null, or raw text');
+    assert.equal(formCount, 1, caseJson.id + ': states exactly one document form — an object, a null, or raw text');
 
     if (forms[0]) {
       const text = JSON.stringify(caseJson.document);
@@ -334,27 +334,27 @@ for (const caseJson of cases) {
       // different case: an ignored key would decode to an empty state and every merge assertion would pass for
       // the wrong reason.
       assert.equal(decoded.playlists.length, objects(caseJson.document.playlists).length,
-        case.id + ': every fixture playlist survived the codec');
+        caseJson.id + ': every fixture playlist survived the codec');
       assert.equal(decoded.members.length, objects(caseJson.document.members).length,
-        case.id + ': every fixture member survived the codec');
+        caseJson.id + ': every fixture member survived the codec');
       assert.equal(decoded.sources.length, objects(caseJson.document.sources).length,
-        case.id + ': every fixture source survived the codec');
+        caseJson.id + ': every fixture source survived the codec');
       state = decoded;
     } else if (forms[2]) {
       assert.throws(
         function () { device.contracts.decodeState(caseJson.rawDocument); },
         function () { return true; },
-        case.id + ': the raw fixture document is undecodable by this build'
+        caseJson.id + ': the raw fixture document is undecodable by this build'
       );
-      assert.equal(expect.neutral, true, case.id + ': refused bytes are pinned as a neutrality case');
+      assert.equal(expect.neutral, true, caseJson.id + ': refused bytes are pinned as a neutrality case');
     }
 
     const composed = device.composer.compose({ channels: built, state: state });
     const expectedNames = strings(expect.names);
 
     assert.equal(composed.rows.length, expect.rowCount,
-      case.id + ': the composer returns exactly the expected number of rows');
-    assert.deepEqual(rowNames(composed.rows), expectedNames, case.id + ': the rows come back in the expected order');
+      caseJson.id + ': the composer returns exactly the expected number of rows');
+    assert.deepEqual(rowNames(composed.rows), expectedNames, caseJson.id + ': the rows come back in the expected order');
 
     const expectedStreams = byNameFromLists(expect.rowStreams);
     const expectedCountries = stringByName(expect.rowCountry);
@@ -362,32 +362,32 @@ for (const caseJson of cases) {
     const expectedGeo = boolByName(expect.rowGeoBlocked);
     const expectedMinted = stringByName(expect.mintedNanoid);
     for (const name of expectedNames) {
-      const row = namedRow(composed.rows, name, case.id);
-      assert.ok(hasOwn(expectedStreams, name), case.id + ': rowStreams has no pin for ' + name);
-      assert.deepEqual(row.streams, expectedStreams[name], case.id + ': ' + name + ' carries exactly its expected addresses');
-      assert.ok(hasOwn(expectedCountries, name), case.id + ': rowCountry has no pin for ' + name);
-      assert.equal(row.country, expectedCountries[name], case.id + ': ' + name + ' carries the expected country');
-      assert.ok(hasOwn(expectedLanguages, name), case.id + ': rowLanguages has no pin for ' + name);
-      assert.deepEqual(row.languages, expectedLanguages[name], case.id + ': ' + name + ' carries the expected languages');
-      assert.ok(hasOwn(expectedGeo, name), case.id + ': rowGeoBlocked has no pin for ' + name);
-      assert.equal(row.isGeoBlocked, expectedGeo[name], case.id + ': ' + name + ' carries the expected geo-block');
+      const row = namedRow(composed.rows, name, caseJson.id);
+      assert.ok(hasOwn(expectedStreams, name), caseJson.id + ': rowStreams has no pin for ' + name);
+      assert.deepEqual(row.streams, expectedStreams[name], caseJson.id + ': ' + name + ' carries exactly its expected addresses');
+      assert.ok(hasOwn(expectedCountries, name), caseJson.id + ': rowCountry has no pin for ' + name);
+      assert.equal(row.country, expectedCountries[name], caseJson.id + ': ' + name + ' carries the expected country');
+      assert.ok(hasOwn(expectedLanguages, name), caseJson.id + ': rowLanguages has no pin for ' + name);
+      assert.deepEqual(row.languages, expectedLanguages[name], caseJson.id + ': ' + name + ' carries the expected languages');
+      assert.ok(hasOwn(expectedGeo, name), caseJson.id + ': rowGeoBlocked has no pin for ' + name);
+      assert.equal(row.isGeoBlocked, expectedGeo[name], caseJson.id + ': ' + name + ' carries the expected geo-block');
       if (hasOwn(expectedMinted, name)) {
         assert.equal(row.nanoid, expectedMinted[name],
-          case.id + ': ' + name + ' is identified by the catalog\'s logical channel id');
+          caseJson.id + ': ' + name + ' is identified by the catalog\'s logical channel id');
       }
     }
 
     // The one security property this file owns outright, checked on every case rather than only where the
     // fixture names it.
     assert.equal(carriesSecret(composed.rows, composed.issues), null,
-      case.id + ': no credential-bearing text reaches a composed row or an issue message');
+      caseJson.id + ': no credential-bearing text reaches a composed row or an issue message');
 
     // A built-in row keeps its own identity through the join, because the player's `stringId` and the favorites
     // document key on it. This is the check that catches a composer which "merges" by replacing the row.
     for (const input of builtSnapshot) {
       const parsed = JSON.parse(input);
-      assert.equal(namedRow(composed.rows, parsed.name, case.id + ': preserved').nanoid, parsed.nanoid,
-        case.id + ': ' + parsed.name + ' keeps its built-in row id');
+      assert.equal(namedRow(composed.rows, parsed.name, caseJson.id + ': preserved').nanoid, parsed.nanoid,
+        caseJson.id + ': ' + parsed.name + ' keeps its built-in row id');
     }
 
     // Issues carry the contract's three fields and no invented ones.
@@ -397,15 +397,15 @@ for (const caseJson of cases) {
     for (const code of Object.keys(expectedIssues)) {
       expectedTotal += expectedIssues[code];
       assert.equal(codes[code] || 0, expectedIssues[code],
-        case.id + ': exactly ' + expectedIssues[code] + ' ' + code + ' issue(s) reported');
+        caseJson.id + ': exactly ' + expectedIssues[code] + ' ' + code + ' issue(s) reported');
     }
     assert.equal(composed.issues.length, expectedTotal,
-      case.id + ': the composer reports no issue codes the fixture did not name');
+      caseJson.id + ': the composer reports no issue codes the fixture did not name');
     for (const issue of composed.issues) {
-      assert.equal(typeof issue.code, 'string', case.id + ': an issue has no code');
-      assert.ok(issue.code.length > 0, case.id + ': an issue has an empty code');
-      assert.equal(typeof issue.message, 'string', case.id + ': an issue has no message');
-      assert.equal(issue.line, null, case.id + ': a composed row has no source line to blame');
+      assert.equal(typeof issue.code, 'string', caseJson.id + ': an issue has no code');
+      assert.ok(issue.code.length > 0, caseJson.id + ': an issue has an empty code');
+      assert.equal(typeof issue.message, 'string', caseJson.id + ': an issue has no message');
+      assert.equal(issue.line, null, caseJson.id + ': a composed row has no source line to blame');
     }
 
     // Neutrality is pinned both ways. A case flagged `neutral` must return the caller's own rows, element for
@@ -416,36 +416,36 @@ for (const caseJson of cases) {
     const sameInstances = composed.rows.length === builtInstances.length &&
       composed.rows.every(function (row, index) { return row === builtInstances[index]; });
     if (wantsNeutral) {
-      assert.ok(sameInstances, case.id + ': neutrality — the rows are the caller\'s own rows, instance for instance');
-      assert.deepEqual(shapes(composed.rows), builtSnapshot, case.id + ': and they still describe the same channels');
+      assert.ok(sameInstances, caseJson.id + ': neutrality — the rows are the caller\'s own rows, instance for instance');
+      assert.deepEqual(shapes(composed.rows), builtSnapshot, caseJson.id + ': and they still describe the same channels');
     } else {
       assert.ok(!sameInstances,
-        case.id + ': this case is not flagged neutral, so its rows must differ from its input');
+        caseJson.id + ': this case is not flagged neutral, so its rows must differ from its input');
     }
     if (state === null) {
       // The strongest form available, and the one S2's caller depends on: no usable document returns the very
       // array it was handed, so a screen that keeps its list keeps the same object.
-      assert.equal(composed.rows, built, case.id + ': with no state the caller\'s own array comes back');
+      assert.equal(composed.rows, built, caseJson.id + ': with no state the caller\'s own array comes back');
     }
 
     // Composing never touches the caller's data, and never shuffles on a refresh.
-    assert.deepEqual(shapes(built), builtSnapshot, case.id + ': composing never mutates the caller\'s rows');
+    assert.deepEqual(shapes(built), builtSnapshot, caseJson.id + ': composing never mutates the caller\'s rows');
     const again = device.composer.compose({ channels: built, state: state });
     assert.deepEqual(shapes(again.rows), shapes(composed.rows),
-      case.id + ': the same inputs compose to the same rows, so a refresh cannot shuffle the list');
-    assert.deepEqual(countCodes(again.issues), codes, case.id + ': and reports the same issues');
+      caseJson.id + ': the same inputs compose to the same rows, so a refresh cannot shuffle the list');
+    assert.deepEqual(countCodes(again.issues), codes, caseJson.id + ': and reports the same issues');
 
     if (caseJson.unifiedMemberCount !== undefined && caseJson.unifiedMemberCount !== null) {
       const pin = caseJson.unifiedMemberCount;
-      assert.ok(state, case.id + ': a unified-member pin needs a document');
+      assert.ok(state, caseJson.id + ': a unified-member pin needs a document');
       const channels = device.catalog.build(state);
       let found = null;
       for (const channel of channels) {
         if (strings(channel.memberIds).indexOf(pin.channelOfMember) !== -1) found = channel;
       }
-      assert.ok(found, case.id + ': no unified channel holds the pinned member');
+      assert.ok(found, caseJson.id + ': no unified channel holds the pinned member');
       assert.equal(found.memberIds.length, pin.count,
-        case.id + ': the unified layer holds ' + pin.count + ' members for that channel');
+        caseJson.id + ': the unified layer holds ' + pin.count + ' members for that channel');
     }
   });
 }
