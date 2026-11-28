@@ -298,6 +298,15 @@ let mistypedCollectionsJSON = #"""
 {"schemaVersion":1,"playlists":7,"members":[],"sources":[],"associations":[],"preferences":[],"recentWatches":[],"logicalIdByMemberId":{}}
 """#
 
+/// The shortest document the contract accepts: every field the Dart reader defaults is
+/// left out, and the one `sourcePolicy` that is present carries only the two keys an
+/// early build wrote. Task B1-J feeds the webOS port the identical text, so this is the
+/// document on which the two readers' tolerance must agree — a port that required any of
+/// these keys would reject a catalog an older Android or macOS build legitimately saved.
+let minimalV1JSON = #"""
+{"schemaVersion":1,"playlists":[{"playlistId":"pl-1","name":"Minimal","sourceType":"remoteUrl","locationRef":"https://example.test/list.m3u","enabled":true,"createdAt":"2026-01-01T00:00:00Z"}],"members":[{"memberId":"m-1","playlistId":"pl-1","providerNamespace":"iptv-org","providerChannelId":"IR.IRIB1","displayName":"IRIB 1","normalizedName":"irib 1","ordinal":0}],"sources":[{"sourceId":"s-1","channelId":"ch-1","memberId":"m-1","playlistId":"pl-1","providerNamespace":"iptv-org","label":"Primary","streamUrl":"https://stream.example/irib1.m3u8","protocolHint":"hls","origin":"playlist","priority":0,"enabled":true,"health":"unverified"}],"associations":[],"preferences":[{"channelId":"ch-1","sourcePolicy":{"backoffMs":[100],"connectTimeoutMs":8000}}],"logicalIdByMemberId":{"m-1":"ch-1"}}
+"""#
+
 /// Byte-for-byte the legacy macOS documents the plan pins in
 /// `Tests/fixtures/migration/macos-favorites.json` and `macos-history.json`. Pinning
 /// the text here is what makes "migration never rewrites the legacy stores" a real
@@ -561,12 +570,68 @@ expectThrows("a non-timestamp playlist date") {
 }
 expectThrows("a non-string required identifier") {
     try LiveCatalogStateCodec.decode(mutated(
-        "non-string playlistId",
+        "non-string playlist name",
         from: additiveV1JSON,
-        "\"playlistId\": \"builtin:live\",",
-        to: "\"playlistId\": 7,"
+        "\"name\": \"CCloud\",",
+        to: "\"name\": 7,"
     ))
 }
+
+// MARK: - 4b. Dart's optional-with-default fields stay optional here too
+
+// The document above omits every field `_optEnum`, `_optInt`, `_optBool` and
+// `_optStringList` cover in the Dart codec. Required here, those omissions would throw,
+// which means a catalog an older build saved would be unreadable after an update — the
+// user would lose playlists, associations and preferences on next launch.
+let minimal = decoded(minimalV1JSON, "minimal v1 document")
+let minimalPlaylist = minimal.playlists[0]
+check(minimalPlaylist.refreshStatus == .idle, "an absent refreshStatus decodes as idle")
+check(minimalPlaylist.channelCount == 0, "an absent channelCount decodes as zero")
+check(minimalPlaylist.parsingVersion == 1, "an absent parsingVersion decodes as version 1")
+check(minimalPlaylist.lastUpdatedAt == nil, "an absent optional date stays absent, it is not invented")
+check(minimal.members[0].languages.isEmpty, "an absent member languages list decodes as empty")
+check(minimal.members[0].ordinal == 0, "the member ordinal decoded")
+let minimalSource = minimal.sources[0]
+check(minimalSource.rendererCapability == .notYetVerified, "a minimal source is not yet verified")
+check(minimalSource.streamUrl == "https://stream.example/irib1.m3u8", "a minimal source keeps its address")
+check(minimalSource.lastSuccessfulPlaybackAt == nil, "no playback history is invented for a minimal source")
+let minimalPreference = minimal.preferences[0]
+check(!minimalPreference.favorite, "an absent favorite decodes as not favourited")
+check(!minimalPreference.hidden, "an absent hidden flag decodes as visible")
+check(minimalPreference.automaticFailoverEnabled, "failover is on unless the user turned it off")
+check(minimalPreference.category == nil, "an absent category stays absent")
+check(minimalPreference.userOrder == nil, "an absent user order stays absent")
+check(minimalPreference.lastSuccessfulSourceId == nil, "no last source is invented")
+let minimalPolicy = minimalPreference.sourcePolicy
+check(minimalPolicy.backoffMs == [100], "the backoff schedule an old document did write is kept")
+check(minimalPolicy.connectTimeoutMs == 8000, "a timeout an old document did write is kept")
+check(minimalPolicy.maxAutomaticAttempts == 3, "an absent policy integer takes the standard value")
+check(minimalPolicy.sameSourceRetries == 2, "absent sameSourceRetries takes the standard value")
+check(minimalPolicy.failedCooldownSeconds == 600, "absent failedCooldownSeconds takes the standard value")
+check(minimalPolicy.bufferingThresholdMs == 30000, "absent bufferingThresholdMs takes the standard value")
+// The defaults are only a read-side tolerance. A schedule is never invented, because
+// deciding when to retry again is the user's or the standard policy's, not a decoder's.
+expectThrows("a sourcePolicy with no backoffMs") {
+    try LiveCatalogStateCodec.decode(mutated(
+        "policy without backoffMs",
+        from: minimalV1JSON,
+        "\"backoffMs\":[100],",
+        to: ""
+    ))
+}
+let minimalText = encodedText(minimal, "minimal state")
+check(
+    minimalText.contains("\"refreshStatus\":\"idle\""),
+    "a defaulted field is written on the next save, so the document is upgraded once and only once"
+)
+check(
+    minimalText.contains("\"languages\":[]"),
+    "a defaulted member list is written as the empty list it decoded to"
+)
+check(
+    decoded(minimalText, "minimal round trip") == minimal,
+    "a minimal document survives a write/read cycle, so the upgrade is loss-free"
+)
 
 // MARK: - 5. Canonical text on write, including optional dates
 
@@ -601,9 +666,36 @@ check(
 )
 // The strict half of the date contract: no timestamp may leave this codec as a bare
 // number, because Dart writes text and task B3 compares the two ports' documents.
+// Two guards, because each catches a different regression. The per-key guard is what a
+// date-strategy mistake actually produces (`JSONEncoder`'s default writes a Double
+// seconds-since-2001 for every `Date`), and it cannot be fooled by the document's other
+// numbers. The fractional scan additionally catches an integer field that became a
+// float, but must anchor on a value boundary: the naive `:[0-9]+\.[0-9]+` matches
+// *inside* every canonical timestamp, because `T00:00:00.000` contains `:00.000`.
+//
+// Only fields this document holds a real value for are listed. `lastFailedPlaybackAt`
+// is null in both sources and this encoder omits null keys (the Dart writer emits an
+// explicit null; both decode to the same value, which is why B3 compares parsed values
+// rather than text), so asserting its presence here would be a tautology.
+let dateFieldNames = [
+    "createdAt",
+    "lastUpdatedAt",
+    "lastSuccessfulRefresh",
+    "lastSuccessfulPlaybackAt"
+]
+for name in dateFieldNames {
+    check(
+        additiveText.range(of: "\"\(name)\":[0-9]", options: .regularExpression) == nil,
+        "the \(name) field is never written as a bare epoch number"
+    )
+    check(
+        additiveText.contains("\"\(name)\":\""),
+        "the \(name) field is written as canonical text"
+    )
+}
 check(
-    additiveText.range(of: #":\s*-?[0-9]+\.[0-9]+"#, options: .regularExpression) == nil,
-    "no date was written as a bare epoch number"
+    additiveText.range(of: #":[0-9]+\.[0-9]+[,}\]]"#, options: .regularExpression) == nil,
+    "no numeric field in the document carries a fractional part"
 )
 
 let watchState = LiveCatalogState(
@@ -688,6 +780,10 @@ futureState.schemaVersion = 0
 expectSchemaError("a zero schema version on encode") {
     try LiveCatalogStateCodec.encode(futureState)
 }
+check(
+    LiveCatalogSchemaError.unsupportedVersion.message == "Unsupported live catalog schema",
+    "the typed Swift error carries the exact text the Dart codec and the webOS port throw"
+)
 expectDataCorrupted("a string schemaVersion") {
     try LiveCatalogStateCodec.decode(mutated(
         "string schemaVersion",
@@ -784,7 +880,7 @@ let logicalChannel = LogicalChannel(
     countryCode: "IR",
     languages: ["fa"],
     memberIds: ["m-1", "m-2"],
-    sources: [secondSource],
+    sources: [firstSource, secondSource],
     favorite: true,
     hidden: false,
     userOrder: nil,
@@ -809,13 +905,25 @@ check(
     snapshotText.contains("\"streamSecretRef\":\"secret:ccloud-live-s-2\""),
     "a snapshot carries the reference instead of the address"
 )
-check(!snapshotText.contains("streamUrl"), "a snapshot writes no secret-backed address")
+// Two sources, one with an address and one held in a secret reference: a snapshot that
+// only ever carried the secret-backed source would pass a blanket "no streamUrl text"
+// check for the wrong reason. Here the plain sibling proves the key is written when it
+// may be, so the count below measures the omission rule rather than its absence.
+let streamUrlKeys = snapshotText.components(separatedBy: "\"streamUrl\"").count - 1
+check(
+    snapshotText.contains("\"streamUrl\":\"https://stream.example/irib1.m3u8\""),
+    "the snapshot keeps the address of the source that stores one"
+)
+check(
+    streamUrlKeys == 1,
+    "the snapshot writes one address key for its two sources, so the secret-backed one is omitted"
+)
 let snapshotRoundTrip = must("snapshot decode") {
     try LiveCatalogStateCodec.makeDecoder().decode(UnifiedCatalogSnapshot.self, from: snapshotData)
 }
 check(snapshotRoundTrip.revision == 4, "snapshot revision survived")
 check(snapshotRoundTrip.channels.count == 1, "snapshot channel survived")
-check(snapshotRoundTrip.channels[0].sources.count == 1, "snapshot source list survived")
+check(snapshotRoundTrip.channels[0].sources.count == 2, "snapshot source list survived")
 check(snapshotRoundTrip.channels[0].memberIds == ["m-1", "m-2"], "snapshot member order survived")
 check(snapshotRoundTrip.playlists.count == 2, "snapshot playlist list survived")
 check(snapshotRoundTrip.issues[0].line == 12, "issue line number survived")
