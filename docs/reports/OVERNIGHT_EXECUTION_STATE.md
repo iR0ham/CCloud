@@ -651,6 +651,51 @@ roster, so this session's reviews are the directive-§3 read-only project-manage
 Reviewer member's; no device, emulator, TV console, Windows shell or Mac GUI acceptance exists for any Phase B
 or B4 code; production release remains **BLOCKED**, and no gate has been weakened to obtain green.
 
+## 2026-11-28 (project manager) — checkpoint refresh at `0ab9e44`: B4-2 hosted-green on three ports
+
+**State at this addendum.** Local `HEAD` and `git ls-remote origin refs/heads/ci/github-first-foundation` both
+`0ab9e44c1a5af20eb120a8d87f56c201fbc9789b`; `main` untouched at `6dfd925`. Canonical identity still CCloud
+`2.0.0` / global build `22`; the `2.1.0`+23 decision remains the owner's. Commit order continues: `597b4db` →
+`df8aa20` → `45bcf65` (**B4-1** seeded logical-id map, hosted-green on three ports) → `f82acc6` → `f314f3a`
+(B1/B2 review ledger) → `dba8b97` → `39846d4` (**B4-2** webOS seam, hosted RED) → `c298648` (test-boot fix) →
+`61fcf2b` (**B4-2S** Swift seam) → `e620890` (webOS raw-presence fix) → `9f3ad2c` (**B4-2D** Dart seam, one
+hosted RED) → `0ab9e44` (the Dart usability-test fix) → the batch that carries this addendum
+(`EXECUTION_LOG.md`, `PENDING_WORK_COMPLETION_PLAN.md` §22, this file, and `Tests/live-foundation/run.sh`
+`MIN_ASSERTIONS` 432 → 471).
+
+**Hosted evidence at `0ab9e44`.** CI `46148035283` `success`, Quality `46148035339` `success`, jobs: Flutter
+`140988277072` `🎉 216 tests passed, 1 skipped`; webOS `140988276725` `# tests 154 / # pass 154 / # fail 0 /
+# skipped 0` on `node: v20.20.2`; macOS `140988276618` `typecheck OK (52 files)` +
+`==> live foundation assertions: 471 (floor 432)` + `live foundation OK`; `Live API verification` skipped as
+always. All three counts were predicted from source before the push and matched after it, which is the property
+that makes the next run checkable: the batch containing this addendum must print `(floor 471)` and keep
+`# tests 154` / `216 tests passed`. `Build all platforms 46148035317` was still `in_progress` at write time;
+build workflows do not carry `cancel-in-progress`, so the push below could not have destroyed it, and its
+conclusion belongs to the next entry rather than to this one.
+
+**Correction to the standing-limits paragraph above.** It says `team_delegate` still returns
+`COLLABORATION_MCP_TEAM_LEADER_REQUIRED`; that was true in the turns that wrote it and is no longer current. The
+owner-supplied roster ids are now accepted, so member delegation is available again — but availability is not
+the same as coverage, and at this checkpoint no member has reviewed the B4-1/B4-2 range: the B4-3 research
+assignment came back with "The delegated Agent could not complete this task", and the reviewer verdicts that did
+arrive cover the older legal/CI-hardening range through `cbc48ee`, not B4. Until a member review lands for
+`45bcf65..HEAD`, every assessment in these ledgers is the project manager's own read-only review and must be
+labelled that way, per directive §3.
+
+**Exact next action, in order.** (1) Push this batch, read the resulting CI run, and confirm the ratchet line
+`(floor 471)`. (2) Request a scoped member Code Reviewer review of `45bcf65..HEAD` (the B4-1 + B4-2 range) with
+the exact files, baseline, diff and the hosted numbers above. (3) Inventory B4-3 from source before touching it:
+`webos_app/app/js/api.js:308-344` + `screens/live.js:45-90`,
+`Sources/UI/Live/LiveTVView.swift:74-92` via `LiveTVCatalog.swift:37-75` + `LiveTVM3UClient.swift:41-48,136-157`,
+`flutter_app/lib/screens/live_screen.dart:275-299` via `live_catalog.dart:315-364`. (4) Only then plan the
+live-path swap, keeping every existing fetch/fallback/geo-block/attribution behaviour intact, and re-test the
+§18.5 built-in-row fold gap once `m3uDisplayName` is really on that path. Nothing in steps (1)–(2) changes
+user-visible behaviour; step (4) is the first place in the plan where Live TV can regress.
+
+**Still binding:** GitHub-hosted runners only, so local runtime is NOT VERIFIED by design; no device, emulator,
+TV console, Windows shell or Mac GUI acceptance exists for any Phase B or B4 code; the three persistence seams
+still have no production caller; release remains **BLOCKED** and no gate has been weakened to obtain green.
+
 ## How to resume after an interruption
 
 - `cd /Users/roham/Documents/CCloudMac && git status --short && git log --oneline -8`

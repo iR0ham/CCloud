@@ -959,3 +959,55 @@ asymmetry, the directive-§3 review of the wider B1/B2 range, Phase C failover, 
 packaging, Windows byte-equality, provenance hashes beyond runner self-reporting, and the `2.1.0`+23 version
 decision. No device, emulator, TV console, Windows shell or Mac GUI has executed any Phase B or B4 code.
 **Verdict unchanged: DEVELOPMENT BUILDS VERIFIED — RELEASE BLOCKED.** `Local runtime remains NOT VERIFIED`.
+
+## 22. Dated verification — 2026-11-28 (task B4-2 is hosted-verified on all three ports; B4-3 is the slice that gives it a caller)
+
+**22.1 What B4-2 was.** §20.2's second B4 bullet required each port to persist a catalog document and survive
+re-reading it, and §19.4 had already recorded that neither Swift nor Dart had any persistence caller at all. The
+slice is three modules that close the gap between the two halves §19.4 left deliberately unjoined —
+`playlist_contracts` encodes and decodes but touches no storage, `channel_identity` seeds a logical-id map but
+decides no load-time policy — under three rules that each exist because breaking one loses user data: a load
+never writes; an unreadable document is reported rather than cleared; a save proves the write landed. Identical
+vocabulary on all three ports — `ok`, `absent`, `corrupt`, `saved`, `refused`, with `corrupt` and `refused`
+withholding the state so a screen cannot paint nothing over unreadable bytes.
+
+**22.2 What is hosted-verified.** The chain is `39846d4` (webOS seam + suite + `index.html` registration) →
+`c298648` (test-boot fix) → `61fcf2b` (Swift seam, B4-2S) → `e620890` (webOS raw-presence fix) → `9f3ad2c`
+(Dart seam, B4-2D) → `0ab9e44` (Dart usability-test fix). Two hosted REDs were read from logs before the green:
+run `46127272823` job `140924550121` reported `# tests 151 / # pass 140 / # fail 11` with every failure carrying
+`error: 'util.js could not be evaluated inertly: CC is not defined'` — a harness defect in the new suite's boot,
+not a port defect, fixed by `c298648`; run `46128813851` job `140929256369` reported
+`# tests 153 / # pass 152 / # fail 1` on `AssertionError: 'live_catalog_store.js must not touch localStorage'`,
+which the architecture guard was right to raise, so the seam was moved behind a new raw-presence method
+`CC.store.has` in `webos_app/app/js/util.js:56-62` instead of the guard being loosened.
+At `0ab9e44` all three ports are green in the same run, CI `46148035283` (Quality `46148035339` success):
+Flutter job `140988277072` `🎉 216 tests passed, 1 skipped`; webOS job `140988276725`
+`# tests 154 / # pass 154 / # fail 0 / # skipped 0` on `node: v20.20.2` with zero `not ok` lines; macOS job
+`140988276618` `typecheck OK (52 files)` then `==> live foundation assertions: 471 (floor 432)` and
+`live foundation OK`. Each of those three numbers was predicted from source counts before the push and matched
+after it. `Tests/live-foundation/run.sh` now raises `MIN_ASSERTIONS` 432 → 471 from two independent runner lines
+that both printed 471 (`140929256145` of run `46128813851`, `140985937469` of run `46147257898`), and the run
+that follows this section is expected to print `(floor 471)`.
+
+**22.3 Consequence for the remaining B4 map.** §19.5's registration requirement is now enforced on webOS by
+assertion rather than by prose: the suite reads `webos_app/app/index.html`, checks each module tag appears
+exactly once in dependency order before `js/app.js`, and fails for any file in `webos_app/app/js` that is on
+disk but unregistered — the Phase B failure mode §19.4 found. That closes one of §19.5's two added requirements;
+the other, identical logical-id seeding specification, is satisfied across all three ports by B4-1 plus the
+`seedMergeable` call on every load path. What remains in B4 is the part no seam can do alone: B4-3, the live
+path swap at `webos_app/app/js/api.js:308-344` + `screens/live.js:45-90`,
+`Sources/UI/Live/LiveTVView.swift:74-92` (via `LiveTVCatalog.swift:37-75` and `LiveTVM3UClient.swift:41-48,136-157`)
+and `flutter_app/lib/screens/live_screen.dart:275-299` (via `live_catalog.dart:315-364`). Until then nothing
+user-visible changed: the three stores have no production caller, and B4-3 is still the only place in the plan
+where existing Live TV behaviour can regress. §18.5's built-in-row fold asymmetry stays open and must be
+re-tested once `m3uDisplayName` is actually on that path, and Phase B4's playlist-manager screens plus the
+Flutter `file_picker` / `flutter_secure_storage` licence-and-behaviour gate are still untouched.
+
+**22.4 Still open after this section.** Everything §21.4 listed, minus B4-2 hosted verification and minus the
+Swift/Dart persistence mirrors, plus: B4-3 wiring and its regression gate, the playlist-manager UI, the
+dependency gate for the two Flutter packages, `streamSecretRef`'s missing secret store, the directive-§3 member
+review of the B4-1/B4-2 range, Phase C failover, subtitle slices D/E/F, legal-notice packaging evidence, Windows
+byte-equality beyond runner self-reporting, provenance-hash enforcement beyond internal consistency, and the
+`2.1.0`+23 version decision. No device, emulator, TV console, Windows shell or Mac GUI has executed any Phase B
+or B4 code; every green in this section is build-time CI evidence read from GitHub-hosted logs.
+**Verdict unchanged: DEVELOPMENT BUILDS VERIFIED — RELEASE BLOCKED.** `Local runtime remains NOT VERIFIED`.

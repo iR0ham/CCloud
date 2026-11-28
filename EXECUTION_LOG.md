@@ -1517,3 +1517,97 @@ Swift-side literal for an oversight.
 console, Windows shell or Mac GUI behaviour, and it does not re-open the release gates. Legal packaging
 (NOTICE distribution evidence), Windows byte-equality, provenance-hash enforcement and the unified-version
 decision remain outside this section's scope and stay on the open list.
+
+## 2026-11-28 (project manager) — Task B4-2 lands on three ports; two hosted REDs read from logs; the webOS storage guard is green
+
+**What B4-2 is.** The first caller of `LiveCatalogMigration` on each port: a persistence seam that owns the
+document key and the three rules that make saving a catalog safe. `webos_app/app/js/live_catalog_store.js`
+(slots `ccloud.liveCatalog` through `CC.store`), `Sources/Core/LiveCatalogStore.swift`
+(`live_catalog.json` under Application Support), and `flutter_app/lib/core/live_catalog_store.dart`
+(`ccloud.liveCatalog` through `SharedPreferences`, with `flutter_app/test/live_catalog_store_test.dart` as its
+suite). The rules: a load never writes; an unreadable or future-schema document is reported `corrupt` and left
+exactly where it is, with no state handed back; a write is proven by asking storage afterwards and yields
+`refused` with no state when the proof fails.
+
+**Commit chain.** `39846d4` webOS seam → `f314f3a` B1/B2 review ledger → `dba8b97` Dart golden digests →
+`c298648` webOS boot fix → `61fcf2b` Swift seam → `e620890` webOS raw-presence fix → `9f3ad2c` Dart seam →
+`0ab9e44` Dart usability test fix.
+
+**Hosted RED 1 — CI `46127272823` at `39846d4`.** Job `140924550121` (`webOS static JS/JSON/service
+validation`) reported `# tests 151 / # pass 140 / # fail 11`. Every failure carries
+`error: 'util.js could not be evaluated inertly: CC is not defined'` and they are exactly `not ok 68` through
+`not ok 78` — eleven of the fourteen tests this new suite contributes. That is a harness gap, not a port
+defect: B4-2 is the first webOS suite to load `util.js`, and the loader evaluated modules without the browser's
+bare-`CC` alias, so the seam never reached its behaviour assertions. The three tests that only read source text
+passed. `c298648` bootstraps `window.CC` in `loadInto` and puts `util.js` first in `MODULES`.
+
+**Hosted RED 2 — CI `46128813851` at `61fcf2b`.** Job `140929256369` reported
+`# tests 153 / # pass 152 / # fail 1` with
+`AssertionError: 'live_catalog_store.js must not touch localStorage' expected true actual false`. Root cause:
+`c298648` had the seam bind `localStorage.getItem(STORAGE_KEY)` and repeat the `ccloud.` prefix as a local
+literal, which the suite's host-API policy assertion forbids because `util.js` owns the app's only storage
+handle. The guard was right, so the seam changed and not the assertion: `CC.store` gained a raw-presence
+`has(key)` beside get/set/remove (`webos_app/app/js/util.js:56-62`), `storageHoldsText()` now asks it
+(`live_catalog_store.js:47-49`), and a new test pins `has` for unparseable bytes, for an emptied slot and for a
+storage that throws. No assertion was removed, and the policy scan reads `codeOnly(source)`, so the remaining
+comment-only mentions of `localStorage` are not violations.
+
+**Hosted evidence at `9f3ad2c` — CI `46147257898`.** `webOS static JS/JSON/service validation` `140985937652`:
+`# tests 154 / # pass 154 / # fail 0`, which is the count predicted before the push (17 `^test(` cases in the
+seam file plus the unchanged 67 / 20 / 40 / 10 of the other suites). `macOS arm64 typecheck` `140985937469`:
+`typecheck OK (52 files)`, `assertions: 471`, `==> live foundation assertions: 471 (floor 432)`,
+`live foundation OK`. `Flutter analyze and tests` `140985937522`: the `Analyze` step is green, the `Test` step
+reports `215 tests passed, 1 failed, 1 skipped`. `Quality` `46147257907` succeeded; `Build all platforms`
+`46147257915` was still in progress when this section was written.
+
+**Hosted RED 3 — the same run, one Dart test.** The failure is `live_catalog_store_test.dart:205`
+`Expected: <true> Actual: <false> / corrupt and refused must look unusable`. It is a defect in the test, not in
+the seam: the surface check built `LiveCatalogStoreOutcome(status)` with **no** state and then expected
+`isUsable` to follow the status word, so `ok` and `absent` contradicted their own construction. The claim was
+also wrong in substance, because `saved` hands back the state it wrote on all three ports
+(`Sources/Core/LiveCatalogStore.swift:136`, `flutter_app/lib/core/live_catalog_store.dart:144`,
+`webos_app/app/js/live_catalog_store.js:141`). `0ab9e44` rewrites the test to pin the property on hand-built
+outcomes *and* the mapping on the four paths the seam actually takes (absent load, landed write, codec-refused
+write, corrupt read), and corrects the status comments on the Dart and webOS ports, which said `absent` and `ok`
+"carry a usable state" while omitting `saved`. CI `46148035283`, Quality `46148035339` and Build all platforms
+`46148035317` for that head are in flight, so **B4-2D is implemented, not yet verified**.
+
+**Counting method, revalidated.** webOS `# tests` moved 137 (`45bcf65`) → 151 (`39846d4`) → 153 (`61fcf2b`) →
+154 (`9f3ad2c`); Swift assertions 420 (`98365c1`) → 471 observed twice (`140929256145`, `140985937469`) against a
+floor of 432; Dart 197 → 198 (`dba8b97`) → 217 total at `9f3ad2c` (198 existing + 18 new + the standing skip).
+Every one of those numbers was predicted from source counts before the push and matched after it, which is what
+makes the next prediction checkable: CI `46148035283` should report `216 tests passed, 1 skipped`,
+`# tests 154 / # fail 0` and `assertions: 471`.
+Following the convention set by `0415769`, the Swift floor is raised 432 → 471 in the next commit, quoting the
+run that produced 471; that is a tightening, not a relaxation.
+
+**Delegation status changed in this turn.** `team_delegate` accepted two assignments on the roster ids the
+owner supplied (a `list_agents` id for the Code Reviewer returned `COLLABORATION_MCP_TEAM_TARGET_INVALID`, which
+confirms the ids are team-membership refs rather than agent profile ids). The sections above that recorded
+`COLLABORATION_MCP_TEAM_LEADER_REQUIRED` remain true for the turns in which they were written, but that blocker
+is no longer current. A read-only reviewer assignment for the B4-2 range and a B4-3 live-path research
+assignment are in flight; until they return, this section's assessment is a project-manager read-only review
+and must not be described as the Code Reviewer's verdict.
+
+**Not covered by this slice, and the risk it leaves.** No device, emulator, TV console, Windows shell or Mac GUI
+has executed any of this; `Local runtime remains NOT VERIFIED`. None of the three seams has a production caller
+yet — no screen reads or writes a catalog — so nothing user-visible changed in Live TV, and §19.4's regression
+gate at `api.js:308-323` / `screens/live.js:74-84` / `LiveTVView.swift:74-92` / `live_screen.dart:275-299`
+remains unexercised and belongs to B4-3. The §18.5 built-in-row fold asymmetry, `streamSecretRef`'s missing
+secret store, legal-notice packaging evidence, Windows byte-equality, provenance hashes beyond runner
+self-reporting and the `2.1.0`+23 version decision are all still open.
+**Verdict unchanged: DEVELOPMENT BUILDS VERIFIED — RELEASE BLOCKED.**
+
+**Hosted confirmation, added after the forecast above was written.** CI `46148035283` and Quality `46148035339`
+both completed `success` at `0ab9e44`, and the three predictions held job for job: Flutter `140988277072`
+printed `🎉 216 tests passed, 1 skipped.`, webOS `140988276725` printed `# tests 154 / # pass 154 / # fail 0 /
+# skipped 0` on `node: v20.20.2` with no `not ok` line anywhere in the log, and macOS `140988276618` printed
+`typecheck OK (52 files)` then `==> live foundation assertions: 471 (floor 432)` then `live foundation OK`. That
+moves B4-2D from "implemented, not yet verified" to the same footing as B4-2J and B4-2S: implemented and
+hosted-verified at build time, not device-verified. `Build all platforms 46148035317` was still `in_progress`
+when this batch was committed, so nothing is claimed about it in this section. The paragraph above that recorded
+a reviewer assignment as "in flight" is left as written; the honest outcome is that no member review of the
+B4-2 range was delivered, the B4-3 research assignment returned "The delegated Agent could not complete this
+task", and everything labelled an assessment in this section is the project manager's own read-only review.
+The `MIN_ASSERTIONS` 432 → 471 ratchet rides in this same batch, so the run following it must print
+`(floor 471)` — that line is the evidence the tightening landed rather than merely being written.
