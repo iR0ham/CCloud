@@ -195,17 +195,35 @@ jobs:
           # actually compiled into this APK, while the decoded APK manifest still
           # proves every governed attribute survived into the shipped package.
           MERGED=""
+          # The fourth path is the one both green hosted runs actually resolved
+          # (runs 46087125808 / 46089580637 logged it as the "merged manifest
+          # artifact:"), and it was not one of the three explicit candidates, so the
+          # selection only ever worked through the fallback. Listing it makes the
+          # known AGP layout explicit instead of incidental.
           for candidate in \
             build/app/intermediates/merged_manifests/release/AndroidManifest.xml \
             build/app/intermediates/packaged_manifests/release/AndroidManifest.xml \
-            build/app/intermediates/merged_manifest/release/AndroidManifest.xml; do
+            build/app/intermediates/merged_manifest/release/AndroidManifest.xml \
+            build/app/intermediates/merged_manifest/release/outputReleaseAppLinkSettings/AndroidManifest.xml; do
             if [ -s "$candidate" ]; then
               MERGED="$candidate"
               break
             fi
           done
           if [ -z "$MERGED" ]; then
-            MERGED="$(find build/app/intermediates -type f -path '*release*' -name AndroidManifest.xml 2>/dev/null | sort | head -1 || true)"
+            # Narrowed from '*release*' to this module's release merged manifests, and
+            # an ambiguous remainder is now a hard failure instead of a sort-order
+            # pick: the literal assertions below are only evidence when they run
+            # against the manifest that was compiled into this APK.
+            mapfile -t MERGED_FALLBACK < <(find build/app/intermediates -type f -path '*/merged_manifest/release/*' -name AndroidManifest.xml 2>/dev/null | sort)
+            if [ "${#MERGED_FALLBACK[@]}" -gt 1 ]; then
+              echo "::error::the merged-manifest fallback is ambiguous (${#MERGED_FALLBACK[@]} candidates); refusing to assert the literal manifest contract against a guessed artifact"
+              printf 'fallback candidate: %s\n' "${MERGED_FALLBACK[@]}"
+              exit 1
+            fi
+            if [ "${#MERGED_FALLBACK[@]}" -eq 1 ]; then
+              MERGED="${MERGED_FALLBACK[0]}"
+            fi
           fi
           if [ -z "$MERGED" ] || [ ! -s "$MERGED" ]; then
             echo "::error::the release merged AndroidManifest.xml was not found; the literal manifest contract cannot be checked"
@@ -245,6 +263,15 @@ jobs:
             fi
             echo "ok: $label contains $token"
           }
+          # Artifact binding, asserted before any contract token. $APP_ID is read
+          # from the APK under test, so requiring it in the selected merged manifest
+          # proves the literal assertions below run against this package's app
+          # module rather than some other release manifest that happens to sit under
+          # build/app/intermediates. The decoded manifest is the binary manifest of
+          # the same APK, and its package attribute is rendered faithfully (the
+          # 6fb03bf failure dump showed `package="com.ccloud.ccloud"`).
+          require_token "merged manifest" "$MERGED" "$APP_ID"
+          require_token "APK manifest" "$MANIFEST" "package=\"$APP_ID\""
           # Shipped-package contract, asserted where the decoded APK manifest
           # renders the value faithfully:
           require_token "APK manifest" "$MANIFEST" 'android.software.leanback'
