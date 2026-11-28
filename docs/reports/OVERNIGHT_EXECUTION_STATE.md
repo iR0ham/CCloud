@@ -446,6 +446,29 @@ None of these may be cleared by changing a label, a flag, or a document claim.
    `docs/reports/PENDING_WORK_COMPLETION_PLAN.md` §13; B2 must not carry the Dart date-reading tightening,
    which belongs to B3.
 
+9. **Item 8's next action is done; this supersedes it.** Task B2-D is **hosted-verified for the Dart port** at
+   `09f826c7dd3ee75b63d5de4f68f201e6a8f75b7e`: CI `46108921477` job `140867853277` prints
+   `No issues found! (ran in 16.4s)` and `🎉 159 tests passed, 1 skipped.` (was 135 before B2-D), Quality
+   `46108921454` six jobs `success`, `Build all platforms` `46108921457` eight jobs `success` — including
+   `Windows compatibility package (Skia)`, which closes §14.2's open build note — and the macOS job
+   `140867853323` still prints `assertions: 227 (floor 150)` / `live foundation OK`. The intermediate head
+   `0186c62` is a recorded fact worth keeping: it failed on six
+   `prefer_interpolation_to_compose_strings` **infos** in `flutter analyze`, so `flutter test` never ran and
+   produced no assertion evidence. Repository consequence: treat `flutter analyze` as fatal-on-info and never
+   buy green with `--no-fatal-infos` or an `analysis_options` exclusion.
+
+   Task B2-S is **implemented and pushed as `e2400e3cdc58132e9cf139681ee210282b5ad540`, hosted outcome NOT YET
+   READ** (local builds/tests are forbidden by policy, so the Swift mirror has no runtime evidence until the
+   macOS job log is read). It adds `Sources/Core/LivePlaylistParser.swift`, moves the unchanged display-name
+   rule into `Sources/Core/LiveTVM3UText.swift`, and extends `Tests/live-foundation/run.sh`'s compile list.
+   **Current exact next action:** read CI `…?head_sha=e2400e3…` — specifically the `macOS arm64 typecheck` job
+   log for `typecheck OK (48 files)`, the new `assertions:` count over the 227 baseline, and the three printed
+   `golden stableKeyHash` digests; then append that evidence to `EXECUTION_LOG.md` and start **B2-J**
+   (`webos_app/app/js/playlist_parser.js` + `Tests/webos/playlist_parser.test.js`, ES2017 syntax ceiling),
+   pinning the golden literals the Swift job printed. Device/OS acceptance is still NOT VERIFIED for every
+   port, `streamSecretRef` still has no verified secret store, no Phase B library is consumed by a Live TV
+   screen yet (that is B4), and production release stays blocked.
+
 ## How to resume after an interruption
 
 - `cd /Users/roham/Documents/CCloudMac && git status --short && git log --oneline -8`
