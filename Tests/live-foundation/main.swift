@@ -10,8 +10,11 @@ import Foundation
 // status and the final `assertions: <n>` line, which `run.sh` greps and floors, so a
 // harness that silently executed zero checks cannot pass.
 //
-// Everything here is deterministic and offline: fixed documents, fixed timestamps,
-// no network, no device, no `UserDefaults`, and no file writes.
+// Everything here is deterministic and offline: fixed documents, fixed timestamps, no network, no device and
+// no `UserDefaults`. Task B4-2S adds the one exception: the persistence-seam block below writes inside a
+// single `mktemp`-style directory under the system temp folder and removes it before exiting, because a store
+// that cannot be pointed at a throwaway path could not be tested at all. Nothing in the harness writes into
+// the repository or into the real Application Support directory.
 
 var assertionsRun = 0
 
@@ -2082,6 +2085,135 @@ check(idnSeedMerge == idnHandMerge,
       "a seeded merge lands on exactly the state the hand-mapped fixtures produce, so B4 adds no second merge semantics")
 check(buildUnifiedChannels(idnSeeded).map(\.channelId) == buildUnifiedChannels(idnUnseeded).map(\.channelId),
       "seeding changes what may be merged, not what the screen shows: three rows stay three rows in the same order")
+
+// MARK: - Task B4-2S: the persistence seam
+//
+// `LiveCatalogStore` is the first Swift type that owns a *path*, so this block is the first in the harness that
+// writes. Everything it touches lives inside one temporary directory it removes at the end, and the checks are
+// the same three rules the webOS suite pins in `Tests/webos/live_catalog_store.test.js`: a load never writes,
+// an unreadable document is reported rather than cleared, and a save proves the bytes landed.
+let storeRoot = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+    .appendingPathComponent("ccloud-live-foundation-\(ProcessInfo.processInfo.processIdentifier)", isDirectory: true)
+let storeFM = FileManager.default
+must("creating the harness scratch directory") { try storeFM.createDirectory(at: storeRoot, withIntermediateDirectories: true) }
+let storeURL = storeRoot.appendingPathComponent(LiveCatalogStore.fileName)
+let store = LiveCatalogStore(fileURL: storeURL)
+
+// Rule 1, first half: nothing stored is a real answer, and reading it must not create a document.
+let absent = store.load()
+check(absent.status == .absent, "a device with no live catalog reads as absent, not as an error")
+check(absent.state == LiveCatalogStore.seeded(LiveCatalogState.empty), "the absent load hands back the canonical empty state, seeded")
+check(absent.state?.logicalIdByMemberId.isEmpty == true, "an empty catalog seeds to an empty map")
+check(absent.message == nil, "absent is not a failure, so it carries no diagnostic")
+check(!storeFM.fileExists(atPath: storeURL.path), "a load with nothing stored creates no document")
+check(store.hasStoredDocument == false, "and the store still reports nothing stored")
+
+// A catalog shaped like a real pre-B4 document: two playlists, three members, no logical ids at all.
+let storeMembers = [
+    identityMember("member:st1", name: "Press TV", providerId: "PressTV", country: "IR"),
+    identityMember("member:st2", name: "پرس تی‌وی", playlistId: "playlist:b", providerId: "PressTV", country: "IR"),
+    identityMember("member:st3", name: "IRIB 1", providerId: "IRIB1", country: "IR")
+]
+let storeState = identityState(
+    playlists: [identityPlaylist("playlist:a"), identityPlaylist("playlist:b")],
+    members: storeMembers,
+    mapping: [:]
+)
+check(storeState.logicalIdByMemberId.isEmpty, "the fixture starts unseeded, which is what every stored document looks like today")
+
+let saved = store.save(storeState)
+check(saved.status == .saved, "saving a valid state reports saved")
+check(saved.state == storeState, "and returns the caller's own state, not a re-derived one")
+check(storeFM.fileExists(atPath: storeURL.path), "a save puts a document on disk")
+let onDisk = must("re-reading the stored document through the codec") {
+    try LiveCatalogMigration.migrate(Data(contentsOf: storeURL))
+}
+check(onDisk.logicalIdByMemberId.isEmpty,
+      "the file holds what the caller had: seeding is a read-side rule, so a load cannot rewrite stored user data")
+
+let loaded = store.load()
+check(loaded.status == .ok, "a readable stored document loads as ok")
+check(loaded.state?.logicalIdByMemberId == [
+    "member:st1": "member:st1", "member:st2": "member:st2", "member:st3": "member:st3"
+], "loading seeds the map, which is what makes a restored catalog mergeable at all")
+check(loaded.state == seedSingletonChannels(storeState), "and it applies exactly the library's own seed, once")
+
+let storeBytesBefore = must("capturing the stored bytes") { try Data(contentsOf: storeURL) }
+_ = store.load()
+let storeBytesAfter = must("re-reading after a second load") { try Data(contentsOf: storeURL) }
+check(storeBytesBefore == storeBytesAfter, "rule 1: a load leaves the stored bytes untouched")
+
+// The reason the seed belongs on the read path: the merge B4 needs succeeds afterwards.
+let loadedForMerge = loaded.state ?? LiveCatalogState.empty
+let storeMerge = must("merging the loaded catalog") {
+    try associateChannels(loadedForMerge, memberIds: ["member:st1", "member:st2"], preferredLogicalId: "member:st1")
+}
+check(storeMerge.logicalIdByMemberId["member:st2"] == "member:st1", "the merge is recorded after a plain load")
+expectIdentityError("the same merge on the unseeded document is still refused", .unknownPreferredLogicalChannel) {
+    try associateChannels(storeState, memberIds: ["member:st1", "member:st2"], preferredLogicalId: "member:st1")
+}
+
+// Rule 2: a corrupt document is reported, and it survives being read.
+let corruptText = Data("{not json".utf8)
+must("planting a corrupt document") { try corruptText.write(to: storeURL, options: .atomic) }
+let corrupt = store.load()
+check(corrupt.status == .corrupt, "undecodable text is reported as corrupt")
+check(corrupt.state == nil, "and yields no state, so a screen cannot render a cleared catalog as a real one")
+check((corrupt.message ?? "").isEmpty == false, "with a reason attached")
+let corruptBytesAfter = must("re-reading the corrupt bytes") { try Data(contentsOf: storeURL) }
+check(corruptBytesAfter == corruptText, "reading a corrupt document does not clear it")
+let recovered = store.save(storeState)
+check(recovered.status == .saved, "a corrupt document does not wedge the store: an explicit save still writes")
+
+// A newer schema is the same refusal, with the message the other two ports use.
+let futureRoot = must("parsing the stored document") {
+    try JSONSerialization.jsonObject(with: Data(contentsOf: storeURL))
+}
+var futureJSON: [String: Any] = (futureRoot as? [String: Any]) ?? [:]
+check(!futureJSON.isEmpty, "the document the store just wrote parses back as an object")
+futureJSON["schemaVersion"] = 2
+let futureData = must("re-encoding it as v2") { try JSONSerialization.data(withJSONObject: futureJSON) }
+must("planting the v2 document") { try futureData.write(to: storeURL, options: .atomic) }
+let future = store.load()
+check(future.status == .corrupt, "a document from a newer build is refused rather than half-read")
+check(future.message == LiveCatalogSchemaError.unsupportedVersion.message,
+      "and it carries the one refusal text all three ports share, so a log line is portable")
+let v2BytesAfter = must("re-reading the v2 document") { try Data(contentsOf: storeURL) }
+check(v2BytesAfter == futureData, "the newer document is left byte-for-byte intact for the build that can read it")
+
+// Rule 3: a write that cannot land is refused, never reported as saved.
+let unencodable = LiveCatalogState(
+    schemaVersion: 2, playlists: storeState.playlists, members: storeState.members, sources: [],
+    associations: [], preferences: [], recentWatches: [], logicalIdByMemberId: [:]
+)
+let refusedEncode = store.save(unencodable)
+check(refusedEncode.status == .refused, "a state this build must not write is refused before any file is touched")
+check(refusedEncode.message == LiveCatalogSchemaError.unsupportedVersion.message, "with the shared schema refusal")
+let refusalBytesAfter = must("confirming the refusal wrote nothing") { try Data(contentsOf: storeURL) }
+check(refusalBytesAfter == futureData, "a refused save leaves the stored document exactly as it was")
+
+let blockerURL = storeRoot.appendingPathComponent("blocker", isDirectory: false)
+must("planting a file where a directory must be") { try Data("x".utf8).write(to: blockerURL) }
+let blocked = LiveCatalogStore(fileURL: blockerURL.appendingPathComponent(LiveCatalogStore.fileName))
+let refusedWrite = blocked.save(storeState)
+check(refusedWrite.status == .refused, "a write that cannot reach storage is refused, not reported as saved")
+check(refusedWrite.message == "live catalog write did not reach storage", "and says why in the same words webOS uses")
+check(blocked.hasStoredDocument == false, "nothing pretends the document exists")
+check(blocked.load().status == .absent, "so the store still reads as empty rather than as holding a catalog")
+
+// clear()
+check(store.clear(), "clearing a stored document reports success")
+check(!storeFM.fileExists(atPath: storeURL.path), "and the document is gone")
+check(store.load().status == .absent, "after a clear the store reads as absent, not corrupt")
+check(LiveCatalogStore(fileURL: storeRoot.appendingPathComponent("never-written.json")).clear(),
+      "clearing a document that was never stored is success, because the caller's goal holds either way")
+let productionStore = LiveCatalogStore.standard()
+check(productionStore.fileURL.lastPathComponent == LiveCatalogStore.fileName,
+      "the production seam points at the shared document name, not a second one")
+check(productionStore.fileURL.deletingLastPathComponent().lastPathComponent == "CCloudMac",
+      "and at the directory the favorites and history documents already use, not a new data home")
+
+try? storeFM.removeItem(at: storeRoot)
 
 // MARK: - Result
 
