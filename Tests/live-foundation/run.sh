@@ -39,7 +39,11 @@ ROOT="$(cd "$HERE/../.." && pwd)"
 # 140918188906). The number is read off the runner's own log rather than computed from the diff: an earlier
 # probe on the owner's Mac reported 168 for a state that hosted scored 420, and that figure is recorded in
 # EXECUTION_LOG.md as inadmissible evidence, not as a floor.
-MIN_ASSERTIONS=432
+# Raised 432 -> 471 after the task B4-2 persistence seam landed, because the harness counted exactly 471 checks
+# on the two hosted runs that verified it: job 140929256145 of run 46128813851 at 61fcf2b and job 140985937469 of
+# run 46147257898 at 9f3ad2c, each reporting `==> live foundation assertions: 471 (floor 432)`. Two independent
+# runs agree on the number, which is what makes it a floor rather than a snapshot of one lucky execution.
+MIN_ASSERTIONS=471
 
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
