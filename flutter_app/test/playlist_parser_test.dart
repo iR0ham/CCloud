@@ -280,9 +280,15 @@ void main() {
       expect(registry.sources.first.lastSuccessfulPlaybackAt, isNull);
       expect(registry.sources.first.lastFailedPlaybackAt, isNull);
       expect(registry.members.first.normalizedName, 'dup tv');
+      expect(registry.members.first.displayName, 'Dup TV');
+      expect(registry.members.first.group, 'News');
+      expect(registry.members.first.countryCode, 'IR');
       expect(registry.members.first.ordinal, 0);
       expect(registry.members.last.ordinal, 1);
-      expect(registry.members.first.tvgId, isNull);
+      // Identity rule 1 keys on the *stripped* provider ID, while the member still records the
+      // raw attribute so a later `@SD`-suffixed feed can be recognised as the same station.
+      expect(registry.members.first.providerChannelId, 'Dup');
+      expect(registry.members.first.tvgId, 'Dup.ir');
       // Persian labels with Persian digits: the first source is named, later ones counted.
       expect(registry.sources.first.label, 'منبع اصلی');
       expect(registry.sources.map((s) => s.label).toList()[1], 'منبع ۲');
@@ -330,7 +336,11 @@ void main() {
       expect(isSensitiveUrl('https://user:pass@cdn.example/a.m3u8'), isTrue);
       expect(isSensitiveUrl('https://cdn.example/a.m3u8?token=abc'), isTrue);
       expect(isSensitiveUrl('https://cdn.example/a.m3u8?Key=abc'), isTrue);
-      expect(isSensitiveUrl('https://cdn.example/a.m3u8;x=1&Signature=abc'), isTrue);
+      // A query is only a query after a `?`, so this row spells the parameter list the way a CDN
+      // actually writes one; a bare `;` would still be part of the path and must not be treated
+      // as a credential.
+      expect(isSensitiveUrl('https://cdn.example/a.m3u8?x=1&Signature=abc'), isTrue);
+      expect(isSensitiveUrl('https://cdn.example/a.m3u8;Signature=abc'), isFalse);
       expect(isSensitiveUrl('https://cdn.example/a.m3u8?auth=1'), isTrue);
       expect(isSensitiveUrl('https://cdn.example/a.m3u8?credential=x'), isTrue);
       expect(isSensitiveUrl('https://cdn.example/a.m3u8?password=x'), isTrue);
@@ -385,6 +395,10 @@ void main() {
       // implementation from reporting every dedupe as a failure to the user.
       expect(registry.issues, isEmpty);
       expect(registry.sources.single.streamUrl, 'https://cdn.example/a.m3u8');
+      // Canonicalization must be idempotent, or a refresh that re-canonicalizes an already
+      // stored address would mint a new sourceId every time and lose its history.
+      expect(canonicalStreamUrl(registry.sources.single.streamUrl),
+          registry.sources.single.streamUrl);
       expect(registry.sources.single.sourceId,
           'source:${stableKeyHash('${registry.members.single.memberId}\nurl\nhttps://cdn.example/a.m3u8')}');
     });
