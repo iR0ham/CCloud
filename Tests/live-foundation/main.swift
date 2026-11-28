@@ -493,7 +493,7 @@ check(
     "millisecond precision survived parse and canonical re-render"
 )
 check(
-    additive.playlists[1].createdAt.map(LiveCatalogDate.text(for:)) == "2026-02-01T00:00:00.500Z",
+    LiveCatalogDate.text(for: additive.playlists[1].createdAt) == "2026-02-01T00:00:00.500Z",
     "a half-second canonical timestamp survived parse and canonical re-render"
 )
 
