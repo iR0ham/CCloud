@@ -170,8 +170,12 @@ jobs:
         run: |
           find webos_app/app webos_app/service -name '*.js' -print0 \
             | xargs -0 -r -n1 node --check
-      - name: Run webOS transport regressions
-        run: node --test Tests/webos/transport.test.js
+      - name: Run webOS regressions
+        # A directory argument, not a file list: Node's test runner picks up every
+        # `*.test.js` under `Tests/webos/`, so a suite added by a later task cannot be
+        # left out of the push gate by forgetting to name it here. The transport
+        # regressions and the catalog-contract regressions are both in scope now.
+        run: node --test Tests/webos/
       - name: Validate webOS JSON and service manifest
         run: |
           python3 - <<'PY'
