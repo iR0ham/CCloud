@@ -19,7 +19,7 @@
  * * No logo is invented: the built-in dataset carries none, so `logoUrl` stays null and a name+country pair is
  *   scored 75 rather than pretending to be 85.
  * * Credential-bearing addresses are refused, not stored. There is no verified secret store on webOS (see
- *   `playlist_parser.js:1010`), so a refused address simply disappears; the property that matters is that the
+ *   `playlist_parser.js:1009`), so a refused address simply disappears; the property that matters is that the
  *   caller can never see a credential in persisted text.
  * * Display names arrive exactly as the provider stated them. `CC.playlistParser.displayName` is the
  *   playlist-parse path's noise strip and is not applied here, so a built-in row whose own name carries a

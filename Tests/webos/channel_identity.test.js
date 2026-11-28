@@ -126,7 +126,14 @@ function fixture(name) {
 // ---- fixtures mirroring the Swift helpers ---------------------------------------------------------
 
 const BUILTIN_PLAYLIST = 'builtin:ccloud';
-const NOW = '2026-11-25T00:00:00Z';
+// The canonical spelling the codec itself produces: `requireTimestamp` validates the pattern and then
+// returns `new Date(text).toISOString()` (`playlist_contracts.js:191-231`), so every timestamp comes back
+// with three fractional digits whatever the document held. Section 10 round-trips whole state graphs
+// through `encodeState`/`decodeState`, and an anchor written in the shorter second-precision form would
+// come back unequal to itself — that is the codec normalizing, not a bug, so the fixture uses the form the
+// codec emits and a dedicated assertion below pins the normalization instead of hiding it.
+const NOW = '2026-11-25T00:00:00.000Z';
+const LEGACY_NOW = '2026-11-25T00:00:00Z';
 
 // `identityPlaylist` in Swift: every field the contract requires, so the same state can be handed to
 // `encodeState` without a second set of fixtures.
@@ -313,9 +320,15 @@ test('the five B3-J modules share one CC namespace and expose the surface task B
     ['build', 'registerBuiltIn'],
     'the built-in bridge lands on the catalog namespace it serves instead of becoming a second entry point'
   );
-  for (const name of IDENTITY_API) {
+  // `ambiguityFloor` is a contract *value*, not a callable — Dart publishes
+  // `channelCandidateAmbiguityFloor` and Swift `ChannelCandidate.ambiguityFloor` the same way — so the
+  // surface check splits here instead of pretending every exported key is a function.
+  for (const name of IDENTITY_API.filter(function (key) {
+    return key !== 'ambiguityFloor';
+  })) {
     assert.equal(typeof ID[name], 'function', '`' + name + '` must be callable');
   }
+  assert.equal(typeof ID.ambiguityFloor, 'number', '`ambiguityFloor` must be comparable by a screen');
   assert.equal(typeof UC.build, 'function');
   assert.equal(typeof UC.registerBuiltIn, 'function');
 });
@@ -1266,6 +1279,21 @@ test('nothing is claimed, proved, secret-backed or pre-associated by a built-in 
       sources: registered.sources
     }),
     'the adapter’s output is already a valid catalog document, not a screen-side shape'
+  );
+
+  // Pinned rather than worked around: a document saved in the shorter second-precision spelling still
+  // decodes, but the codec rewrites the stamp into the canonical three-fractional-digit form, because
+  // `requireTimestamp` ends with `return date.toISOString()` (`playlist_contracts.js:191-232`). So
+  // `encodeState(decodeState(legacy)) !== legacy` for an older document while
+  // `encodeState(decodeState(x)) === x` for a canonical one — which is exactly why `NOW` above is written
+  // in the spelling the codec emits. A later slice that stores a legacy profile has to normalize it on
+  // read, not expect the stored text back.
+  const legacyPlaylist = playlistRow(BUILTIN_PLAYLIST);
+  legacyPlaylist.createdAt = LEGACY_NOW;
+  assert.equal(
+    K.decodeState(K.encodeState(stateOf({ playlists: [legacyPlaylist] }))).playlists[0].createdAt,
+    NOW,
+    'the second-precision wire form is accepted but canonicalized on read'
   );
 });
 
