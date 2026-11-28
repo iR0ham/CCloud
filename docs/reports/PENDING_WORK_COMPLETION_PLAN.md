@@ -914,3 +914,48 @@ Windows byte-equality; provenance hashes beyond runner self-reporting; the unifi
 (`2.1.0`+23); and the fact that no device, emulator, TV console, Windows shell or Mac GUI has executed any
 Phase B port.
 **Verdict unchanged: DEVELOPMENT BUILDS VERIFIED — RELEASE BLOCKED.** `Local runtime remains NOT VERIFIED`.
+
+## 21. Dated verification — 2026-11-28 (task B4-1 is hosted-verified on all three ports; B4-2 is the seam now in review)
+
+**21.1 What B4-1 was.** §19.4's cross-port bullet — "all three ports: **`logicalIdByMemberId` is never seeded**" —
+named a precondition that made §20.2's B4 work impossible rather than merely unwritten: `associate` refuses a
+preferred logical id that the map does not already carry, the map is keyed by **member id**, and no registration
+path on any port writes an entry. So merging a second playlist over a first, with no hand-edit, was refused with
+`unknownPreferredLogicalChannel` — the exact case B4 exists to serve. §19.5 listed the fix as one of the two
+requirements it added to the B4 acceptance gate; it is now satisfied. Full prose, including the `identityMapping`
+fixture lines that explain why the Phase B suites never caught this, is in the `## 21. Dated verification —
+2026-11-28 (task B4-1 …)` section of `EXECUTION_LOG.md`; this section records the plan consequence only.
+
+**21.2 What is hosted-verified.** Commit `45bcf65` adds `seedSingletonChannels` to
+`flutter_app/lib/core/channel_identity.dart:311`, `Sources/Core/LiveTVChannelIdentity.swift:300` and
+`webos_app/app/js/channel_identity.js:370`, each holding the same four properties — additive only, idempotent,
+identity-returning when there is nothing to add, pruner of nothing — plus mirrored suites:
+`Tests/webos/channel_identity.test.js:1499` (six tests), `Tests/live-foundation/main.swift:2027` (twelve
+assertions), `flutter_app/test/channel_identity_test.dart:1073` (five tests). Hosted at that head: CI
+`46125210421` success with webOS job `140918189170` reporting `# tests 137 / # pass 137 / # fail 0` (§20's green
+baseline was 131, so exactly the six new tests), Swift job `140918188906` reporting
+`==> live foundation assertions: 432 (floor 420)` and `live foundation OK`, Dart job `140918189209` reporting
+`🎉 197 tests passed, 1 skipped` (§18's 192 plus five); Quality `46125210414` success. `Tests/live-foundation/run.sh`
+then raises `MIN_ASSERTIONS` to 432 from the runner's own line, not from local arithmetic — the local probe
+recorded in `EXECUTION_LOG.md` counted 168 for a state the runner scored 420, so no locally derived floor could
+have been trusted.
+
+**21.3 Consequence for the remaining B4 map.** §20.2 predicted "five `<script>` tags" for webOS; the real number
+is six, because the seam itself is a module. As of this section the working tree carries B4-2:
+`webos_app/app/js/live_catalog_store.js`, which reads `CC.store` and calls `migrate` + `seedSingletonChannels`
+and never writes during a load, plus `Tests/webos/live_catalog_store.test.js` and six `<script>` tags in
+`webos_app/app/index.html` in dependency order. §19.5's registration requirement is therefore now enforced by
+three assertions rather than described: the six tags are present exactly once and in load order, all before
+`js/app.js`, and every file in `webos_app/app/js` is registered so a future module cannot be added to disk and
+left unreachable — the failure mode §19.4 found in Phase B. B4-2 is **not** hosted-verified while it sits in the
+working tree; it is static-read-validated only, and `Local runtime remains NOT VERIFIED` says so. Swift and Dart
+still have no persistence caller (`§19.4`'s first two bullets stand), and B4-3's live-path swap at
+`api.js:308-323` / `screens/live.js:74-84` remains the only place in the plan where existing user-visible Live TV
+behaviour can regress — that gate is unchanged.
+
+**21.4 Still open after this section.** Everything §20.3 listed, minus the seeded-map requirement, plus: B4-2
+hosted verification, the Swift and Dart persistence mirrors (B4-2S / B4-2D), B4-3, the §18.5 built-in-row fold
+asymmetry, the directive-§3 review of the wider B1/B2 range, Phase C failover, subtitle slices D/E/F, legal-notice
+packaging, Windows byte-equality, provenance hashes beyond runner self-reporting, and the `2.1.0`+23 version
+decision. No device, emulator, TV console, Windows shell or Mac GUI has executed any Phase B or B4 code.
+**Verdict unchanged: DEVELOPMENT BUILDS VERIFIED — RELEASE BLOCKED.** `Local runtime remains NOT VERIFIED`.

@@ -1373,3 +1373,76 @@ all three ports, and the Phase B exit still requires B4 (wiring, persistence and
 packaging, Windows byte-equality, provenance-hash enforcement beyond runner self-reporting, and the
 unified-version decision (`2.1.0`+23). Production release remains blocked.
 `Local runtime remains NOT VERIFIED`.
+
+## 2026-11-28 (project manager) — Task B4-1 (singleton seeding) is hosted-verified on all three ports at `45bcf65`
+
+**The gap, and why it was not visible from the suites.** Section 19.5 recorded it as a Phase B exit
+requirement: `associate` (webOS), `associateChannels` (Dart) and `associateChannels` (Swift) all demand that
+the preferred logical channel be a key of `logicalIdByMemberId`, and that map is keyed on **member ids**.
+Registration produces playlists, members and sources only, so a freshly parsed playlist has an empty map and
+the very first merge a user attempts is refused with `unknownPreferredLogicalChannel` — the state is valid,
+the action simply has no anchor. Every B3 fixture hand-built that map (`identityMapping` in
+`Tests/webos/channel_identity.test.js:242`, `identityMapping` in `Tests/live-foundation/main.swift:1541`, the
+`logicalIdByMemberId` argument of `_state` in `flutter_app/test/channel_identity_test.dart`), so three green
+suites said nothing about it. B4-1 promotes that hand-built rule into library code instead of leaving it as a
+test convention.
+
+**What landed.** `seedSingletonChannels` on all three ports — `Sources/Core/LiveTVChannelIdentity.swift:300`,
+`flutter_app/lib/core/channel_identity.dart:311`, `webos_app/app/js/channel_identity.js:370` — with the same
+four properties on every port: it only ever *adds* `memberId -> memberId` for members with no key; it never
+rewrites an entry a user recorded; it returns the input state unchanged when nothing was added, which makes
+idempotence observable rather than inferred; and it prunes nothing, so a temporarily absent playlist cannot
+wipe yesterday's merge. The webOS export gained a seventh key (`channel_identity.js:401`).
+
+**Mirror coverage, and what each port now proves.** The webOS suite gained six tests in a new section 11
+(`Tests/webos/channel_identity.test.js:1499`), the Swift harness gained twelve assertions
+(`Tests/live-foundation/main.swift:2027`), and the Dart suite gained five tests in a `singleton seeding` group
+(`flutter_app/test/channel_identity_test.dart:1073`). All of them assert the same verdicts, plus two
+properties that matter to task B4: a seeded catalog and a hand-mapped catalog produce **equal** merge results,
+and seeding does **not** change what `buildUnifiedChannels` displays — three unassociated rows stay three rows
+in the same order. The webOS section additionally pins that a seeded state is a document
+`encodeState`/`decodeState` round-trips, which is what makes it worth persisting.
+
+**Hosted evidence (run 46125210421, CI, at `45bcf65`; parent `df8aa20`).**
+
+- webOS static JS/JSON/service validation, job `140918189170`: `# tests 137`, `# pass 137`, `# fail 0` — the
+  suite moved from 131 to 137, which is exactly the six added tests, so none of the prior expectations were
+  disturbed. That correspondence is checkable without running anything: the four committed suites hold
+  67 + 20 + 40 + 10 = 137 top-level `test()` calls (`channel_identity` 67, `live_contracts` 20,
+  `playlist_parser` 40, `transport` 10), and `node --test` reports one result per top-level call. The new
+  B4-2 file adds 14 such calls, which is why the prediction for its hosted run is 151 rather than a guess —
+  a local count that can be reconciled against a hosted figure this precisely is admissible, unlike the Swift
+  harness count discussed below, which reconciled to nothing.
+- macOS arm64 typecheck, job `140918188906`: `assertions: 432` and
+  `==> live foundation assertions: 432 (floor 420)` followed by `live foundation OK` — 420 plus the twelve new
+  Swift assertions.
+- Flutter analyze and tests, job `140918189209`: `🎉 197 tests passed, 1 skipped.` — 192 plus the five new Dart
+  tests, with `flutter analyze` still exiting clean (it runs before the tests and fails the job on any
+  info-severity lint).
+- Quality, run `46125210414`: completed, success.
+- Build all platforms, run `46125210425`: **completed, success** — settled after this section was drafted, and
+  re-confirmed against `actions/runs?head_sha=` for both heads: `df8aa20` is
+  `46124303672|CI|completed|success`, `46124303691|Quality|completed|success`,
+  `46124303717|Build all platforms|completed|success`, and `45bcf65` is `46125210421|CI|completed|success`,
+  `46125210414|Quality|completed|success`, `46125210425|Build all platforms|completed|success`. The eight build
+  jobs at `45bcf65` are `140918394610` (webOS IPK), `140918394790` (Dart analyze), `140918394870` (Windows
+  release build), `140918394894` (macOS arm64 build), `140918394952` (Android/TV universal APK + AAB),
+  `140919836846` (Windows Skia compatibility package), `140919836853` (Windows runtime smoke) and
+  `140919836906` (Windows installer install + smoke), all `completed|success`. So `45bcf65` is the second head in
+  this slice, after `df8aa20`, that is green across CI, Quality and all platform builds at once.
+
+**Gate change shipped with this slice.** `Tests/live-foundation/run.sh` raises `MIN_ASSERTIONS` from 420 to
+432, read off the runner's own log line quoted above, not from arithmetic over the diff. The distinction is
+deliberate: the discarded local probe recorded in the section above reported 168 checks for a state the hosted
+runner scored 420, so a floor derived from local counting would have been both wrong and unfalsifiable. No
+assertion, gate, or `pipefail` behaviour was relaxed anywhere in this slice.
+
+**Review status.** `team_delegate` still returns `COLLABORATION_MCP_TEAM_LEADER_REQUIRED` for every member ref
+in the current roster, so this slice carries a directive-§3 read-only project-manager review: the three
+implementations were read against each other for the same four properties and the same refusal behaviour, and
+the mirror suites were checked for identical verdicts rather than identical code. It is explicitly **not** a
+review by the unavailable Code Reviewer member.
+
+**What this does not mean.** Nothing calls `seedSingletonChannels` yet: there was no persistence, no
+`index.html` registration, and no live-path consumer on any port when this ran, so no user-visible behaviour
+changed and no device, emulator or Mac runtime was exercised. The companion documents carry the same milestone: `docs/reports/PENDING_WORK_COMPLETION_PLAN.md` gains §21, and a dated addendum in `docs/reports/OVERNIGHT_EXECUTION_STATE.md` that moves the current task from B3-J to B4-2, because the earlier B3-J checkpoint in that file predates B4-1 and is left in place untouched. `Local runtime remains NOT VERIFIED`.

@@ -31,7 +31,13 @@ ROOT="$(cd "$HERE/../.." && pwd)"
 # hosted run that turned that commit green (`==> live foundation assertions: 420 (floor 150)`). The
 # floor is a ratchet, not an estimate: a group that stops executing now fails the job instead of
 # lowering the count unnoticed, and a legitimate reduction has to be argued in the commit that makes it.
-MIN_ASSERTIONS=420
+#
+# Raised 420 -> 432 after the singleton-seeding precondition landed, because the harness counted exactly 432
+# checks on the hosted run that verified it at 45bcf65 (`==> live foundation assertions: 432 (floor 420)`, job
+# 140918188906). The number is read off the runner's own log rather than computed from the diff: an earlier
+# probe on the owner's Mac reported 168 for a state that hosted scored 420, and that figure is recorded in
+# EXECUTION_LOG.md as inadmissible evidence, not as a floor.
+MIN_ASSERTIONS=432
 
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT

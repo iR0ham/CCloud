@@ -610,6 +610,47 @@ None of these may be cleared by changing a label, a flag, or a document claim.
     independent review — not a review by the team Code Reviewer. Device and OS acceptance remain NOT VERIFIED,
     `streamSecretRef` has no verified secret store, and production release stays blocked.
 
+## Dated addendum — 2026-11-28 (supersedes the "Current exact next action" paragraph above, which stops at B3-S)
+
+The checkpoint above was written when B3-S was the next action and is left untouched as history. What has since
+closed, all on `ci/github-first-foundation` and all hosted-verified:
+
+- **B3-S** — `Sources/Core/LiveTVChannelIdentity.swift`, `UnifiedLiveCatalog.swift`,
+  `BuiltInLiveCatalogAdapter.swift` wired into the explicit `run.sh` compile list; hosted green.
+- **B3-J** — `webos_app/app/js/channel_identity.js`, `unified_catalog.js`, `builtin_catalog_adapter.js` plus
+  `Tests/webos/channel_identity.test.js` (61 tests); the two REDs at `0415769` were fixed by correcting the
+  implementation and the test seam, never by relaxing an assertion.
+- **B4-1** — `seedSingletonChannels` on all three ports, so the first playlist merge no longer dies with
+  `unknownPreferredLogicalChannel` (the map is keyed by member id and nothing used to seed it). Hosted at
+  `45bcf65`: CI `46125210421`, webOS `# tests 137 / # pass 137 / # fail 0`, Swift
+  `==> live foundation assertions: 432 (floor 420)` + `live foundation OK`, Dart `🎉 197 tests passed, 1 skipped`;
+  Quality `46125210414` success; Build all platforms `46125210425` success on all eight jobs.
+  `Tests/live-foundation/run.sh` floor is now 432, read off the runner's log.
+
+**Working tree at the time of this addendum** (uncommitted, therefore NOT hosted-verified): B4-2 for webOS —
+`webos_app/app/js/live_catalog_store.js` (a fail-closed seam: a load never writes, an unreadable document is
+reported rather than cleared, a save re-reads to prove the write), `Tests/webos/live_catalog_store.test.js`
+(14 top-level tests), and six `<script>` tags in `webos_app/app/index.html` in dependency order. Validation for
+that slice is static reading only, because this machine executes nothing for the project.
+
+**Exact next action, in order.** (1) Commit and push B4-2 — a docs/ledger commit for the ratchet plus the B4-1
+entry, then the webOS slice — then read the hosted result at the new head and expect webOS `# tests 151`
+(137 committed top-level `test()` calls plus 14 new ones; that arithmetic matched the hosted count exactly at
+`45bcf65`, which is why it is usable as a prediction here) with
+`# fail 0`, Swift `assertions: 432 (floor 432)`, Dart `197 tests passed, 1 skipped`. (2) **B4-2S**: a Swift
+`LiveCatalogStore` over Application Support/`CCloudMac/live_catalog.json` following the `Stores.swift:30-52`
+convention, added to the explicit file list in `Tests/live-foundation/run.sh:49-59` with harness checks for the
+same three rules. (3) **B4-2D**: the Dart mirror over SharedPreferences `ccloud.liveCatalog`, wired through
+`startup_bootstrap.dart`'s composition root. (4) **B4-3**: the live-path swap at `webos_app/app/js/api.js:308-323`
+/ `screens/live.js:74-84` (and the Swift/Dart equivalents), re-testing the §18.5 built-in-row fold gap. Nothing
+before step (4) changes user-visible behaviour.
+
+**Standing limits, restated because they bind every step above:** GitHub-hosted runners only, so local runtime is
+NOT VERIFIED by design; `team_delegate` still returns `COLLABORATION_MCP_TEAM_LEADER_REQUIRED` for the current
+roster, so this session's reviews are the directive-§3 read-only project-manager reviews and not the Code
+Reviewer member's; no device, emulator, TV console, Windows shell or Mac GUI acceptance exists for any Phase B
+or B4 code; production release remains **BLOCKED**, and no gate has been weakened to obtain green.
+
 ## How to resume after an interruption
 
 - `cd /Users/roham/Documents/CCloudMac && git status --short && git log --oneline -8`
