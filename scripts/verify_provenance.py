@@ -15,8 +15,8 @@ This script closes that evidence gap offline and deterministically:
 * it recomputes SHA-256 for each named file inside the checkout;
 * it fails on a mismatch, a missing file, a documented path that escapes the
   checkout (by ``..``, an absolute path, or a committed symlink), a retained
-  bullet with no digest, and a license text in `Legal/licenses/` that the
-  document never mentions;
+  bullet with no digest, and a license text anywhere under `Legal/licenses/`, at
+  any depth, that the document never mentions;
 * it prints the number of digests actually verified.
 
 Nothing is fetched. The archive rows in the media_kit table carry pub.dev
@@ -236,20 +236,31 @@ def verify_provenance(
     *,
     verbose: bool = True,
 ) -> tuple[int, list[str]]:
-    """Recompute every documented digest and report structural gaps."""
+    """Recompute every documented digest and report structural gaps.
+
+    The containment rule is part of this function's own contract, not a courtesy
+    of its one current caller: a documented path that resolves outside ``root`` is
+    a problem and is never counted as a documented retained text. The second half
+    matters because the sweep below decides "this license text was never
+    declared" from that set, so an escaping path must not be able to satisfy it.
+    """
     problems = _duplicate_conflicts(entries)
     documented: set[str] = set()
     verified = 0
 
     for entry in sorted(entries, key=lambda item: (item.path.replace("\\", "/"), item.line)):
         key = entry.path.replace("\\", "/")
-        documented.add(key)
         target = _resolve_within(root, key)
         if target is None:
+            # Deliberately *before* the set add: a path that leaves the checkout is not a
+            # retained text this repository ships, and treating it as one would let the
+            # lexical spelling of `Legal/licenses/…` satisfy the sweep while the bytes it
+            # digests live somewhere else.
             problems.append(
                 f"{SOURCES_FILE}:{entry.line}: retained path must stay inside the checkout: {key}"
             )
             continue
+        documented.add(key)
         if not target.exists():
             problems.append(f"{SOURCES_FILE}:{entry.line}: retained file is missing: {key}")
             continue
@@ -271,14 +282,25 @@ def verify_provenance(
     if not license_dir.is_dir():
         problems.append(f"canonical license directory is missing: {RETAINED_LICENSE_DIR}")
     else:
-        for path in sorted(license_dir.iterdir()):
+        # Recursive. The rule this sweep enforces is "nothing sits in the canonical license
+        # tree without a documented digest", and a top-level-only scan stops being that rule
+        # the moment anyone files a text a level deeper: `scripts/stage_legal.py` ships an
+        # explicit name list, so a nested file is neither copied into a package nor verified
+        # by anyone, which is the worst of the three states and exactly what a silent skip
+        # would allow. `rglob` yields paths relative to the directory, so the key is built
+        # from `relative_to` rather than the file name: a name-only key would compare
+        # `Legal/licenses/<name>` against a document that says
+        # `Legal/licenses/third-party/<name>` and report an undocumented file that is
+        # perfectly documented.
+        for path in sorted(license_dir.rglob("*")):
             if not path.is_file():
                 continue
-            key = f"{RETAINED_LICENSE_DIR}/{path.name}"
+            relative = path.relative_to(license_dir).as_posix()
+            key = f"{RETAINED_LICENSE_DIR.as_posix()}/{relative}"
             if key not in documented:
                 problems.append(
-                    f"{RETAINED_LICENSE_DIR.as_posix()}: {path.name} is packaged as a "
-                    f"retained license text but has no digest entry in {SOURCES_FILE}"
+                    f"{RETAINED_LICENSE_DIR.as_posix()}: {relative} is a license text in the "
+                    f"retained license tree but has no digest entry in {SOURCES_FILE}"
                 )
 
     return verified, problems

@@ -188,10 +188,18 @@ class ProvenanceVerificationTests(unittest.TestCase):
         # A committed symlink is invisible to the lexical `..` rejection above: the
         # joined path still opens bytes outside the checkout, so without a
         # canonicalized containment re-check the escaped text verifies against a
-        # real digest and the sweep keeps counting it as documented. The link body
-        # is deliberately the published `abc` vector so a digest mismatch cannot
-        # masquerade as the failure; the non-link half proves this same document,
-        # digest and layout verify green once the bytes are inside the checkout.
+        # real digest. The link body is deliberately the published `abc` vector so a
+        # digest mismatch cannot masquerade as the failure; the non-link half proves
+        # this same document, digest and layout verify green once the bytes are
+        # inside the checkout.
+        #
+        # Two problems are expected, not one, and that is the point of the pairing.
+        # An escaping path is no longer counted as a documented retained text, so the
+        # directory sweep independently reports the license tree entry that nothing
+        # inside the checkout actually accounts for. Before the ordering was fixed, the
+        # lexical spelling satisfied the sweep and the only visible symptom was the
+        # containment message, which is precisely the "the sweep keeps counting it as
+        # documented" behaviour this test exists to prevent.
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)
             root = base / "checkout"
@@ -214,9 +222,13 @@ class ProvenanceVerificationTests(unittest.TestCase):
                 root, entries, verbose=False
             )
             self.assertEqual(verified, 0)
-            self.assertEqual(len(problems), 1)
-            self.assertIn("must stay inside the checkout", problems[0])
-            self.assertIn("Legal/licenses/MIT-one.txt", problems[0])
+            self.assertEqual(len(problems), 2, problems)
+            containment = [p for p in problems if "must stay inside the checkout" in p]
+            self.assertEqual(len(containment), 1, problems)
+            self.assertIn("Legal/licenses/MIT-one.txt", containment[0])
+            sweep = [p for p in problems if "retained license tree" in p]
+            self.assertEqual(len(sweep), 1, problems)
+            self.assertIn("MIT-one.txt", sweep[0])
             # Same document, retained copy actually inside the checkout.
             link = root.joinpath("Legal", "licenses", "MIT-one.txt")
             link.unlink()
@@ -226,6 +238,48 @@ class ProvenanceVerificationTests(unittest.TestCase):
             )
             self.assertEqual(verified, 1)
             self.assertEqual(problems, [])
+
+    def test_license_text_nested_one_level_is_still_swept(self):
+        # The sweep is recursive, and the documented key is the relative path rather
+        # than the file name. Two halves, because either alone passes on a
+        # name-only implementation: an undocumented nested text must be reported, and
+        # a documented nested text must verify without the sweep inventing a duplicate
+        # complaint for the same bytes.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            nested = root / "Legal" / "licenses" / "third-party"
+            nested.mkdir(parents=True)
+            (nested / "MIT-two.txt").write_bytes(b"abc")
+            document = "\n".join(
+                [
+                    "- Retained text: `Legal/licenses/MIT-one.txt`",
+                    f"- Text SHA-256: `{ABC_SHA256}`",
+                ]
+            )
+            (root / "Legal" / "licenses" / "MIT-one.txt").write_bytes(b"abc")
+            entries, _ = verify_provenance.parse_provenance(document)
+            verified, problems = verify_provenance.verify_provenance(
+                root, entries, verbose=False
+            )
+            self.assertEqual(verified, 1)
+            self.assertEqual(len(problems), 1, problems)
+            self.assertIn("third-party/MIT-two.txt", problems[0])
+            self.assertIn("retained license tree", problems[0])
+
+            documented_nested = "\n".join(
+                [
+                    "- Retained text: `Legal/licenses/MIT-one.txt`",
+                    f"- Text SHA-256: `{ABC_SHA256}`",
+                    "- Retained text: `Legal/licenses/third-party/MIT-two.txt`",
+                    f"- Text SHA-256: `{ABC_SHA256}`",
+                ]
+            )
+            entries, _ = verify_provenance.parse_provenance(documented_nested)
+            verified, problems = verify_provenance.verify_provenance(
+                root, entries, verbose=False
+            )
+            self.assertEqual(problems, [])
+            self.assertEqual(verified, 2)
 
     def test_conflicting_duplicate_entries_are_reported(self):
         document = "\n".join(
