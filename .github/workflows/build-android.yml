@@ -279,6 +279,29 @@ jobs:
           require_token "APK manifest" "$MANIFEST" 'android:banner='
           require_token "APK manifest" "$MANIFEST" 'android:taskAffinity=""'
           require_token "APK manifest" "$MANIFEST" 'android.hardware.touchscreen'
+          # The optional-touchscreen contract, not just the feature name. Before this
+          # step the assertion above only proved the feature was mentioned, so
+          # `android:required="true"` would have passed while a D-pad-only TV could not
+          # install the APK. apkanalyzer renders uses-feature values faithfully (the
+          # 6fb03bf failure dump showed `android:required="false"` for both features),
+          # so the value is asserted here and bound to the feature it governs below.
+          require_token "APK manifest" "$MANIFEST" 'android:required="false"'
+          # The context window is written to a file first because this step runs under
+          # `set -o pipefail`, where a `grep -q` that exits early can SIGPIPE the
+          # upstream grep and turn a passing condition into a spurious failure.
+          TOUCHSCREEN="$RUNNER_TEMP/android-touchscreen.txt"
+          grep -A2 -F 'android:name="android.hardware.touchscreen"' "$MANIFEST" > "$TOUCHSCREEN" || true
+          if ! grep -Fq -- 'android:required="false"' "$TOUCHSCREEN"; then
+            echo '::error::the shipped package does not pair android.hardware.touchscreen with android:required="false"; a D-pad-only TV cannot install it'
+            echo "----- decoded AndroidManifest.xml -----"
+            cat "$MANIFEST"
+            if [ -s "$BADGING" ]; then
+              echo "----- aapt dump badging -----"
+              cat "$BADGING"
+            fi
+            exit 1
+          fi
+          echo 'ok: APK manifest pairs android.hardware.touchscreen with android:required="false"'
           # Existence of each governed attribute in the shipped package (the value
           # itself is opaque here and is asserted literally further below):
           require_token "APK manifest" "$MANIFEST" 'android:launchMode='
@@ -291,8 +314,9 @@ jobs:
           #   TV/phone rotation does not recreate the Flutter engine;
           # - the soft keyboard resizes instead of panning, which keeps the
           #   focused field visible on a TV/phone;
-          # - touchscreen is optional, asserted on the shipped package above, so a
-          #   D-pad-only TV can install it;
+          # - touchscreen is optional, asserted as
+          #   android.hardware.touchscreen + android:required="false" on the shipped
+          #   package above, so a D-pad-only TV can install it;
           # - singleTop + empty taskAffinity keep back/relaunch inside this app.
           require_token "merged manifest" "$MERGED" '@drawable/tv_banner'
           require_token "merged manifest" "$MERGED" 'android:launchMode="singleTop"'
