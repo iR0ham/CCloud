@@ -513,7 +513,12 @@ test('an empty stored catalog composes to today\'s list, and the same slot can c
   // merge document through it must change the row list, or the neutrality checks above would also pass with a
   // composer that ignores its state argument entirely.
   const mergeCase = cases.filter(function (entry) { return entry.id === 'duplicate-name-merged'; })[0];
-  device.storage.setItem(device.rawKey, JSON.stringify(mergeCase.document));
+  // `CC.store.set` (util.js:50) JSON-encodes whatever it stores, so a *text* document lives under this key as a
+  // quoted JSON string. Writing the bare object bytes would place a shape the seam is built to refuse — it
+  // answers `corrupt` for a stored object, correctly — so the fixture bytes go through the same double encoding
+  // a real writer produces, and the assertion below still tests the fixture's own bytes rather than this
+  // build's encoder output.
+  device.storage.setItem(device.rawKey, JSON.stringify(JSON.stringify(mergeCase.document)));
   const merged = device.store.load();
   assert.equal(merged.status, device.store.statusOk, 'the merge document decodes through the seam');
   const mergedRows = device.composer.compose({ channels: built, state: merged.state }).rows;
