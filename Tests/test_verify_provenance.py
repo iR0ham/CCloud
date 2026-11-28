@@ -184,6 +184,49 @@ class ProvenanceVerificationTests(unittest.TestCase):
             self.assertEqual(len(problems), 1)
             self.assertIn("must stay inside the checkout", problems[0])
 
+    def test_documented_symlink_cannot_leave_the_checkout(self):
+        # A committed symlink is invisible to the lexical `..` rejection above: the
+        # joined path still opens bytes outside the checkout, so without a
+        # canonicalized containment re-check the escaped text verifies against a
+        # real digest and the sweep keeps counting it as documented. The link body
+        # is deliberately the published `abc` vector so a digest mismatch cannot
+        # masquerade as the failure; the non-link half proves this same document,
+        # digest and layout verify green once the bytes are inside the checkout.
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            root = base / "checkout"
+            root.joinpath("Legal", "licenses").mkdir(parents=True)
+            external = base / "external"
+            external.mkdir()
+            escaped = external / "MIT-one.txt"
+            escaped.write_bytes(b"abc")
+            root.joinpath("Legal", "licenses", "MIT-one.txt").symlink_to(escaped)
+            document = "\n".join(
+                [
+                    "- Retained text: `Legal/licenses/MIT-one.txt`",
+                    f"- Text SHA-256: `{ABC_SHA256}`",
+                ]
+            )
+            entries, parse_problems = verify_provenance.parse_provenance(document)
+            self.assertEqual(parse_problems, [])
+            self.assertEqual(verify_provenance.sha256_of(escaped), ABC_SHA256)
+            verified, problems = verify_provenance.verify_provenance(
+                root, entries, verbose=False
+            )
+            self.assertEqual(verified, 0)
+            self.assertEqual(len(problems), 1)
+            self.assertIn("must stay inside the checkout", problems[0])
+            self.assertIn("Legal/licenses/MIT-one.txt", problems[0])
+            # Same document, retained copy actually inside the checkout.
+            link = root.joinpath("Legal", "licenses", "MIT-one.txt")
+            link.unlink()
+            link.write_bytes(b"abc")
+            verified, problems = verify_provenance.verify_provenance(
+                root, entries, verbose=False
+            )
+            self.assertEqual(verified, 1)
+            self.assertEqual(problems, [])
+
     def test_conflicting_duplicate_entries_are_reported(self):
         document = "\n".join(
             [

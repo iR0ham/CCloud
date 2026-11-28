@@ -14,8 +14,9 @@ This script closes that evidence gap offline and deterministically:
   | digest |`` table form);
 * it recomputes SHA-256 for each named file inside the checkout;
 * it fails on a mismatch, a missing file, a documented path that escapes the
-  checkout, a retained bullet with no digest, and a license text in
-  `Legal/licenses/` that the document never mentions;
+  checkout (by ``..``, an absolute path, or a committed symlink), a retained
+  bullet with no digest, and a license text in `Legal/licenses/` that the
+  document never mentions;
 * it prints the number of digests actually verified.
 
 Nothing is fetched. The archive rows in the media_kit table carry pub.dev
@@ -188,10 +189,28 @@ def sha256_of(path: Path) -> str:
 
 
 def _resolve_within(root: Path, relative: str) -> Path | None:
+    """Map a documented path into the checkout, or refuse it.
+
+    The lexical test below catches an absolute path and a literal ``..`` segment,
+    but it cannot see a symlink committed inside ``Legal/licenses/``: a bare
+    ``root / path`` still resolves through that link when the caller opens it, so
+    the digest would be recomputed from bytes living outside the checkout while
+    the directory sweep keeps counting the entry as a documented retained text.
+    Containment is therefore re-checked on the canonical path, which makes the
+    "escapes the checkout" rejection in the module docstring true for links too.
+    """
     pure = PurePosixPath(relative.replace("\\", "/"))
     if pure.is_absolute() or ".." in pure.parts:
         return None
-    return root / Path(*pure.parts)
+    # Resolving canonicalizes the whole component chain, so a link in any segment
+    # (not only the file itself) has to land back inside the checkout. Both sides
+    # are canonicalized, which keeps the comparison correct when the checkout is
+    # reached through a symlinked parent, as on macOS under /var.
+    base = root.resolve(strict=False)
+    target = (base / Path(*pure.parts)).resolve(strict=False)
+    if target != base and base not in target.parents:
+        return None
+    return target
 
 
 def _duplicate_conflicts(entries: Iterable[ProvenanceEntry]) -> list[str]:
