@@ -9,8 +9,9 @@ dated evidence below is a ledger and must not be restated as history that did no
 - Working branch: `ci/github-first-foundation`.
 - HEAD and pushed remote branch head were both
   `41039b253da00005ba9083ce08833e7188bae32c` when the previous sentence was written; that was true at
-  the time and is superseded here. As of this refresh local `HEAD` and `git ls-remote` both returned
-  `fcd456c37de9ef8fdf50a2ec018e3794241f06d4` — so on resume, re-run `git ls-remote` rather than
+  the time and is superseded here. As of this refresh local `HEAD` and `git rev-parse
+  origin/ci/github-first-foundation` both returned
+  `3001cfa2029dbd02336a8aa82f00840b66a79e22` — so on resume, re-run `git ls-remote` rather than
   trusting any head written here.
 - Commit order on the branch, continuing the previous list: `cbc48ee` (three-closed-gates ledger
   addendum) → `1382a93` (accepted re-review + hardening items) → `4c80ad3` (**H1** merged-manifest
@@ -18,7 +19,13 @@ dated evidence below is a ledger and must not be restated as history that did no
   canonicalization) → `4570277` (B1-D fixtures + failing tests, hosted RED) → `ea28b29` (B1-D Dart
   contracts + codec) → `eb052b2` (analyzer-clean) → `7124c28` + `41039b2` + `597b4db` (ledger, plan
   and project-manager reconciliation) → `28019c8` (**canonical wire date form + symmetric
-  schema-version gate**) → `fcd456c` (**element-scoped touchscreen assertion + H1 observability**).
+  schema-version gate**) → `fcd456c` (**element-scoped touchscreen assertion + H1 observability**) →
+  `5b7df6a`…`4c98e97` (B1-S/B1-J hosted RED, the four-cause correction `43ff4bb`, the loader fix `62003ca`,
+  the license-tree hardening `1ab6f8e`, the direct interface test `d33e812`) → `e7bbe8d` → `0186c62` →
+  `09f826c` (**B2-D**: Dart parser + `stableKeyHash` + source registry, then the six analyzer-info repairs) →
+  `e2400e3` (**B2-S** Swift mirror) → `3b857ec` + `46d74e5` (ledger, plus the golden-digest transcription
+  repair) → `de61b5a` (**B2-J** webOS ES2017 port) → `3001cfa` (**B2-J review correction**: refuse an
+  authority-less base).
 - `main`: `6dfd925095b0090b623443f396388fd4d552db63` — untouched, never developed on.
 - Worktree: clean.
 - Open pull requests: none. Release tags: none (`v2.0.0` was never tagged).
@@ -295,6 +302,14 @@ The owner's Mac is not used for project execution workloads.
 
 ## Current task
 
+- **Checkpoint 2026-11-28 (latest): Phase B2 is closed as a hosted-verified library on all three ports, and
+  B3-D is the active task.** Remote head `3001cfa2029dbd02336a8aa82f00840b66a79e22`, worktree clean, no open
+  pull request. See addendum 11 below for the job-by-job numbers. B2-D, B2-S and B2-J have no production
+  consumer yet — `playlist_parser`/`parsePlaylist` is imported only by its own suite on each port — so B4 is
+  still what turns this into behaviour, `streamSecretRef` still has no verified secret store, and no device or
+  OS shell has executed any port. Active work is now B3-D (plan `:1441-1543`), whose gate is the same hosted
+  RED→GREEN pair plus `flutter analyze`, and which must not change playback behaviour anywhere. The bullets
+  below are earlier checkpoints and are kept for continuity, not corrected.
 - **Checkpoint 2026-11-28 (later): B1-S and B1-J are implemented but not yet hosted-green.** The ports
   landed across `10a1986` → `aab31be`; the last run at `aab31be` (CI `46104459953`) is red for four
   attributed causes, and the corrective slice that answers them is in the working tree at the time of this
@@ -489,6 +504,42 @@ None of these may be cleared by changing a label, a flag, or a document claim.
     `URLComponents`), manual authority split with the userinfo boundary at the **last** `@`, same five ceilings
     and issue codes, pinning the three golden literals above and the same fixture verdicts as the Dart and
     Swift suites.
+
+11. **Item 10's next action is done; this supersedes it.** Task B2-J is **hosted-verified for the webOS port**.
+    Remote head `3001cfa2029dbd02336a8aa82f00840b66a79e22` on `ci/github-first-foundation`, worktree clean;
+    commits `de61b5a6304b0e3d5b77174e03b6ff605294f983` (the ES2017 parser/registry port plus
+    `Tests/webos/playlist_parser.test.js`, 40 blocks) and `3001cfa` (review correction). CI `46112735700`:
+    `webOS static …` `140879671978` → `# tests 70 / # pass 70 / # fail 0 / # cancelled 0 / # skipped 0` (up from
+    `30` at `46d74e5` job `140872896571`, with no workflow edit, because the step discovers a directory);
+    `macOS arm64 typecheck` `140879672087` → `typecheck OK (48 files)` and `assertions: 348 (floor 150)`;
+    `Flutter analyze and tests` `140879672103` → `No issues found! (ran in 12.5s)` and
+    `🎉 159 tests passed, 1 skipped.`; `Version and canonical metadata` `140879671862` →
+    `ok: CCloud 2.0.0 (build 22)`. Quality `46112735678` → six jobs `success`; `Live API verification`
+    `skipped`. The port pins the three runner-printed golden digests, so Dart, Swift and ES2017 now agree by
+    execution. **B2-D, B2-S and B2-J are therefore hosted-verified *libraries* — not verified features:** nothing
+    in the shipping apps parses a playlist with them until B4.
+    Two process facts are recorded in `EXECUTION_LOG.md` rather than dropped: the read-only independent review
+    (team `Code Reviewer` still unreachable, `team_delegate` → `COLLABORATION_MCP_TEAM_LEADER_REQUIRED`) found a
+    real cross-port divergence — a scheme-only base such as `https:` resolved to a host named `null` on webOS
+    where Dart refuses — fixed in `3001cfa` with an `authoritylessBase` regression case; and one forbidden local
+    `node --check` was run on the owner's Mac during iteration (violation count `1`, no claim depends on it, the
+    hosted sweep in `140879671978` is the evidence). §16.3's two unread build jobs are now green:
+    `android / Android/TV universal APK + AAB` and `windows / Windows release build` are `completed success` in
+    runs `46109944427` (`e2400e3`) and `46110554692` (`46d74e5`, 8/8 jobs); run `46112735764` (`3001cfa`) was
+    still pending when this item was written and is not claimed.
+    **Current exact next action:** **Task B3-D** — plan `:1441-1543`. Create
+    `flutter_app/lib/core/channel_identity.dart`, `flutter_app/lib/core/unified_catalog.dart`,
+    `flutter_app/lib/core/builtin_catalog_adapter.dart` and `flutter_app/test/channel_identity_test.dart` over
+    B1-D's state shape and B2-D's members/sources: candidate scoring `95/90/85/75/70/50` with namespace-qualified
+    provider-ID equality, `ambiguous` below 85 or on conflicting provider IDs/countries, the five
+    `ChannelIdentityError.*` codes thrown as `ArgumentError` before any mutation, `buildUnifiedChannels`
+    excluding disabled playlists while retaining disabled source records, and `registerBuiltInChannels` returning
+    exactly the Famelack rows supplied (never an iptv-org-only row). Hosted RED first (`flutter test
+    test/channel_identity_test.dart -r expanded`), then GREEN via push to `ci/github-first-foundation`; no local
+    `flutter` invocation. Phase B's documented debt — the `LiveTVCatalogCodec` null-key omission,
+    `ChannelMember.ordinal` position, and the Dart `DateTime.parse` leniency — closes in the B3 slices. Device and
+    OS acceptance remain NOT VERIFIED for every port, `streamSecretRef` has no verified secret store, and
+    production release stays blocked.
 
 ## How to resume after an interruption
 

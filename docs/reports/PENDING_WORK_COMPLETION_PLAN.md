@@ -697,3 +697,57 @@ secret store behind it, and no Live TV screen consumes the Phase B library yet (
 `Tests/webos/playlist_parser.test.js`, plain ES2017 (`var` and function expressions only), no `new URL()`
 normalization, manual authority splitting with the userinfo boundary at the last `@`, the same ceilings and
 issue codes, and golden literals pinned to the three values in 16.1 so all three ports demonstrably agree.
+
+## 17. Dated verification — 2026-11-28 (B2-J hosted-verified; B2 closes, B3 opens)
+
+Sections 16.3 and 16.4 stand as written. This section is the newer fact: it closes B2-J, closes the two build jobs
+16.3 left unread, and records what still separates Phase B from "done".
+
+**17.1 B2 is complete as a library on all three ports.** Remote head
+`3001cfa2029dbd02336a8aa82f00840b66a79e22` on `ci/github-first-foundation`; commits `de61b5a` (the ES2017 port and
+its 40-block suite) and `3001cfa` (review correction). CI run `46112735700`:
+`webOS static …` `140879671978` → `# tests 70 / # pass 70 / # fail 0`; `macOS arm64 typecheck` `140879672087` →
+`typecheck OK (48 files)`, `assertions: 348 (floor 150)`; `Flutter analyze and tests` `140879672103` →
+`No issues found! (ran in 12.5s)`, `159 tests passed, 1 skipped`; `Version and canonical metadata`
+`140879671862` → `ok: CCloud 2.0.0 (build 22)`. Quality run `46112735678` → all six jobs success,
+`Live API verification` skipped. The webOS suite now pins the same three golden digests the Swift runner printed,
+so Dart, Swift and ES2017 are judged against one another and not against my transcription.
+
+**17.2 16.3's unknown build jobs are green.** `android / Android/TV universal APK + AAB` and
+`windows / Windows release build` are `completed success` in run `46109944427` (head `e2400e3`) and run
+`46110554692` (head `46d74e5`, eight of eight build jobs green). At `de61b5a` (run `46112449530`) seven of eight
+were green when read and the run for `3001cfa` (`46112735764`) was still pending, so those two heads are not
+claimed for the Skia compatibility package.
+
+**17.3 A review found one real cross-port divergence in the new code.** The read-only pass (the team Code
+Reviewer is still unreachable: `team_delegate` returns `COLLABORATION_MCP_TEAM_LEADER_REQUIRED`) found that
+`canonicalAddress` resolved relative addresses against a scheme-only base such as `https:`, where Dart refuses:
+the hand-written resolver would have produced a host named `null`. Fixed in `3001cfa` with a guard on
+`baseReference.authority !== null` plus assertions that the case yields zero channels, exactly one `invalidUrl`,
+and no `https://null` in any stored record. Two further findings were test- and comment-strength rather than
+behavioral, and one was the codec asymmetry: the first draft emitted `rendererCapability: null`, which
+`readSource` tolerates and `writeSource` rejects, so a registered playlist could be loaded but never saved; the
+port now emits the codec's own `'Not Yet Verified'` label and the suite pins
+`encodeState(decodeState(encodeState(state))) === encodeState(state)` through exported names only.
+
+**17.4 Status vocabulary, tightened.** B2-D, B2-S and B2-J are **hosted-verified libraries**. They are not
+verified *features*: nothing in the shipping app parses a playlist with them yet (B4 is the first consumer), no
+device or OS shell has ever run any port, `streamSecretRef` has no verified secret store, and the Phase B exit
+gate at plan `2051-2066` is still open. So Phase B remains incomplete, and the release verdict is unchanged:
+**DEVELOPMENT BUILDS VERIFIED — RELEASE BLOCKED**, now extended to the webOS port.
+
+**17.5 Next slice — B3-D, with its real scope.** Per plan `:1441-1543`: `flutter_app/lib/core/channel_identity.dart`,
+`flutter_app/lib/core/unified_catalog.dart`, `flutter_app/lib/core/builtin_catalog_adapter.dart` and
+`flutter_app/test/channel_identity_test.dart`, consuming B1-D and B2-D. The pieces a reviewer should
+hold this to: logical-channel resolution across playlists and namespaces with **no automatic association**
+(a new logical channel takes its member's ID; joining two members is an explicit user act), disabled-playlist
+omission that keeps the member row so re-enabling restores the same identity, last-successful-source preference
+with the failover decision owned by Phase C rather than smuggled into B3, and the five invalid-association error
+codes. Phase B's other documented debt lands here: the `LiveTVCatalogCodec` null-key omission and
+`ChannelMember.ordinal` position differences, and the Dart `DateTime.parse` leniency recorded in §13.
+`Local runtime remains NOT VERIFIED` continues to apply to every port.
+
+**17.6 Process note, recorded rather than hidden.** While iterating on B2-J a single local
+`node --check webos_app/app/js/playlist_parser.js` was run on the owner's Mac — a forbidden local syntax workload,
+which produced no artifact and supports no claim in this ledger. The violation count for this slice is `1`; the
+accepted evidence for that check is the hosted sweep in job `140879671978`.

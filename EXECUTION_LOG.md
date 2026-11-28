@@ -1001,3 +1001,95 @@ What this does not mean: no Live TV screen parses a playlist with this code yet 
 `streamSecretRef` has a verified secret store, the harness runs on a `macos-15` runner rather than on a user's
 Mac, and `assertions: 348` is contract evidence, not playback evidence. Local builds and tests remain forbidden
 by repository policy, so `Local runtime remains NOT VERIFIED`.
+
+## 2026-11-28 (project manager) — Task B2-J is hosted-verified for the webOS port at `3001cfa`
+
+Branch `ci/github-first-foundation`; remote head `3001cfa2029dbd02336a8aa82f00840b66a79e22` (compared against
+`git rev-parse origin/ci/github-first-foundation`, not a cached ref), worktree clean. Two commits carry this
+slice: `de61b5a6304b0e3d5b77174e03b6ff605294f983` adds `webos_app/app/js/playlist_parser.js` (1,071 lines) and
+`Tests/webos/playlist_parser.test.js` (944 lines, 40 `test()` blocks), and `3001cfa` is the corrective commit the
+review below produced.
+
+**Hosted evidence actually read (GitHub Actions is the only permitted execution evidence).** CI run
+`46112735700` at `3001cfa`, all four jobs `completed success`:
+
+* `140879671978` (`webOS static JS/JSON/service validation`) prints, under `##[group]Run node --test Tests/webos/`:
+  `# tests 70`, `# pass 70`, `# fail 0`, `# cancelled 0`, `# skipped 0`. The suite went from `30` at the parent
+  ledger head `46d74e5` (job `140872896571`) to `70` without any workflow edit, because that step already passed
+  a directory and `node --test` discovers files inside it.
+* `140879672087` (`macOS arm64 typecheck`): `typecheck OK (48 files)`, `assertions: 348`,
+  `==> live foundation assertions: 348 (floor 150)` — identical to `e2400e3`, the expected result for a commit
+  that touches no Dart or Swift source.
+* `140879672103` (`Flutter analyze and tests`): `No issues found! (ran in 12.5s)` and
+  `🎉 159 tests passed, 1 skipped.`
+* `140879671862` (`Version and canonical metadata`): `ok: CCloud 2.0.0 (build 22)` and `Tests/test_version.py`
+  `OK`.
+
+Quality run `46112735678` at the same head: all six jobs (`Workflow lint`, `Repository hygiene`, `Secret scan`,
+`Required NOTICE files`, `Version consistency`, `Dependency vulnerability scan`) `completed success`.
+`Live API verification` is `skipped` by design. The parent `de61b5a` was already green in the same four CI jobs
+(`140878793735`, `140878793923`, `140878793931`, `140878793974`, with the same `# tests 70 / # pass 70 / # fail 0`
+summary printed at `2026-11-28T05:31:06Z`), so the corrective commit changed coverage rather than verdict — which
+is itself the check that the review finding was a latent divergence and not an already-failing test.
+
+**Cross-port agreement is executed, not asserted.** The webOS suite pins the three golden digests the Swift
+runner printed at `e2400e3` (`811c9dc59e3779b985ebca6bc2b2ae35` for `""`, `981a29df6c39c1531339e5c1aef7688f` for
+`"playlist:valid"`, `e724bb8086a3208c85ff01962c8b8030` for `"پرس"`), so the ES2017 FNV-1a re-implementation is
+judged against another language's runtime instead of against my transcription — the failure mode that produced
+the `3b857ec` digest repair. The loader seals `URL`, `URLSearchParams`, `TextEncoder` and `indexedDB` out of the
+module scope, which turns "this port must not normalize with `new URL()`" from a comment into a failing test, and
+a text scan enforces the ES2017 ceiling because the target shell is Chromium 68 and `node --check` would happily
+accept syntax the TV cannot parse.
+
+**The records are codec-persistable, not merely decodable.** `registerParsedPlaylist` emits
+`rendererCapability: 'Not Yet Verified'`. That is the field the review caught: `playlist_contracts.js` reads a
+missing capability with `optionalCapability` (defaulting to that label) but writes with strict
+`requireCapability`, so the first draft's `null` produced a record `decodeState` accepted and `encodeState`
+refused — a registry that could be loaded and then never saved. The suite now round-trips through the public codec
+surface (`emptyState` → register → `encodeState` → `decodeState` → `encodeState`) and pins the fixed point
+`encodeState(decoded) === encoded`, using only exported names after the first draft reached for the internal
+`readMember`/`readSource` helpers, which are not in the module's export block and would have thrown.
+
+**Read-only independent review — NOT a review by the team Code Reviewer.** `mcp__builtin__team_delegate` still
+refuses this session with `COLLABORATION_MCP_TEAM_LEADER_REQUIRED`, so this is a separate, read-only pass over the
+diff by the project manager. It is weaker than an independent reviewer and is labelled as such wherever Phase B
+status is reported. Findings:
+
+1. **Behavioral, fixed in `3001cfa`.** `canonicalAddress` accepted any base whose scheme was `http`/`https`,
+   including a scheme-only base such as `https:`. Dart's `Uri.resolve` returns the reference for an
+   authority-less base and the canonicalizer then refuses it for having no path; the hand-written resolver would
+   have put the reference into the authority slot and accepted a host literally named `null`. One row would
+   therefore register on webOS and be refused on Android, Windows and Mac. The guard now requires
+   `baseReference.authority !== null`, and the test adds an `authoritylessBase` case asserting zero channels,
+   exactly one `invalidUrl`, and that no serialized record contains `https://null`.
+2. **Documentation, fixed in `de61b5a`.** The header claimed seven fixtures where `Tests/fixtures/multi-source/`
+   holds five, and one comment describing `URLComponents` behavior was left garbled by an earlier edit.
+3. **Test strength, fixed in `de61b5a`.** The credential-leak check searched for `'abc'`, which other fixture text
+   could satisfy by accident; it now asserts both `token=abc` and `token` are absent from every stored record. The
+   `malformed.m3u` case pinned issue *counts* without line numbers, so a misattributed issue still passed; it now
+   pins `missingStream` to line 4 and `invalidUrl` to line 7, which is the assertion that actually protects the
+   `sawAddressLine` mutual-exclusion rule. Six other expectations (mutual-exclusion index, the 100-URL cap
+   retaining rather than dropping the member, empty-query canonicalization, the fallback-identity literals, a
+   raw non-ASCII literal, and a `rendererCapability` pin matching the old `null`) were corrected the same way
+   before the push.
+
+**Policy slip in this slice, recorded rather than omitted.** While iterating on the port I ran
+`node --check webos_app/app/js/playlist_parser.js` on the owner's Mac. That is a local syntax-check workload,
+which repository policy forbids; it was a mistake even though it creates no build artifact and nothing in this
+entry depends on it — the accepted evidence is the hosted `node --check` sweep inside job `140879671978`. No local
+analyze, test, build, render, package or sign workload was run afterwards. Violation count for this slice: `1`.
+
+**§16.3's open build jobs are closed.** `android / Android/TV universal APK + AAB` and
+`windows / Windows release build`, which §16 recorded as `in_progress`, are `completed success` in run
+`46109944427` (head `e2400e3`) and in run `46110554692` (head `46d74e5`), where all eight build jobs — including
+`windows / Windows installer install + smoke test`, `windows / Windows runtime smoke test` and
+`windows / Windows compatibility package (Skia)` — are green. At `de61b5a` (run `46112449530`) seven of eight were
+green with the Skia package still running when read, and the run for `3001cfa` (`46112735764`) was still pending
+when this entry was written; neither is claimed.
+
+**What this does not mean.** No phone, Android TV, webOS console, Windows shell or Mac GUI has ever executed this
+parser; `# tests 70` and `assertions: 348` are contract evidence, not playback evidence. `streamSecretRef` still
+has no verified secret store. No Live TV screen consumes the Phase B library yet (B4), so B2 is a verified
+*library* and not a verified feature. Artifact digests remain runner-self-reported, and the Windows byte-equality
+and third-party-notice packaging gaps are still open. Production release remains blocked.
+`Local runtime remains NOT VERIFIED`.
