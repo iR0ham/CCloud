@@ -768,10 +768,66 @@ Exact next action: push this corrective slice as one focused commit, then read t
 `live foundation OK` plus its `assertions: <n>` line and `# fail 0`, and only then mark B1-S/B1-J hosted
 verified in `PENDING_WORK_COMPLETION_PLAN.md`.
 
-**Landed as:** `43ff4bb` (the four corrective changes above, code and tests) and the following docs commit
-(the three ledgers). Both are on `ci/github-first-foundation`; nothing was pushed while a claim in the diff
-was still unsupported, which is why the Dart `DateTime.parse` wording was checked against the primary
-documentation before the commit was created. The two runs still outstanding at the time of writing are the
-CI and Build workflows at the new head: until they report `live foundation OK` with its
-`assertions: <n>` line and `# fail 0`, task B1-S and B1-J stay **implemented, NOT VERIFIED**, and no
-pending-work row may read TESTED.
+**Landed as:** `43ff4bb` (the four corrective changes above, code and tests), `4ac3e16` (plan plus the two
+report checkpoints) and `5b7df6a` (this entry), pushed together as `aab31be..5b7df6a` so one hosted run
+judges the whole slice. Nothing was pushed while a claim in the diff was still unsupported, which is why the
+Dart `DateTime.parse` wording was checked against the primary documentation before the commit was created.
+The runs at that head are CI `46106416771`, Build `46106416765`, Quality `46106416810`. Until they report
+`live foundation OK` with its `assertions: <n>` line and `# fail 0`, tasks B1-S and B1-J stay **implemented,
+NOT VERIFIED**, and no pending-work row may read TESTED.
+
+**Push-timing fact worth keeping:** because `cancel-in-progress: true` is set on both `ci.yml` and
+`quality.yml`, any further push while `46106416771` is in flight cancels the run that is supposed to verify
+`43ff4bb`. Follow-up ledger edits are therefore prepared and committed locally but held until that run is
+read, and work that does not need a push (the deferred provenance hardening) proceeds in that window.
+
+---
+
+## 2026-11-28 (project manager) — Addendum: the run at `5b7df6a` proves B1-S, and the loader fix introduced one new failure
+
+Read from the runners, not inferred.
+
+**Hosted GREEN for Task B1-S.** CI `46106416771` at `5b7df6a`: job `140860070767` (`macOS arm64 typecheck`)
+**success**, and its log carries the first Swift test evidence this repository has ever produced from a
+runner — `typecheck OK (46 files)`, then
+
+```
+live foundation fixtures: /Users/runner/work/CCloud/CCloud/Tests/fixtures/migration
+assertions: 227
+==> live foundation assertions: 227 (floor 150)
+live foundation OK
+```
+
+So the assertion floor is not a claim any more: `227 >= 150`, observed. `Flutter analyze and tests`
+(`140860070544`) and `Version and canonical metadata` (`140860070806`) were green, `Live API verification`
+(`140860071691`) skipped, Quality `46106416810` success, and Build `46106416765` was still running when this
+section was written (`build-platforms.yml:41` sets `cancel-in-progress: false`, so the follow-up push does not
+cancel it). Task B1-S is therefore **implemented and host-verified at unit level**, including the calendar
+rejections and the parsed-document snapshot checks from `43ff4bb`.
+
+**Task B1-J is still red, for one cause, and it is mine.** Job `140860070844` step `Run webOS regressions`:
+`# tests 30 / # pass 11 / # fail 19`, every failure carrying
+`error: 'Function.apply is not a constructor'` with
+`stack: loadContracts (Tests/webos/live_contracts.test.js:77:19)`. The replacement loader I wrote in
+`43ff4bb` spelled the construction `new Function.apply(null, args)`; `new` binds tighter than the member
+access, so that expression constructs from `Function.apply` itself. 18 of the 19 failures are the loader
+throwing before any contract assertion runs — the 19th is the ES2017 ceiling test, the only one that reads
+the module's source text instead of evaluating it, and it passed, as did all 10 transport tests.
+
+Fixed by calling `Function.apply(null, args)` without the `new` keyword, which is the same construction, with
+a comment stating the precedence trap so nobody reintroduces it. No assertion was added, removed or relaxed by
+this fix, so the next run's `# fail 0` will be the first evidence about the webOS contract itself — the
+calendar validation from `43ff4bb` is still unexecuted, and until that run B1-J stays **implemented, NOT
+VERIFIED**.
+
+**What this changes about the earlier attribution.** Cause 1 of the four (the realm mismatch) is still the
+right diagnosis — the values really were structurally equal and prototype-different — but the fix for it is
+what introduced this failure. That is the difference between a change that compiles and a change that runs,
+and on this project only the runner can tell them apart. It is also why the mandate's no-local-execution
+rule costs a cycle per mistake instead of catching them: the trade is accepted deliberately, and recorded.
+
+Exact next action: push the loader fix together with the deferred hardening slice (recursive
+`Legal/licenses` sweep, `documented.add` moved after the containment rejection, a direct
+`LiveCatalogStateCodec.supportedSchemaVersion` reference in the Dart test), then read the CI run at that head
+for `# fail 0`. Only after that may `PENDING_WORK_COMPLETION_PLAN.md` section 12 move B1-J off
+"NOT VERIFIED", and only then does B2 (parsers and `Tests/fixtures/multi-source/*`) open.
