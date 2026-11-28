@@ -33,6 +33,19 @@ void main() {
       expect(stableKeyHash('پرس') == stableKeyHash('press'), isFalse);
     });
 
+    test('reproduces the golden digests the other two ports pin', () {
+      // These three literals are not Dart's own output. They are what the `macos-15` runner
+      // printed for the Swift implementation (`Tests/live-foundation/main.swift` prints
+      // `golden stableKeyHash(...) = ...`), and `Tests/webos/playlist_parser.test.js:162-164`
+      // pins the identical strings. The shape checks above cannot notice a recipe drift —
+      // FNV-1 instead of FNV-1a, a changed seed, a dropped mask — because all of those still
+      // render as 32 lowercase hex. Pinning a foreign value is what makes a Dart-side drift
+      // fail here instead of minting member ids no other port recognises.
+      expect(stableKeyHash(''), '811c9dc59e3779b985ebca6bc2b2ae35');
+      expect(stableKeyHash('playlist:valid'), '981a29df6c39c1531339e5c1aef7688f');
+      expect(stableKeyHash('پرس'), 'e724bb8086a3208c85ff01962c8b8030');
+    });
+
     test('separates the four passes so a single-pass bug is visible', () {
       // Each pass contributes eight digits, so a hash that only ran the first seed has eight
       // distinct leading and trailing halves only by accident. All four segments must be
