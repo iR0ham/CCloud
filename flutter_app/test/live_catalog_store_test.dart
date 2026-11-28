@@ -642,7 +642,7 @@ void main() {
       );
       expect(store.hasStoredDocument, isFalse);
     });
-  }
+  });
 
   group('clearing', () {
     test('clear reports whether storage really holds nothing', () async {
