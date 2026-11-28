@@ -1093,3 +1093,83 @@ has no verified secret store. No Live TV screen consumes the Phase B library yet
 *library* and not a verified feature. Artifact digests remain runner-self-reported, and the Windows byte-equality
 and third-party-notice packaging gaps are still open. Production release remains blocked.
 `Local runtime remains NOT VERIFIED`.
+
+## 2026-11-28 (project manager) — Task B3-D is hosted-verified for the Dart port at `34efcc7`
+
+**Branch state.** Dev branch `ci/github-first-foundation`; remote head verified with
+`git ls-remote origin refs/heads/ci/github-first-foundation` =
+`34efcc78859da1178b17d00714e5696749402c7e`; the local checkout matches it and the worktree is clean.
+Commit chain for this slice: `985dea1` (tests, hosted RED) → `136a580` (implementation, hosted RED for one
+semantic mismatch) → `34efcc7` (test-side contract correction, hosted GREEN). `main` remains at `6dfd925`,
+untouched.
+
+**What landed.** Three new libraries plus one test file:
+`flutter_app/lib/core/channel_identity.dart` (`findChannelCandidate`, `logicalIdOf`,
+`membersOfLogicalChannel`, `associateChannels`, `separateChannel`, the five `ChannelIdentityErrorCode` cases,
+`channelCandidateAmbiguityFloor = 85`), `flutter_app/lib/core/unified_catalog.dart` (`buildUnifiedChannels`),
+`flutter_app/lib/core/builtin_catalog_adapter.dart` (`registerBuiltInChannels`), and
+`flutter_app/test/channel_identity_test.dart` (33 cases). Nothing in `flutter_app/lib/screens/**` or
+`widgets/**` was touched, so no shipping screen changed behaviour: Phase B remains a library with no consumer
+until B4.
+
+**Hosted RED at `985dea1` (run `46113911268`, job `140883311742`).** The failure is exactly the expected kind —
+three `Target of URI doesn't exist` errors for the three not-yet-created libraries plus the undefined symbols
+they would provide — while `Version and canonical metadata`, `macOS arm64 typecheck` and
+`webOS static JS/JSON/service validation` were already green. `Quality` `46113911276` succeeded. The RED is
+recorded because a test suite that cannot fail proves nothing.
+
+**Hosted RED at `136a580` (CI `46114534295` failure, Build all platforms `46114534346` failure).** The analyzer
+was clean (`No issues found! (ran in 11.4s)`), and exactly one of the 193 cases failed:
+`channel_identity_test.dart:203  Expected: not null  Actual: <null>`, reason
+`the display-name noise token must not break the match`. The Android job reported the same defect as
+`190 tests passed, 1 failed, 1 skipped`. Diagnosis, from the source rather than from the message: my test
+asserted that `findChannelCandidate` folds `Press TV (720p)` against `Press TV`, but in this repository that
+noise-token removal belongs to the parser (`m3uDisplayName` at `flutter_app/lib/core/live_catalog.dart:109`,
+noise rule at `:148`), applied when the row is read; `liveNameKey` at `:40-105` folds script, diacritics,
+letter variants, digits and whitespace and deliberately does **not** strip a parenthesised quality token. The
+plan mentions `(720p)` only as a parser fixture (`2026-11-25-multi-source-subtitles.md:369`). So the test was
+wrong about which layer owns the rule, and the implementation was right.
+
+**The correction in `34efcc7` changed the test, not the production code, and removed no coverage.** The
+over-specified case was replaced by two cases that pin the seam in both directions: a raw ` (720p)` pair must
+produce **no** candidate (the identity layer invents no folding the parser did not perform), and the same row
+arriving through the real `parsePlaylist` must yield a `50` / `exactNameOnly` candidate with
+`displayName == 'Press TV'`. A third assertion in the replaced case had also relied on a letter mapping
+`liveNameKey` does not implement, so it was switched to the Arabic `ك` → Persian `ک` rule at `:63-64` that the
+shared fold actually performs, and an unrelated pair must still return `null`. No assertion was deleted without
+replacement, no gate was touched, and nothing was marked skip.
+
+**Hosted GREEN at `34efcc7` (CI `46116709289`, all four executing jobs success, `Live API verification`
+skipped by design).** `Flutter analyze and tests` (job `140892069057`) printed
+`No issues found! (ran in 13.0s)` and `🎉 192 tests passed, 1 skipped.`; all 33 `channel_identity_test.dart`
+cases are green by name in that log. `Version and canonical metadata` `140892069071`,
+`macOS arm64 typecheck` `140892068871` and `webOS static JS/JSON/service validation` `140892069044` succeeded,
+as did `Quality` `46116709393`.
+
+**`Build all platforms` `46116709333` at `34efcc7` is green on all eight jobs**, so the Dart-only test change kept
+every platform artifact building: `windows / Dart analyze` `140892068940`,
+`android / Android/TV universal APK + AAB` `140892069093`, `macos / macOS arm64 build` `140892069098`,
+`webos / webOS IPK` `140892069139`, `windows / Windows release build` `140892069172`,
+`windows / Windows runtime smoke test` `140893523490`,
+`windows / Windows compatibility package (Skia)` `140893523510`, and
+`windows / Windows installer install + smoke test` `140893523544` are all `completed success`.
+
+**Two facts this slice discovered that belong to later work.**
+1. **Ordering defect avoided before push.** With `memberAssociatedElsewhere` evaluated before
+   `unknownPreferredLogicalChannel`, the invalid-input case at `channel_identity_test.dart:641`
+   (`member:v1`/`member:v2` with `preferredLogicalId: 'member:nowhere'`, where `member:v2` is already paired
+   with `member:v3`) throws the wrong code. The whole-map check now runs first, and the reason is a comment in
+   the source: if the preferred channel does not exist, nothing below it can be interpreted.
+2. **Open B4 gap.** Built-in Famelack rows enter the catalog through `LiveTvChannel.name` and never pass
+   through `m3uDisplayName`, unlike parsed playlist rows. A built-in row whose provider itself carries a quality
+   suffix therefore produces no merge candidate for its clean-named sibling. The effect is bounded — candidates
+   are UI suggestions and never decide identity, so this under-suggests rather than mis-merges — but B4-D should
+   route built-in display names through the same noise rule.
+
+**What this does not mean.** No Android phone, Android TV, webOS console, Windows shell or Mac GUI has executed
+any of this code; `192 tests passed` is contract evidence on a GitHub runner, not device acceptance. The Swift
+(B3-S) and JavaScript (B3-J) ports do not exist yet, so the scoring table, the five error codes and the two
+identity recipes are currently enforced on one port only. `streamSecretRef` still has no verified secret store,
+artifact digests remain runner-self-reported, the Windows byte-equality and third-party-notice packaging gaps
+stay open, and the Phase B exit gate at plan `2051-2066` is unfilled.
+Production release remains blocked. `Local runtime remains NOT VERIFIED`.

@@ -751,3 +751,47 @@ codes. Phase B's other documented debt lands here: the `LiveTVCatalogCodec` null
 `node --check webos_app/app/js/playlist_parser.js` was run on the owner's Mac — a forbidden local syntax workload,
 which produced no artifact and supports no claim in this ledger. The violation count for this slice is `1`; the
 accepted evidence for that check is the hosted sweep in job `140879671978`.
+
+## 18. Dated verification — 2026-11-28 (B3-D hosted-verified for Dart; B3-S and B3-J open)
+
+**18.1 Head and result.** `ci/github-first-foundation` is at
+`34efcc78859da1178b17d00714e5696749402c7e` (verified with `git ls-remote`, worktree clean, `main` still
+`6dfd925`). Task B3-D — logical channel identity, the unified catalog projection, and the built-in catalog
+adapter for Flutter — is **hosted-verified for the Dart port**. Chain: `985dea1` (tests) → `136a580`
+(implementation) → `34efcc7` (contract correction, test side only).
+
+**18.2 Evidence.** CI `46116709289`: `Flutter analyze and tests` `140892069057` →
+`No issues found! (ran in 13.0s)`, `🎉 192 tests passed, 1 skipped.`; `Version and canonical metadata`
+`140892069071`; `macOS arm64 typecheck` `140892068871`; `webOS static JS/JSON/service validation`
+`140892069044`; `Live API verification` skipped. Quality `46116709393` success. Build all platforms
+`46116709333` green on all eight jobs. The two earlier runs are recorded as failures, not smoothed over:
+`46113911268` (`985dea1`) is the planned RED, and `46114534295` / `46114534346` (`136a580`) failed one real
+assertion.
+
+**18.3 What the failure taught, and what it changed about the plan.** The plan's B3-D wording (and §17.5 above)
+reads as if the identity layer folds display-name noise. It does not, and must not: `liveNameKey`
+(`flutter_app/lib/core/live_catalog.dart:40-105`) folds script, diacritics, letter variants, digits and
+whitespace only, while the quality-token strip lives in `m3uDisplayName` (`:109`, rule at `:148`) and runs at
+parse time (`playlist_parser.dart:407`). §17.5's "candidate scoring `95/90/85/75/70/50`" therefore holds **on
+stored `normalizedName` values**, and a raw `Press TV (720p)` pair produces no candidate by design. Later
+mirrors (B3-S, B3-J, and any reviewer comparing ports) should read the ladder that way; the Dart test at
+`34efcc7` is the executable statement of the seam. No gate, assertion or implementation rule was weakened to
+reach green — one over-specified expectation was replaced by two that pin the boundary in both directions.
+
+**18.4 Interface contract now fixed by execution on one port** (the Swift and JavaScript mirrors must reproduce
+it literally, and a deviation is a defect): the five-tier ladder with `ambiguous = score < 85 || providerConflict ||
+countryConflict`; provider IDs compared only inside one namespace; the association validation order
+`fewerThanTwoMembers → duplicateMember → unknownMember → unknownPreferredLogicalChannel → memberAssociatedElsewhere`;
+`sourcesByChannel` keyed on the *member's* logical ID rather than `source.channelId`; source sort
+`priority` then `sourceId`; channel sort `userOrder` then catalog appearance index, both with explicit
+tiebreaks because no port guarantees a stable sort; and the two identity recipes
+`member:` / `source:` on `stableKeyHash`.
+
+**18.5 Open items after this section (unchanged from §17 where not restated).** B3-S and B3-J are unstarted.
+New known gap for **B4**: built-in Famelack rows arrive as `LiveTvChannel.name` and bypass `m3uDisplayName`, so
+a provider row carrying its own `(720p)` suffix yields no merge suggestion for its clean-named sibling
+(under-suggestion only — candidates never merge anything). Phase C still owns failover; `streamSecretRef` still
+has no verified secret store; no device, emulator, TV console, Windows shell or Mac GUI has executed any Phase B
+port; artifact digests stay runner-self-reported; the Windows byte-equality and third-party-notice packaging
+gaps and the unified-version decision (`2.1.0`+23) remain open.
+**Verdict unchanged: DEVELOPMENT BUILDS VERIFIED — RELEASE BLOCKED.** `Local runtime remains NOT VERIFIED`.

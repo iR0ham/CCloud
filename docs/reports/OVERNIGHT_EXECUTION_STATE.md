@@ -541,6 +541,42 @@ None of these may be cleared by changing a label, a flag, or a document claim.
     OS acceptance remain NOT VERIFIED for every port, `streamSecretRef` has no verified secret store, and
     production release stays blocked.
 
+12. **Item 11's next action is done; this supersedes it.** Task B3-D is **hosted-verified for the Dart port**.
+    Remote head `34efcc78859da1178b17d00714e5696749402c7e` on `ci/github-first-foundation` (verified with
+    `git ls-remote`), worktree clean. Commits: `985dea1` (the 33-case `channel_identity_test.dart`, hosted RED),
+    `136a580` (the three libraries, hosted RED for one test-side mismatch), `34efcc7` (contract correction on the
+    test side only, hosted GREEN).
+    Hosted evidence at `34efcc7`: CI `46116709289` — `Flutter analyze and tests` `140892069057` →
+    `No issues found! (ran in 13.0s)` and `🎉 192 tests passed, 1 skipped.` (up from `159` at `3001cfa`, no gate
+    touched); `Version and canonical metadata` `140892069071`, `macOS arm64 typecheck` `140892068871`,
+    `webOS static JS/JSON/service validation` `140892069044` all `success`, `Live API verification` `skipped`.
+    Quality `46116709393` success. Build all platforms `46116709333` is green on all eight jobs
+    (`140892068940`, `140892069093`, `140892069098`, `140892069139`, `140892069172`, `140893523490`,
+    `140893523510`, `140893523544`).
+    Two substantive findings, both ledgered in `EXECUTION_LOG.md`: the RED at `136a580` came from my own test
+    attributing `(720p)` noise-stripping to the identity layer when the repository owns that rule in the parser
+    (`m3uDisplayName`, `flutter_app/lib/core/live_catalog.dart:109`/`:148`) — the fix corrected the test and
+    pinned the seam in both directions instead of relaxing the implementation; and a known B4 gap is that
+    built-in Famelack rows enter through `LiveTvChannel.name` and bypass `m3uDisplayName`, so a provider row
+    carrying its own quality suffix yields no merge candidate (under-suggests only; candidates never decide
+    identity). Validation order in `associateChannels` is now fewerThanTwo → duplicateMember → unknownMember →
+    unknownPreferredLogicalChannel → memberAssociatedElsewhere.
+    **Still hosted-verified as *libraries* only:** no device or OS shell has executed any port, no shipping
+    screen consumes B3 (B4 is the first consumer), and the Swift B3-S and JavaScript B3-J mirrors do not exist
+    yet, so the scoring table, the five error codes and the two identity recipes are today enforced on one port.
+    **Current exact next action:** **Task B3-S** — plan `:1544-1613`. Create
+    `Sources/Core/LiveTVChannelIdentity.swift`, `Sources/Core/UnifiedLiveCatalog.swift`,
+    `Sources/Core/BuiltInLiveCatalogAdapter.swift`; add the assertions to `Tests/live-foundation/main.swift` and
+    the three files to the explicit `xcrun swiftc` list in `Tests/live-foundation/run.sh` (the harness compiles a
+    named list, so an unwired file cannot be reached). Evidence to quote from the runner: `typecheck OK (<n> files)`,
+    a new `assertions: <n>` (baseline `348`, floor `150`) and `live foundation OK`. Then **B3-J** — plan
+    `:1614-1646`, with the test file at `Tests/webos/channel_identity.test.js` rather than the plan's
+    `webos_app/test/`, because the hosted step runs `node --test Tests/webos/`; baseline there is `# tests 70`.
+    Note for the owner: `team_delegate` still refuses with `COLLABORATION_MCP_TEAM_LEADER_REQUIRED`, so these
+    slices are executed by the project manager directly, and any review in this session is the §3 read-only
+    independent review — not a review by the team Code Reviewer. Device and OS acceptance remain NOT VERIFIED,
+    `streamSecretRef` has no verified secret store, and production release stays blocked.
+
 ## How to resume after an interruption
 
 - `cd /Users/roham/Documents/CCloudMac && git status --short && git log --oneline -8`
