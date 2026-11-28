@@ -4,7 +4,6 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
-const vm = require('node:vm');
 
 const ROOT = path.resolve(__dirname, '../..');
 const JS_DIR = 'webos_app/app/js';
@@ -30,23 +29,61 @@ const REQUIRED_API = [
   'rendererSupportValues'
 ];
 
-// Same harness shape as `Tests/live-foundation/main.swift`: the module is loaded into a
-// sandbox that provides only `window`, so a file that reached for `localStorage`, `fetch`
-// or a DOM node would throw here rather than pass on a developer machine and fail on a
-// TV. `Tests/webos/transport.test.js` uses the idiom for `net.js`.
+// Same contract, different loader than `Tests/webos/transport.test.js`: the module is
+// evaluated in *this* realm with every browser and host I/O global sealed as a parameter,
+// rather than inside `vm.runInNewContext`. The reason is measurable rather than stylistic.
+// A value built inside a VM context carries that context's `Array.prototype` and
+// `Object.prototype`, so `node:assert/strict` refuses it as "Values have same structure but
+// are not reference-equal" even when every element matches. Ten of the checks below compare
+// whole decoded documents, so a sandboxed realm would have the harness grade its own loader
+// instead of the contract (that is exactly what the first hosted run of this suite showed).
+// The inertness the sandbox was bought for is stated explicitly instead: `localStorage`,
+// `fetch`, `XMLHttpRequest`, `document`, `require` and `process` are shadowed by parameters,
+// so a module that reached for one throws here rather than passing on a development machine
+// and failing on a TV.
 //
 // `moduleName` is a parameter, not the constant above, because task B3 runs this file against
 // a second implementation of the same contract in the same directory. A harness that
 // hardcoded one path would silently test that file twice and report agreement between two
 // modules that were never both loaded; the parent session passes each name explicitly.
+const SEALED_GLOBALS = [
+  'window',
+  'localStorage',
+  'sessionStorage',
+  'document',
+  'navigator',
+  'location',
+  'fetch',
+  'XMLHttpRequest',
+  'WebSocket',
+  'require',
+  'process',
+  'Buffer',
+  'global',
+  'globalThis'
+];
+
 function loadContracts(moduleName) {
   const name = moduleName || MODULE_NAME;
   const modulePath = path.join(ROOT, JS_DIR, name);
-  const context = { console: console, window: {} };
-  vm.runInNewContext(fs.readFileSync(modulePath, 'utf8'), context, {
-    filename: modulePath
+  const scope = {};
+  const values = SEALED_GLOBALS.map(function (key) {
+    return key === 'window' ? scope : undefined;
   });
-  const namespace = context.window.CC;
+  // The body is prefixed with the directive so a stray global write throws instead of
+  // landing on the test process. `Function` compiles in this realm, which is the whole
+  // point; `modulePath` stays in the thrown message because a same-realm load has no
+  // filename channel of its own.
+  const factory = new Function.apply(
+    null,
+    SEALED_GLOBALS.concat(['"use strict";\n' + fs.readFileSync(modulePath, 'utf8')])
+  );
+  try {
+    factory.apply(null, values);
+  } catch (error) {
+    assert.fail(name + ' could not be evaluated inertly: ' + error.message);
+  }
+  const namespace = scope.CC;
   if (!namespace) {
     assert.fail(name + ' did not attach a CC namespace to window');
   }
@@ -492,7 +529,10 @@ test('encoding omits streamUrl for a secret-backed source and keeps the referenc
   assert.equal(Object.prototype.hasOwnProperty.call(json.sources[1], 'streamUrl'), false);
   assert.equal(json.sources[1].streamSecretRef, 'secret:ccloud-live-s-2');
   assert.equal(json.sources[0].streamUrl, 'https://stream.example/irib1.m3u8');
-  assert.equal(encoded.indexOf('secret:ccloud-live-s-2') !== -1);
+  assert.ok(
+    encoded.indexOf('secret:ccloud-live-s-2') !== -1,
+    'the secret reference itself is written, so omitting the address cannot also drop the reference'
+  );
   assert.deepEqual(CC.migrate(encoded), state, 'a secret-backed source round-trips');
 });
 
@@ -645,13 +685,29 @@ test('a non-RFC3339 timestamp is refused rather than parsed loosely', function (
       'a ' + value + ' timestamp'
     );
   }
-  throwsMessage(
-    'is not a real calendar instant',
-    function () {
-      CC.decodeState(mutate('impossible instant', ADDITIVE_V1, '"createdAt": "2026-01-01T00:00:00Z",', '"createdAt": "2026-02-31T00:00:00Z",'));
-    },
-    'a 31 February instant'
-  );
+  // Calendar validity is a separate rule from the shape and carries its own message, and it
+  // is the part a delegated parser cannot be trusted with: `new Date` answers each value
+  // below with a real day further into the year instead of refusing it, which would store a
+  // different date than the user wrote.
+  const calendarRejected = [
+    '2026-02-31T00:00:00Z',
+    '2026-02-29T00:00:00Z',
+    '2026-04-31T00:00:00Z',
+    '2026-13-01T00:00:00Z',
+    '2026-00-10T00:00:00Z',
+    '2026-01-00T00:00:00Z'
+  ];
+  for (const value of calendarRejected) {
+    throwsMessage(
+      'is not a real calendar instant',
+      (function (text) {
+        return function () {
+          CC.decodeState(mutate('calendar ' + text, ADDITIVE_V1, '"createdAt": "2026-01-01T00:00:00Z",', '"createdAt": "' + text + '",'));
+        };
+      })(value),
+      'a ' + value + ' calendar day'
+    );
+  }
   // The accepted spellings are exactly the two the format clause allows, plus an offset,
   // and each normalizes to canonical UTC text. `2026-01-01T00:00:00Z` with no fraction is
   // the form the frozen `catalog-v1.json` fixture carries, so refusing it would make this
@@ -660,7 +716,10 @@ test('a non-RFC3339 timestamp is refused rather than parsed loosely', function (
     ['2026-01-01T00:00:00Z', '2026-01-01T00:00:00.000Z'],
     ['2026-01-01T00:00:00.123Z', '2026-01-01T00:00:00.123Z'],
     ['2026-01-01T05:30:00.000+05:30', '2026-01-01T00:00:00.000Z'],
-    ['2026-01-01T21:00:00.000-03:00', '2026-01-02T00:00:00.000Z']
+    ['2026-01-01T21:00:00.000-03:00', '2026-01-02T00:00:00.000Z'],
+    // The leap rule has to be a rule and not a blanket "February stops at 28", so the pair
+    // sits in the same table as the refusals above.
+    ['2028-02-29T00:00:00Z', '2028-02-29T00:00:00.000Z']
   ];
   for (const entry of accepted) {
     const normalized = CC.decodeState(

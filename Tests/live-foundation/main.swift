@@ -384,6 +384,45 @@ check(
     "a non-UTC offset normalizes to canonical UTC on write, matching DateTime.parse().toUtc()"
 )
 
+// A day the month does not have is refused rather than rolled forward. The webOS port
+// states this rule as an explicit calendar check (`requireTimestamp` in
+// `playlist_contracts.js`), and this port may not depend on `ISO8601DateFormatter`'s
+// undocumented range behaviour to reach the same verdict: a value that one reader stores as
+// 3 March and another refuses is a persistence split, not a rounding detail. The leap-year
+// pair below is what makes the check a calendar rule rather than a blanket "day <= 28".
+check(
+    LiveCatalogDate.date(from: "2026-02-31T00:00:00.000Z") == nil,
+    "a 31 February instant is refused instead of rolling into March"
+)
+check(
+    LiveCatalogDate.date(from: "2026-02-29T00:00:00.000Z") == nil,
+    "29 February in a common year is refused"
+)
+check(
+    LiveCatalogDate.date(from: "2028-02-29T00:00:00.000Z") != nil,
+    "29 February in a leap year parses"
+)
+check(
+    LiveCatalogDate.date(from: "2026-13-01T00:00:00.000Z") == nil,
+    "month 13 is refused"
+)
+check(
+    LiveCatalogDate.date(from: "2026-04-31T00:00:00.000Z") == nil,
+    "a 31st day in a 30-day month is refused"
+)
+check(
+    LiveCatalogDate.date(from: "2026-01-01T00:00:00.000Z") != nil,
+    "an ordinary canonical instant still parses, so the calendar rule is not a blanket refusal"
+)
+expectDataCorrupted("a stored document carrying a 31 February date") {
+    try LiveCatalogStateCodec.decode(mutated(
+        "impossible day",
+        from: additiveV1JSON,
+        "\"createdAt\": \"2026-01-01T00:00:00Z\"",
+        to: "\"createdAt\": \"2026-02-31T00:00:00Z\""
+    ))
+}
+
 // MARK: - 3. The frozen v1 fixture decodes, including its seconds-precision dates
 
 let v1FixtureText = fixtureText("catalog-v1.json")
@@ -910,9 +949,30 @@ check(
 // check for the wrong reason. Here the plain sibling proves the key is written when it
 // may be, so the count below measures the omission rule rather than its absence.
 let streamUrlKeys = snapshotText.components(separatedBy: "\"streamUrl\"").count - 1
+// The address is read back out of the parsed document instead of searching `snapshotText`
+// for the URL: Foundation's JSON writer escapes forward slashes on Apple platforms — the
+// same behaviour the API layer already strips at `Sources/Core/APIClient.swift:206` — so the
+// encoded text holds `https:\/\/stream.example\/irib1.m3u8`. A substring test there would be
+// measuring the writer's escaping rather than the contract, and a future Foundation that
+// stops escaping would turn this red for a reason no user cares about. The parsed value is
+// the contract; the escaping is encoding noise both readers undo.
+let snapshotDocument = must("snapshot document parses") {
+    try JSONSerialization.jsonObject(with: snapshotData)
+}
+let snapshotChannels = (snapshotDocument as? [String: Any])?["channels"] as? [[String: Any]]
+let snapshotSources = snapshotChannels?.first?["sources"] as? [[String: Any]]
+check(snapshotSources?.count == 2, "the persisted snapshot document carries both sources")
 check(
-    snapshotText.contains("\"streamUrl\":\"https://stream.example/irib1.m3u8\""),
+    snapshotSources?[0]["streamUrl"] as? String == "https://stream.example/irib1.m3u8",
     "the snapshot keeps the address of the source that stores one"
+)
+check(
+    snapshotSources?[1]["streamUrl"] == nil,
+    "the snapshot writes no address value at all for the secret-backed source"
+)
+check(
+    snapshotSources?[1]["streamSecretRef"] as? String == "secret:ccloud-live-s-2",
+    "the secret-backed source keeps its reference in the persisted document"
 )
 check(
     streamUrlKeys == 1,

@@ -74,7 +74,38 @@ enum LiveCatalogDate {
     }()
 
     static func date(from text: String) -> Date? {
-        canonicalFormatter.date(from: text) ?? secondPrecisionFormatter.date(from: text)
+        let canonical = canonicalFormatter.date(from: text)
+        let secondsPrecision = secondPrecisionFormatter.date(from: text)
+        guard let date = canonical ?? secondsPrecision else {
+            return nil
+        }
+        // The calendar day is re-checked from the text instead of trusting the formatter's
+        // own range behaviour, which is not part of any contract this port may depend on.
+        // The reason is a real divergence between the two sibling readers: a day the month
+        // does not have can be rolled into the next month rather than refused, and
+        // `2026-02-31` stored as `2026-03-03` is a different user-visible date, not a
+        // rounding detail. `playlist_contracts.js` states the same rule for the webOS port.
+        guard text.count >= 10,
+            let year = Int(text.prefix(4)),
+            let month = Int(text.dropFirst(5).prefix(2)),
+            let day = Int(text.dropFirst(8).prefix(2)),
+            month >= 1, month <= 12,
+            day >= 1, day <= daysInMonth(month, year: year)
+        else {
+            return nil
+        }
+        return date
+    }
+
+    /// Days in `month` (1 = January) of `year`, with the leap rule written out so the
+    /// Gregorian exception is visible rather than delegated to a calendar instance.
+    private static func daysInMonth(_ month: Int, year: Int) -> Int {
+        switch month {
+        case 1, 3, 5, 7, 8, 10, 12: return 31
+        case 4, 6, 9, 11: return 30
+        case 2: return year % 4 == 0 && (year % 100 != 0 || year % 400 == 0) ? 29 : 28
+        default: return 0
+        }
     }
 
     static func text(for date: Date) -> String {

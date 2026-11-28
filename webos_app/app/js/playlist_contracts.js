@@ -70,9 +70,20 @@ window.CC = window.CC || {};
   var SOURCE_ORIGIN_VALUES = ['playlist', 'user'];
 
   // Canonical form, plus the one legacy form that must still load. Deliberately an
-  // explicit shape rather than `new Date(text)`, which accepts "2026-01-01",
-  // "2026-01-01 00:00:00" and "01/02/2026", none of which the Dart or Swift reader
-  // accepts, and a handful of vendor spellings the three ports would disagree on.
+  // explicit shape rather than `new Date(text)`, which also accepts "2026-01-01",
+  // "2026-01-01 00:00:00" and "01/02/2026" — spellings no writer in this contract produces —
+  // alongside vendor forms the three ports would disagree on. Dart's `DateTime.parse` covers
+  // some of the same ground (it takes a date-only value and reads a zone-less timestamp as
+  // local time), so a shared parser cannot express the rule; each port states it.
+  //
+  // Day count per month, index 0 = January. February is widened by `isLeapYear` at the
+  // call site rather than stored as two arrays, so the leap rule is stated once.
+  var DAYS_IN_MONTH = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+
+  function isLeapYear(year) {
+    return year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+  }
+
   var TIMESTAMP_PATTERN =
     /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{3})?(Z|[+-]\d{2}:\d{2})$/;
 
@@ -182,19 +193,37 @@ window.CC = window.CC || {};
     if (!TIMESTAMP_PATTERN.test(text)) {
       fail(field + ' is not an RFC 3339 timestamp: ' + text);
     }
-    // The pattern fixes the shape; these bounds are what make the shape mean a real
-    // instant. `new Date` is not trusted for this: it accepts some out-of-range
-    // components by rolling them into the next day, and the Dart and Swift readers reject
-    // them outright, so cross-port agreement has to come from a rule this port states
-    // rather than from whichever date parser the device happens to use. Hour 24 and
-    // minute 60 are shape failures, matching those ports; a leap second is outside what
-    // any writer here produces, so it is refused with the shape message too rather than
-    // silently normalized into an instant no other port would store.
+    // The pattern fixes the shape; the bounds below are what make the shape mean a real
+    // instant. `new Date` is deliberately not trusted for this, because it answers
+    // out-of-range components by rolling them forward — "2026-02-31T00:00:00Z" becomes
+    // 3 March — and a rolled-over timestamp silently moves a date the user wrote. The rule
+    // is therefore stated by this port instead of inherited from whichever date parser the
+    // device happens to ship.
+    //
+    // The sibling ports do not currently reach the same verdict by default. Dart's
+    // `DateTime.parse` documents that it "accepts out-of-range component values and
+    // interprets them as overflows into the next larger component" (`2020-01-42` becoming
+    // `2020-02-11`), which is the same rollover `new Date` performs, and the same page names
+    // `DateFormat.parseStrict` from `package:intl` as the way to reject them — a dependency
+    // this catalog codec deliberately does not carry. So this port states the rule, the Swift
+    // codec carries the equivalent component check (see `LiveCatalogDate.date(from:)`,
+    // `Sources/Core/LiveTVCatalogCodec.swift`), and closing the Dart half is recorded as task
+    // B3 cross-port agreement work rather than silently assumed here.
     var hour = parseInt(text.slice(11, 13), 10);
     var minute = parseInt(text.slice(14, 16), 10);
     var second = parseInt(text.slice(17, 19), 10);
     if (hour > 23 || minute > 59 || second > 59) {
       fail(field + ' is not an RFC 3339 timestamp: ' + text);
+    }
+    var year = parseInt(text.slice(0, 4), 10);
+    var month = parseInt(text.slice(5, 7), 10);
+    var day = parseInt(text.slice(8, 10), 10);
+    if (month < 1 || month > 12) {
+      fail(field + ' is not a real calendar instant: ' + text);
+    }
+    var daysInMonth = month === 2 && isLeapYear(year) ? 29 : DAYS_IN_MONTH[month - 1];
+    if (day < 1 || day > daysInMonth) {
+      fail(field + ' is not a real calendar instant: ' + text);
     }
     var date = new Date(text);
     if (isNaN(date.getTime())) fail(field + ' is not a real calendar instant: ' + text);
