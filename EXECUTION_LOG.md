@@ -1446,3 +1446,74 @@ review by the unavailable Code Reviewer member.
 **What this does not mean.** Nothing calls `seedSingletonChannels` yet: there was no persistence, no
 `index.html` registration, and no live-path consumer on any port when this ran, so no user-visible behaviour
 changed and no device, emulator or Mac runtime was exercised. The companion documents carry the same milestone: `docs/reports/PENDING_WORK_COMPLETION_PLAN.md` gains §21, and a dated addendum in `docs/reports/OVERNIGHT_EXECUTION_STATE.md` that moves the current task from B3-J to B4-2, because the earlier B3-J checkpoint in that file predates B4-1 and is left in place untouched. `Local runtime remains NOT VERIFIED`.
+
+## 2026-11-28 (project manager) — Directive-§3 read-only review of the wider Phase B range (B1 and B2), with one test hardening
+
+**Scope and mode.** The earlier §3 review covered the B3 range. This one covers **B1 (catalog contract and
+codec) and B2 (playlist parser, identity recipes, source registry) across all three ports**, by reading the
+sources: no build, test, or execution workload ran on this machine, so the review is a
+**read-only independent review by the project manager, NOT a review by the Code Reviewer team member** —
+`team_delegate` still returns `COLLABORATION_MCP_TEAM_LEADER_REQUIRED` for every ref in the current roster.
+
+**Agreements that were checked and hold.** Each row below was read on all three ports, not inferred from a
+commit message:
+
+- *Schema gate.* Only version 1 is understood
+  (`webos_app/app/js/playlist_contracts.js:57`, `flutter_app/lib/core/live_contracts.dart:350`,
+  `Sources/Core/LiveTVContracts.swift:339` via `Sources/Core/LiveTVCatalogCodec.swift:155`), and both
+  directions preflight it — decode (`playlist_contracts.js:589`, `live_catalog_codec.dart:46`) and encode
+  (`playlist_contracts.js:596`, `live_catalog_codec.dart:83`, `LiveTVCatalogCodec.swift:44`) — with the
+  refusal text byte-identical (`Unsupported live catalog schema`). No port can write a document its own
+  reader rejects, and none can half-read a future document into an empty state that a later save would
+  persist over a real catalog.
+- *Source policy.* All six defaults agree (`playlist_contracts.js:249-260`,
+  `live_contracts.dart:184-190`, `LiveTVContracts.swift:248-256`): 3 automatic attempts, 2 same-source
+  retries, 15000 ms connect, backoff `[500, 1500, 4000]`, 600 s cooldown, 30000 ms buffering.
+- *Parser ceilings and scheme allow-list.* 10 MiB, 200000 lines, 50000 members, 100 URLs per member,
+  8192 URL characters (`playlist_parser.js:41-45`, `playlist_parser.dart:32-36`,
+  `LivePlaylistParser.swift:39-43`), and `http`/`https` only (`playlist_parser.js:50`,
+  `playlist_parser.dart:39`, `LivePlaylistParser.swift:47`), so `file:`/`udp:`/`ftp:` addresses are refused
+  before a player sees them.
+- *Identity recipe.* Four FNV-1a passes over the exact UTF-8 bytes with the same four seeds and prime
+  (`playlist_parser.js:66-67` and `:148-159`, `identity_hash.dart:18-26` and `:33-46`,
+  `LivePlaylistParser.swift:67-91`), and the three ports reach the same 32-bit low word by different means
+  that are each correct for their language: `Math.imul`, a 64-bit multiply plus mask, and `&*`. The empty
+  input is the sharpest probe of the seed list, and the pinned value
+  (`Tests/webos/playlist_parser.test.js:162` → `811c9dc59e3779b985ebca6bc2b2ae35`) is exactly the four seeds
+  concatenated, which is what a no-byte FNV-1a pass must yield.
+- *Identity refusals.* The five codes exist with the same names and the same validation order on all three
+  ports (`channel_identity.dart:32-36`, `LiveTVChannelIdentity.swift:37-41`, and the matching literals in
+  `webos_app/app/js/channel_identity.js`): fewerThanTwoMembers, unknownMember, duplicateMember,
+  memberAssociatedElsewhere, unknownPreferredLogicalChannel.
+- *Timestamps and secret references.* Two accepted text forms normalizing to the canonical three-fractional-
+  digit UTC (`playlist_contracts.js:34-39`), and a source keeps either an address or a `streamSecretRef`,
+  with `streamUrl` omitted from the written document when a secret reference exists
+  (`playlist_contracts.js:45-47`) — no signed address reaches device storage.
+- *Built-in bridge adds nothing.* `webos_app/app/js/builtin_catalog_adapter.js:1-31` documents that the
+  adapter takes runtime rows (it does not bundle a copy of the Iran list), invents no logo, scores a
+  name+country pair 75 rather than claiming 85, refuses credential-bearing addresses, and deliberately does
+  not apply the parser's noise fold — the known gap the file itself names for task B4.
+
+**Finding B1/B2-1 (the one real gap, now closed in code).** The cross-port hash lock was one-directional.
+Swift *prints* golden digests from the runner (`Tests/live-foundation/main.swift:1074-1079`), the webOS suite
+pins those literals (`Tests/webos/playlist_parser.test.js:162-164`), and the Dart suite pinned **none** of
+them: its only hash assertions were shape and inequality (`flutter_app/test/playlist_parser_test.dart:21-44`),
+so a Dart drift to FNV-1 ordering, a changed seed, or a dropped mask would still render 32 lowercase hex and
+pass — while silently minting member ids the other two ports do not recognise. That matters because every
+persisted row is keyed by those digests. Remediation: a new Dart test pins the same three foreign literals in
+the same style as the webOS suite. It is deliberately derived from another port's output, and until the
+hosted run reports on it the change is **implemented, not verified**; if Dart disagrees, that is a genuine
+cross-language defect to surface, not a value to re-pin. Expected hosted effect: the Flutter job moves from
+197 passed to 198, everything else unchanged.
+
+**Finding B1/B2-2 (accepted, recorded rather than fixed).** Nothing asserts that *Swift* equals the literals
+the other ports pin: a Swift drift turns the webOS job red (the pins are foreign-derived) but the Swift
+harness keeps printing, so detection lives in a different port's suite. This is the intended design — the
+harness prints runner-derived values precisely so the other ports can pin them instead of transcribing a
+developer machine's output — and it is recorded here so a later reader does not mistake the absence of a
+Swift-side literal for an oversight.
+
+**What this review does not cover.** It is static: it cannot and does not claim any device, emulator, TV
+console, Windows shell or Mac GUI behaviour, and it does not re-open the release gates. Legal packaging
+(NOTICE distribution evidence), Windows byte-equality, provenance-hash enforcement and the unified-version
+decision remain outside this section's scope and stay on the open list.
