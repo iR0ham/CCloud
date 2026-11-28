@@ -181,6 +181,37 @@ sites still **18**; no candidate path, no ambiguity `exit 1`, no artifact, no up
 condition changed. The removed `grep -Fq` branch duplicates nothing: the same token against the same
 window file is now asserted through `require_token`, which is the stricter and more diagnostic form.
 
+### At `aab31be` (B1-S and B1-J landed to hosted RED) and the corrective slice on top
+
+Per-commit hosted truth, taken from the runner APIs at this head rather than from earlier reports:
+
+- `10a1986` — B1-S harness/fixtures, intended RED: CI `46101769870` **failure**, Quality `46101769917`
+  success, Build `46101769890` success.
+- `78830ca` — Swift port: CI `46103129293` **failure** (`macOS arm64 typecheck`), Build `46103129306`
+  **failure** (`macos / macOS arm64 build`), Quality `46103129323` success. Both failures were the same
+  compile errors in the new Swift files, seen from two jobs.
+- `809964a`, `5922626` — **zero runs each** (`total_count: 0`): pushed inside a batch, and
+  `cancel-in-progress` leaves only the tip's runs. Their content is carried by later tips; the commits
+  themselves are unverified.
+- `aef55e1` — B1-J suite before its port, intended RED: CI `46103926430` **failure** (webOS +
+  `macOS arm64 typecheck`), Quality `46103926409` success, Build `46103926434` success.
+- `aab31be` — webOS port: CI `46104459953` **failure**, Quality `46104460135` success, Build
+  `46104460101` success. Failing jobs `140853973038` (step `Run webOS regressions`,
+  `# tests 30 / # pass 18 / # fail 12`) and `140853973103` (step `Run Live TV foundation tests`, one Swift
+  failure at `Tests/live-foundation/main.swift:913`). `Flutter analyze and tests` and
+  `Version and canonical metadata` were green; `Live API verification` skipped.
+
+Root causes, four distinct ones — one source defect and three test/harness defects:
+`node:assert/strict` versus a `vm.runInNewContext` realm (10 failures), a single-argument
+`assert.equal` (1), a calendar-rollover gap the module's own comment denied (1, the only source defect),
+and Foundation escaping `/` as `\/` inside an encoded-text substring test (1 Swift). Escaping evidence is
+in-repo at `Sources/Core/APIClient.swift:206`; the Dart overflow-acceptance evidence is the dart:core
+`DateTime.parse` documentation, quoted in the plan addendum's item 11.
+
+The corrective slice (11 assertions added, none removed or relaxed) is **implemented, NOT VERIFIED** — no
+runner has executed it. Phase B still lacks a review by the team Code Reviewer: `team_delegate` refuses with
+`COLLABORATION_MCP_TEAM_LEADER_REQUIRED`, so §3's fallback read-only review applies and is labelled as such.
+
 ### Earlier heads, for continuity
 
 - `6fb03bf`: Quality `46085379874` success, CI `46085379959` success (first hosted proof of the
@@ -264,6 +295,14 @@ The owner's Mac is not used for project execution workloads.
 
 ## Current task
 
+- **Checkpoint 2026-11-28 (later): B1-S and B1-J are implemented but not yet hosted-green.** The ports
+  landed across `10a1986` → `aab31be`; the last run at `aab31be` (CI `46104459953`) is red for four
+  attributed causes, and the corrective slice that answers them is in the working tree at the time of this
+  edit. Active work is therefore: push that slice as one focused commit, read the CI run at the new head, and
+  mark B1-S/B1-J verified only on `live foundation OK` + the `assertions: <n>` line plus `# fail 0`. Task B2
+  (parsers/registries and `Tests/fixtures/multi-source/*`) must not start before that, because B2 consumes the
+  catalog interfaces these two tasks are supposed to prove. The bullets below are the state as of `fcd456c`
+  and are kept for continuity, not corrected.
 - The remediation slice and the reviewer's hardening notes are both **closed with hosted evidence**:
   H1 = `4c80ad3`, H2 = `e1eb4db`, H3 = `5a9ad4a`, all green at `5a9ad4a` and again at `eb052b2`.
 - Phase B has started: **Task B1-D** (Dart contracts, codec, five contract tests, two frozen migration
@@ -386,6 +425,14 @@ None of these may be cleared by changing a label, a flag, or a document claim.
    the *wrong* framing. Landed H1 does both the path promotion **and** the narrowed fallback plus the
    `$APP_ID` identity token, which is strictly better than either alone — the earlier sentence was
    written before anyone knew the fourth candidate would be a legitimate explicit entry.
+7. **Current exact next action (supersedes the "land Task B1-S" sentence in item 3, which is done through
+   implementation but not through green evidence):** commit the corrective slice in the working tree —
+   `Sources/Core/LiveTVCatalogCodec.swift`, `Tests/live-foundation/main.swift`,
+   `Tests/webos/live_contracts.test.js`, `webos_app/app/js/playlist_contracts.js` and the three ledger/plan
+   documents — as one focused commit, push once (item 3's `cancel-in-progress` lesson), then read the CI run
+   at that head for `live foundation OK` and `# fail 0` and record the numbers here. Only after that: B2,
+   then the deferred provenance/test hardening residuals, then B3 cross-port agreement — where the Dart
+   `DateTime.parse` leniency documented in plan item 11 is closed against the same frozen fixture.
 
 ## How to resume after an interruption
 

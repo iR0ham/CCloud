@@ -484,3 +484,38 @@ The critical path is now B1-S (Swift mirror) → B1-J (webOS JavaScript mirror) 
 agreement fixtures over the same `Tests/fixtures/migration/catalog-v1.json`). Device and runtime
 acceptance, native-media relinking, corresponding-source material, signing/notarization and any EPG
 programme data remain owner-side blockers, and no green runner in this range changes that.
+
+## 12. Dated update — 2026-11-28 (B1-S and B1-J implemented; hosted GREEN still open)
+
+Section 11's sequencing was followed: `10a1986` (Swift harness, intended RED `46101769870`) → `78830ca`
+(Swift port) → `809964a` (runner compile fix) → `aef55e1` (webOS suite, intended RED `46103926430`) →
+`5922626` (Swift test compile fix) → `aab31be` (webOS port). Nothing outside the two ports, their tests and
+the ledger documents is in this range: no UI, playback, storage or consumer file changed.
+
+### 12.1 Item outcomes
+
+| Item | Section 11 said | Actual state now | Evidence |
+| --- | --- | --- | --- |
+| Phase B1-S (Swift mirror) | next critical-path item | **implemented, hosted GREEN NOT VERIFIED** | last run at `aab31be`: CI `46104459953` job `140853973103` failed step `Run Live TV foundation tests` on one substring assertion (`main.swift:913`); the `Typecheck Swift sources` step is green. No `assertions: <n>` line has ever been printed by a runner. |
+| Phase B1-J (webOS mirror) | after B1-S | **implemented, hosted GREEN NOT VERIFIED** | same run, job `140853973038` step `Run webOS regressions`: `# tests 30 / # pass 18 / # fail 12`. |
+| Cross-realm test harness | not anticipated | new defect class, fixed in the working tree | 10 of the 12 JS failures were `node:assert/strict` versus a `vm.runInNewContext` prototype realm, not contract differences; the loader now evaluates the module in the test realm with the host globals shadowed. |
+| Calendar strictness | assumed uniform | **not uniform, and now a recorded B3 item** | `new Date` and Dart `DateTime.parse` both roll an impossible day forward (the dart:core page states out-of-range components are "interpreted as overflows", `2020-01-42` → 2020-02-11, and names `DateFormat.parseStrict` as the rejecting alternative); Swift's `ISO8601DateFormatter` range behaviour is undocumented. The webOS and Swift codecs now state the bound themselves; `flutter_app/lib/core/live_catalog_codec.dart` still delegates to `DateTime.parse`. |
+| Encoded-text comparison across ports | open question | **answered: not possible for URLs** | Foundation escapes `/` as `\/` in JSON on Apple platforms (in-repo proof `Sources/Core/APIClient.swift:206`), so the Swift port's URL assertions are by parsed value. B3 must compare ports by parsed value, not raw bytes. |
+| Independent review of Phase B | section 10/11 pattern | **still not by the team reviewer** | `team_delegate` refuses with `COLLABORATION_MCP_TEAM_LEADER_REQUIRED` in this session shape; what exists is a strictly read-only local review, labelled as such in `EXECUTION_LOG.md`. |
+
+### 12.2 What did not change
+
+No gate was relaxed to get here: `cancel-in-progress`, the `MIN_ASSERTIONS=150` floor, the four
+`INTERNAL-ONLY-*` platform labels, the unset `RELEASE_PRODUCTION_READY`, the skipped
+`Live API verification` job and the skipped macOS release steps all still stand. `809964a` and `5922626`
+have zero hosted runs of their own (`total_count: 0`) because they were pushed inside a batch, so those two
+commits are individually unverified even though their content is carried by the tip. Device, OS and runtime
+acceptance for macOS, Android phone, Android TV, Windows and webOS remains NOT VERIFIED, and the
+`streamSecretRef` value still has no verified secret store behind it on any platform.
+
+### 12.3 Consequence for sequencing
+
+The critical path becomes: push and read the corrective run at the new head (that is the gate for B1-S/B1-J)
+→ B2 cross-language agreement fixtures over the same `Tests/fixtures/migration/catalog-v1.json`, with the
+Dart date-reading tightening folded into B3 → B4 wiring. Section 11's owner-side blockers are unchanged, and
+one green runner at the new head would still not change them.

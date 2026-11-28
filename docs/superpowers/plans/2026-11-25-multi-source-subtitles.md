@@ -3109,3 +3109,83 @@ deviation is not mistaken for drift. Items 1 and 2 are already committed and hos
    reads the frozen fixture from a second language, which is where a residual wire-format mismatch would
    surface. Neither B1-S nor B1-J may touch `UserDefaults`, `localStorage`, Application Support, playback
    code, UI code, or any consumer: migration triggers and disk I/O belong to B4-S/B4-J.
+
+---
+
+## Addendum 2026-11-28 (second) — deviations taken while landing B1-S and B1-J
+
+Recorded while the ports were being landed, so a later reader of the snippets above does not mistake
+these three choices for drift. Each one was decided because the snippet, executed literally, would have
+weakened the contract rather than implemented it.
+
+8. **The JavaScript module is `webos_app/app/js/playlist_contracts.js` exporting
+   `CC.playlistContracts`, not `live_contracts.js` / `CC.liveContracts`.** The Files block above names
+   the Dart file's stem for the JS port. The webOS bundle already keeps one module per responsibility
+   (`net.js`, `store.js`, `feed.js`), and this file's own subject is the *playlist catalog* document, not
+   the live TV client, so the accurate name was chosen over the mechanical match to Dart. What matters
+   for B3 is that the exported **surface** is identical: `supportedSchemaVersion`,
+   `rendererSupportValues`, `emptyState`, `standardSourcePolicy`, `decodeState`, `encodeState`, `migrate`,
+   `liveContext`, `attemptContext`, `issue`, `snapshot`. `Tests/webos/live_contracts.test.js` therefore
+   resolves whichever single `CC.*` namespace a module attaches and asserts that surface by name, so B3
+   can point the same harness at a second implementation without editing it. The test file keeps the
+   plan's name.
+9. **The webOS step passes a directory, not a glob.** Item 6 asked for
+   `node --test Tests/webos/*.test.js`; `.github/workflows/ci.yml:178` runs
+   `node --test Tests/webos/` instead, which is a superset (Node selects `*.test.js` itself) and cannot
+   silently omit a suite added by a later task. The step is renamed `Run webOS regressions` for the same
+   reason: it no longer covers only transport.
+10. **The ES2017 ceiling is enforced in two lists, not one.** The B1-J task body says the module must be
+    ES2017 because webOS 4 ships Chromium 68. `?.`, `??`, `Array.prototype.flat`/`flatMap`,
+    `Object.fromEntries`, `Object.entries`, `globalThis`, `BigInt`, logical assignment and private class
+    fields are genuine **runtime** failures on that engine and pass `node --check`, so the harness bans
+    them in code text. `const`/`let`/arrow/template-literal/class/spread are ES2015-2017 constructs that
+    Chromium 68 accepts; those are banned as repository **style** consistency with the rest of
+    `webos_app/app/js`, and the assertion messages say so rather than claiming a device hazard. The scan
+    strips comments and string literals first, because the module's own documentation quotes several of
+    the banned tokens.
+11. **Two JavaScript behaviours are stated in the port rather than inherited from the engine.**
+    `isFinite(value) && Math.floor(value) === value` is used instead of `Number.isInteger(value)`:
+    `Number.isInteger` is correct for booleans but the surrounding `typeof value === 'number'` guard is
+    what keeps `true` from reading as `1`, and the difference between a malformed document and a version
+    problem is exactly what the schema preflight exists to preserve. Hour, minute and second ranges, and
+    the month/day calendar bounds, are checked explicitly (`24:00:00` is a shape failure and
+    `2026-02-31` is not an instant) because no sibling reader can be trusted to refuse them:
+    `new Date` rolls out-of-range components forward, and Dart's `DateTime.parse` documents that it
+    "accepts out-of-range component values and interprets them as overflows into the next larger
+    component" (`"2020-01-42"` → 2020-02-11) and names `DateFormat.parseStrict` from `package:intl` as
+    the rejecting alternative. Agreement therefore comes from a rule each port states, not from whichever
+    date parser the device uses.
+
+12. **The webOS harness loads the module in the test's own realm instead of a `node:vm` context.** The
+    first hosted run of B1-J (`46104459953`, job `140853973038`) failed ten assertions with
+    "Values have same structure but are not reference-equal". Cause: `require('node:assert/strict')` makes
+    `deepEqual` mean `deepStrictEqual`, which compares prototypes, and objects built inside
+    `vm.runInNewContext` carry that realm's `Object.prototype`/`Array.prototype`. The fix keeps the
+    property the sandbox existed for — the module must not be able to reach the host's browser or Node
+    globals — by evaluating the source through `new Function` with every such name
+    (`window`, `localStorage`, `document`, `fetch`, `require`, `process`, …) declared as a parameter and
+    shadowed, with only a fresh empty `scope` object bound to `window`. No assertion was loosened, and
+    `JSON` round-tripping was rejected for the same reason. This is a harness defect, not a contract
+    difference: the module's own values were correct in both realms.
+
+13. **Swift snapshot assertions compare parsed documents, not encoded text.** `main.swift:913` failed
+    because it looked for `https://stream.example/irib1.m3u8` inside the encoded text, and Foundation's
+    JSON writer escapes the forward slashes of a URL on Apple platforms (`\/`). The repository already
+    carries proof of that behaviour: `Sources/Core/APIClient.swift:206` strips the `"\\/"` sequence. The
+    assertion was replaced with structural checks on the parsed document — both sources present, the
+    address kept for the source that stores one, no `streamUrl` key at all for the secret-backed source,
+    its `streamSecretRef` retained — plus the escaping-independent count that the document writes exactly
+    one `streamUrl` key for two sources. The contract claim (the address is omitted, the reference is
+    not) is now measured by value, which is also how B3 must compare the ports. This is a test defect;
+    the Swift codec behaved correctly throughout.
+
+14. **Dart's date reader is now the one open cross-port gap, and it is B3 work.** `DateTime.parse` is
+    documented to accept date-only values, a space instead of `T`, a zone-less timestamp read as local
+    time, and out-of-range components as overflows, while both other ports refuse all four. The Swift and
+    webOS codecs carry explicit component checks in this slice;
+    `flutter_app/lib/core/live_catalog_codec.dart:473-480` still calls `DateTime.parse` and rethrows as
+    `FormatException`. Tightening it is recorded as B3 rather than changed in this slice: the Dart port is
+    the one whose behaviour ships in the installed Android/Windows builds, so its reader change needs the
+    B3 agreement test to be able to prove the three ports still read the same fixture — and it must not be
+    bundled into a corrective commit whose hosted evidence is about two other realms.
+
