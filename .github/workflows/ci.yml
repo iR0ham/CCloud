@@ -143,6 +143,12 @@ jobs:
         run: python3 scripts/version.py check
       - name: Typecheck Swift sources
         run: ./scripts/typecheck.sh
+      - name: Run Live TV foundation tests
+        # Schema-v1 catalog contract (multi-source foundation, task B1-S). Runs after
+        # the typecheck so a broad app-module failure is reported first, and reports
+        # the assertion count, because the step's value is that a known number of
+        # checks actually executed rather than that a binary happened to exit zero.
+        run: chmod +x Tests/live-foundation/run.sh && ./Tests/live-foundation/run.sh
 
   webos-static:
     name: webOS static JS/JSON/service validation
