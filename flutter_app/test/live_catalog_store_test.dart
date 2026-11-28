@@ -555,7 +555,7 @@ void main() {
     });
   });
 
-  group('storage that answers yes without meaning it') {
+  group('storage that answers yes without meaning it', () {
     test('a write the platform accepts but does not keep is refused, not saved', () async {
       // Rule 3's whole reason for existing, on the branch `_RefusingStore` cannot reach: a platform that says
       // `true` and stores nothing. Dropping the read-back comparison from `save` turns this red, because the
