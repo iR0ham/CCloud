@@ -170,7 +170,7 @@ List<LiveTvChannel> _composeRows(
     final row = _rowFor(channel, issues);
     if (row != null) minted.add(row);
   }
-  return _insertMinted(minted: _sortByHostName(minted), into: rows);
+  return _insertMinted(minted: _sortByHostName(minted), rows: rows);
 }
 
 /// The built-in row each merged member was registered from, as an index into the caller's list.
