@@ -11,7 +11,9 @@
  * fake `localStorage` object rather than a stub `CC.store`. That distinction matters: `CC.store` is the only
  * code that touches storage (`util.js:42-56`), so testing through it pins the JSON round trip, the `ccloud.`
  * prefix, and the fact that a throwing `setItem` is swallowed by `CC.store` and has to be detected by the
- * store reading its own write back.
+ * store reading its own write back. This is also the first webOS suite to load `util.js` — the identity suite
+ * stops at the library modules — so it is the first to need the browser's bare-`CC` alias, which `loadInto`
+ * below recreates and explains.
  *
  * Everything here is static analysis and Node-level execution. No webOS device, emulator or TV browser is
  * involved, so the suite cannot show that a real TV grants storage or survives an app update; that stays
@@ -89,7 +91,14 @@ function loadInto(scope, storage, moduleName) {
   const file = path.join(JS_DIR, moduleName);
   assert.ok(fs.existsSync(file), moduleName + ' is missing; task B4-2 owns this file');
   const source = fs.readFileSync(file, 'utf8');
-  const factory = Function.apply(null, SEALED_GLOBALS.concat(['"use strict";\n' + source]));
+  // `util.js` assigns through a bare `CC` right after `window.CC = window.CC || {}` (`util.js:2-7`), which works
+  // in a browser only because `window` *is* the global object there. Sealing `window` into a parameter breaks
+  // that aliasing, so the shim re-creates it: `var CC` is hoisted above the file's own statements, so every
+  // module sees one shared namespace object, exactly as a TV does. The library modules do this for themselves
+  // (`playlist_contracts.js:55`), so nothing here gives a module a capability the shipped page withholds; a
+  // module that failed to attach its namespace still fails the export assertions in `boot` below.
+  const body = '"use strict";\nvar CC = window.CC = window.CC || {};\n' + source;
+  const factory = Function.apply(null, SEALED_GLOBALS.concat([body]));
   const values = SEALED_GLOBALS.map(function (key) {
     if (key === 'window') return scope;
     if (key === 'localStorage') return storage;
@@ -327,6 +336,39 @@ test('a stored object instead of codec text is corrupt, not empty', function () 
   assert.equal(read.status, device.store.statusCorrupt);
   assert.equal(read.message, 'live catalog document is not JSON text');
   assert.equal(read.state, null);
+});
+
+test('storage text that is not JSON at all is still corrupt, not an empty device', function () {
+  // The case `CC.store` cannot see: its `get` turns a parse failure into its fallback (`util.js:44-49`), so a
+  // seam that trusted only `get` would call this device empty and let the next save overwrite a document that
+  // a later build might still read. The raw key check in `live_catalog_store.js` exists for this one case.
+  const device = boot();
+  device.storage.setItem(device.rawKey, '{"schemaVersion":1,"members":');
+  const before = device.storage.getItem(device.rawKey);
+  assert.equal(device.CC.store.get(device.store.key, null), null, 'CC.store really does report this as missing');
+  const read = device.store.load();
+  assert.equal(read.status, device.store.statusCorrupt, 'and the seam does not repeat that answer');
+  assert.equal(read.state, null);
+  assert.equal(read.message, 'live catalog document is not readable as text');
+  assert.equal(device.store.hasStored(), true, 'the bytes are known to be there without being decoded');
+  assert.equal(device.storage.getItem(device.rawKey), before, 'the truncated write is left for a newer build');
+  assert.equal(device.store.clear(), true, 'an explicit clear still removes it');
+  assert.equal(device.store.load().status, device.store.statusAbsent, 'and only then is the device empty');
+});
+
+test('the seam and CC.store agree on one storage key, so a document cannot be written where it cannot be read', function () {
+  // `live_catalog_store.js` repeats the `ccloud.` prefix because `CC.store` keeps it private. That literal is
+  // only safe while both views name the same slot, which is what this pins from both directions.
+  const device = boot();
+  const text = device.contracts.encodeState(catalog(device));
+  device.CC.store.set(device.store.key, text);
+  assert.equal(device.store.load().status, device.store.statusOk, 'a document written through CC.store is found');
+  assert.equal(device.storage.getItem(device.rawKey), JSON.stringify(text), 'at the prefixed slot CC.store uses');
+
+  const other = boot();
+  other.store.save(catalog(other));
+  assert.equal(other.CC.store.get(other.store.key, null), other.contracts.encodeState(catalog(other)),
+    'and a document written through the seam is readable through CC.store');
 });
 
 test('a newer schema version refuses instead of clearing the user catalog', function () {

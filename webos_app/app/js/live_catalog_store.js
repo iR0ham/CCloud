@@ -37,6 +37,24 @@ window.CC = window.CC || {};
   // a favorites list on a build that predates it.
   var KEY = 'liveCatalog';
 
+  // The full storage key, repeated here as a literal because `CC.store` keeps its prefix private
+  // (`util.js:41`). This is the one place the seam has to look past `CC.store`: `get` turns a JSON parse
+  // failure into its fallback (`util.js:44-49`), so on its own it cannot tell "nothing is stored" apart from
+  // "storage holds text this build cannot read" — and answering the second case with `absent` is exactly how a
+  // catalog would be silently replaced by the next save. `Tests/webos/live_catalog_store.test.js` pins that the
+  // two views agree, by writing through `CC.store.set` and reading back through this key.
+  var STORAGE_KEY = 'ccloud.' + KEY;
+
+  // Raw existence check. A `localStorage` that throws (private mode, storage disabled) counts as empty, which
+  // is the same answer `CC.store` gives its callers and keeps this seam from inventing a failure.
+  function storageHoldsText() {
+    try {
+      return localStorage.getItem(STORAGE_KEY) !== null;
+    } catch (error) {
+      return false;
+    }
+  }
+
   // The four verdicts a caller branches on. They are strings rather than an enum because a screen renders
   // text from them and the suite compares them literally on all three ports.
   var STATUS_OK = 'ok';
@@ -82,7 +100,12 @@ window.CC = window.CC || {};
   function load() {
     var raw = CC.store.get(KEY, null);
     if (raw === null || raw === undefined) {
-      return verdict(STATUS_ABSENT, seedMergeable(contracts().emptyState()), null);
+      // `CC.store.get` answers `null` for two different worlds, so the seam asks storage which one it is
+      // before it is allowed to say the device is empty.
+      if (!storageHoldsText()) {
+        return verdict(STATUS_ABSENT, seedMergeable(contracts().emptyState()), null);
+      }
+      return verdict(STATUS_CORRUPT, null, 'live catalog document is not readable as text');
     }
     // A JSON object stored under this key is a different shape than the codec contract, and decoding it
     // would either throw or invent data; reporting it is the honest answer.
@@ -131,12 +154,12 @@ window.CC = window.CC || {};
    */
   function clear() {
     CC.store.remove(KEY);
-    return CC.store.get(KEY, null) === null;
+    return !storageHoldsText();
   }
 
   /** True when a document exists, without decoding it. Lets a screen distinguish "empty" from "unreadable". */
   function hasStored() {
-    return CC.store.get(KEY, null) !== null;
+    return storageHoldsText();
   }
 
   CC.liveCatalogStore = {
