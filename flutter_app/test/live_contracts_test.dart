@@ -1,12 +1,33 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:ccloud/core/live_catalog_codec.dart';
 import 'package:ccloud/core/live_contracts.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-// The codec is reached through LiveCatalogMigration, which delegates every read
-// and write to it, so no direct live_catalog_codec.dart import is needed here.
+// Most of this file drives the codec through `LiveCatalogMigration`, which is the entry
+// point its callers use. One test below reaches `LiveCatalogStateCodec` directly, on
+// purpose: the cross-port contract names `supportedSchemaVersion` as a symbol the Swift and
+// webOS ports must mirror by that exact name, and a claim about an interface is only proven
+// where the interface is spelled. Indirection through the migration facade would keep
+// compiling if the constant were renamed, made private, or given a different home.
 void main() {
+  test('the codec publishes the schema-version interface the other ports mirror', () {
+    // Spelled against the symbol, not the number: B1-S (`Sources/Core/
+    // LiveTVCatalogCodec.swift`) and B1-J (`webos_app/app/js/playlist_contracts.js`) are
+    // specified to expose `supportedSchemaVersion`, and an interface claim that only the
+    // migration facade exercises would still pass if this port renamed it, made it private
+    // or moved it. The decode/encode pair is called directly for the same reason — the
+    // preflight lives on the codec, and a facade-only test could not tell which object
+    // actually owns it.
+    expect(LiveCatalogStateCodec.supportedSchemaVersion, 1);
+    final raw = '{"schemaVersion":1,"playlists":[],"members":[],"sources":[],"associations":[],"preferences":[],"logicalIdByMemberId":{}}';
+    final decoded = LiveCatalogStateCodec.decode(raw);
+    expect(decoded.schemaVersion, LiveCatalogStateCodec.supportedSchemaVersion);
+    final reEncoded = jsonDecode(LiveCatalogStateCodec.encode(decoded));
+    expect(reEncoded['schemaVersion'], LiveCatalogStateCodec.supportedSchemaVersion);
+  });
+
   test('absent state migrates to an empty v1 state', () {
     final state = LiveCatalogMigration.migrate(null);
     expect(state.schemaVersion, 1);
