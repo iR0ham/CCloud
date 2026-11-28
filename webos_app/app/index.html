@@ -18,12 +18,12 @@
   <script src="js/api.js"></script>
   <script src="js/store.js"></script>
   <!--
-    Multi-source foundation (tasks B2-J, B3-J, B4-2). The order is the contract: contracts before parser
-    before identity before catalog before the built-in adapter, with the persistence seam last because it
-    calls into the other four. `Tests/webos/live_catalog_store.test.js` fails if this page loads them in a
-    different order, omits one, or if a module exists on disk that no page loads. Nothing consumes them
-    until task B4-3 switches the live screen over, so this block changes what the device has available, not
-    what it shows.
+    Multi-source foundation (tasks B2-J, B3-J, B4-2, B4-3 S1). The order is the contract: contracts before
+    parser before identity before catalog before the built-in adapter, with the persistence seam and then the
+    row composer last because each calls into the layers above it.
+    `Tests/webos/live_catalog_store.test.js` fails if this page loads them in a different order, omits one, or
+    if a module exists on disk that no page loads. Nothing consumes them until task B4-3 slice S2 switches the
+    live screen over, so this block changes what the device has available, not what it shows.
   -->
   <script src="js/playlist_contracts.js"></script>
   <script src="js/playlist_parser.js"></script>
@@ -31,6 +31,7 @@
   <script src="js/unified_catalog.js"></script>
   <script src="js/builtin_catalog_adapter.js"></script>
   <script src="js/live_catalog_store.js"></script>
+  <script src="js/live_source_composer.js"></script>
   <script src="js/nav.js"></script>
   <script src="js/ui.js"></script>
   <script src="js/feed.js"></script>

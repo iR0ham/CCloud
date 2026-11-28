@@ -365,6 +365,11 @@
     };
     return map[String(code || '').toLowerCase()] || code;
   }
+  // Same export idiom as `CC.liveCountryName` below: the label table belongs to this file, and a module that
+  // mints a row the fetch never produced (`js/live_source_composer.js`) asks for the name instead of keeping a
+  // second table that can drift. `normChannel` still calls the local function directly, so nothing here changes
+  // what today's rows render.
+  CC.liveLanguageName = persianLanguage;
 
   var COUNTRY_FA = {
     IR: 'ایران', AF: 'افغانستان', TJ: 'تاجیکستان', US: 'امریکا', GB: 'انگلستان', UK: 'انگلستان', DE: 'آلمان', TR: 'ترکیه',
