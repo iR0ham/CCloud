@@ -40,6 +40,36 @@ void main() {
     );
     final encoded = LiveCatalogMigration.encode(withSecret);
     expect(jsonDecode(encoded)['schemaVersion'], 1);
+    // The canonical wire text form is pinned: RFC 3339 UTC with exactly three
+    // fractional digits, which is what DateTime.toIso8601String() emits and what
+    // the webOS store already writes. Without this assertion,
+    // encode(migrate(fixture)) would not be textually stable and no test would
+    // notice, while the Swift and JavaScript ports must emit byte-comparable
+    // documents.
+    expect((jsonDecode(encoded)['playlists'] as List).first['createdAt'],
+        '2026-01-01T00:00:00.000Z');
+    // Decoding stays lenient about the seconds-precision form the frozen fixture
+    // uses: both accepted spellings normalize to the same UTC instant. The
+    // payload is rebuilt from the fixture's own decoded map so no schema field
+    // is hand-copied here.
+    final Map<String, dynamic> lenient =
+        jsonDecode(raw) as Map<String, dynamic>;
+    final Map<String, dynamic> lenientPlaylist =
+        (lenient['playlists'] as List<dynamic>).first as Map<String, dynamic>;
+    lenientPlaylist['createdAt'] = '2026-01-01T00:00:00Z';
+    final String secondsForm = jsonEncode(lenient);
+    lenientPlaylist['createdAt'] = '2026-01-01T00:00:00.000Z';
+    final String millisecondForm = jsonEncode(lenient);
+    final secondsInstant =
+        LiveCatalogMigration.migrate(secondsForm).playlists.single.createdAt;
+    final millisecondInstant = LiveCatalogMigration.migrate(millisecondForm)
+        .playlists
+        .single
+        .createdAt;
+    expect(secondsInstant, millisecondInstant);
+    expect(secondsInstant.isUtc, isTrue);
+    expect(millisecondInstant.isUtc, isTrue);
+    expect(state.playlists.single.createdAt.isUtc, isTrue);
     expect(encoded, isNot(contains('https://')));
     expect(encoded, isNot(contains('streamUrl')));
     final decoded = LiveCatalogMigration.migrate(encoded);
@@ -73,6 +103,21 @@ void main() {
     expect(
       () => LiveCatalogMigration.migrate('{not-json'),
       throwsFormatException,
+    );
+  });
+
+  test('encode rejects a schema version the codec cannot decode', () {
+    expect(
+      () => LiveCatalogMigration.encode(
+        const LiveCatalogState(schemaVersion: 2),
+      ),
+      throwsA(
+        isA<FormatException>().having(
+          (error) => error.message,
+          'message',
+          startsWith('Unsupported live catalog schema'),
+        ),
+      ),
     );
   });
 

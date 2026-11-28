@@ -10,6 +10,12 @@ import 'live_contracts.dart';
 ///
 /// * `schemaVersion` is prefighted before any record is decoded, and only
 ///   version 1 is understood;
+/// * the canonical persisted text form of a timestamp is RFC 3339 UTC with
+///   exactly three fractional digits, which is what
+///   [DateTime.toIso8601String] emits; decoding also accepts the
+///   seconds-precision form written by the frozen v1 fixture, so a port that
+///   reads an older document still normalizes it, while only the canonical form
+///   is ever written;
 /// * v1 is additive, so a missing `recentWatches` decodes as an empty array, a
 ///   missing `sourcePolicy` as the standard policy, and a missing source
 ///   `rendererCapability` as `Not Yet Verified`, while new writes always include
@@ -23,10 +29,12 @@ import 'live_contracts.dart';
 ///   accidental empty write would destroy the user's playlists, associations and
 ///   preferences on the next save.
 ///
-/// Encoding is deliberately total and decoding is the enforcing boundary: the
-/// repository only ever hands this codec records it built from decoded data, so
-/// validating twice would add no safety while making a write path able to throw
-/// for a reason the read path already rejected.
+/// Encoding is total for [supportedSchemaVersion] and rejects every other
+/// schema version, mirroring the decode preflight, so this codec can never write
+/// a document it would then refuse to read back. Record *values* are still not
+/// revalidated on write: the repository only ever hands this codec records it
+/// built from decoded data, so validating twice would add no safety while making
+/// a write path able to throw for a reason the read path already rejected.
 class LiveCatalogStateCodec {
   /// The only persisted schema version this build can read.
   static const int supportedSchemaVersion = 1;
@@ -70,8 +78,13 @@ class LiveCatalogStateCodec {
   }
 
   static String encode(LiveCatalogState state) {
+    // Symmetric with the decode preflight, and with the same message, so no port
+    // can emit a document its own reader would reject.
+    if (state.schemaVersion != supportedSchemaVersion) {
+      throw const FormatException('Unsupported live catalog schema');
+    }
     return jsonEncode(<String, Object?>{
-      'schemaVersion': state.schemaVersion,
+      'schemaVersion': supportedSchemaVersion,
       'playlists': state.playlists.map(_playlistJson).toList(growable: false),
       'members': state.members.map(_memberJson).toList(growable: false),
       'sources': state.sources.map(_sourceJson).toList(growable: false),
