@@ -901,3 +901,53 @@ runner-self-reported, `RELEASE_PRODUCTION_READY` is unset, the four macOS releas
 The next actionable slice is therefore **B2-D** as corrected by §13 of the completion plan: the Dart M3U
 parser, `stableKeyHash` and source registry over `Tests/fixtures/multi-source/*.m3u*`. The Dart
 `DateTime.parse` date-reading tightening remains B3 work and must not be folded into B2.
+
+---
+
+## 2026-11-28 (project manager) — Task B2-D is hosted-verified for Dart at `09f826c`
+
+The three-head chain that task B2-D (Dart M3U parser, `stableKeyHash`, source registry) ran through is
+recorded here with the runner's own text, because the middle head is a lesson worth keeping:
+
+* **Intentional RED** — `e7bbe8d`, CI `46107739965`, job `140864181070` `completed`/`failure`:
+  `error • Target of URI doesn't exist: 'package:ccloud/core/identity_hash.dart' … • test/playlist_parser_test.dart:4:8 • uri_does_not_exist`,
+  plus the same for `playlist_parser.dart:6:8` and `source_registry.dart:7:8`, and
+  `error • The function 'stableKeyHash' isn't defined. … :23:14 • undefined_function`. That is the proof the
+  committed suite is falsifiable: it fails on the missing contract, not on a mistyped expectation.
+* **First implementation, RED for the wrong reason** — `0186c62`, CI `46108589864`, job `140866822249`
+  `completed`/`failure`. The failing step was `flutter analyze`, not a test:
+  four `info • Use interpolation to compose strings and values. … • prefer_interpolation_to_compose_strings`
+  in `test/playlist_parser_test.dart` (161:25, 174:20, 184:20, 194:20) and two in
+  `lib/core/source_registry.dart` (50:22, 107:21), then `6 issues found. (ran in 13.7s)` and
+  `##[error]Process completed with exit code 1.` **No `flutter test` line exists in that log, so no
+  assertion of the B2-D suite ran at `0186c62`** — the gate order means an analyzer failure hides all test
+  evidence. My earlier assumption that info-severity lints do not fail `flutter analyze` was wrong:
+  `package:flutter_lints/flutter.yaml` enables this rule and the step does not pass `--no-fatal-infos`.
+  The remedy was to rewrite the six string compositions as interpolation; the lint was not disabled, no
+  `analysis_options` exception was added, and no assertion was weakened.
+* **GREEN** — `09f826c7dd3ee75b63d5de4f68f201e6a8f75b7e`, CI `46108921477`, job `140867853277`
+  `completed`/`success`: `No issues found! (ran in 16.4s)` and `🎉 159 tests passed, 1 skipped.`, with 24
+  log lines naming `playlist_parser_test.dart` cases, including
+  `stableKeyHash separates the four passes so a single-pass bug is visible`,
+  `parsePlaylist header-only input is empty without inventing issues` and
+  `parsePlaylist malformed input keeps the one good row and reports all four codes`. The suite grew 135 → 159
+  passing tests across B1-D and B2-D, and the one skip remains the pre-existing device-only case.
+* **Nothing else regressed at that head.** Quality `46108921454`: Workflow lint, Repository hygiene, Secret
+  scan, Required NOTICE files, Version consistency and Dependency vulnerability scan all `success`.
+  CI `46108921477`: `Version and canonical metadata`, `macOS arm64 typecheck`,
+  `webOS static JS/JSON/service validation` `success`, `Live API verification` `skipped` (unchanged).
+  Job `140867853323` still prints `assertions: 227`, `==> live foundation assertions: 227 (floor 150)`,
+  `live foundation OK` — the Swift contract baseline that task B2-S must move, not break.
+* **`Build all platforms` `46108921457` came back fully green**, which closes the gap noted for the previous
+  head: `android / Android/TV universal APK + AAB`, `macos / macOS arm64 build`, `windows / Dart analyze`,
+  `webos / webOS IPK`, `windows / Windows release build`, `windows / Windows installer install + smoke test`,
+  `windows / Windows runtime smoke test` and `windows / Windows compatibility package (Skia)` — all
+  `completed`/`success`.
+
+Status effect: **B2-D is now hosted-verified for the Dart port only.** The Swift mirror (B2-S) is pushed as
+`e2400e3cdc58132e9cf139681ee210282b5ad540` and its hosted outcome is not yet read, so it is recorded here as
+implemented and NOT VERIFIED; the webOS mirror (B2-J) has not started. Three limits stay exactly as the §13
+entry set them: no library is consumed by any Live TV screen yet (wiring and migration are B4), no
+`streamSecretRef` has a verified secret store on any platform, and no runner proves behaviour on a device,
+an OS release or a real player. Local builds, tests and analysis remain forbidden by repository policy, so
+every number above came from GitHub-hosted logs.
