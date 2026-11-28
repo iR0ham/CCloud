@@ -195,16 +195,37 @@ void main() {
       );
     });
 
-    test('only ok and absent carry a state a caller may render', () {
-      const List<LiveCatalogStoreStatus> usable = <LiveCatalogStoreStatus>[
-        LiveCatalogStoreStatus.ok,
-        LiveCatalogStoreStatus.absent,
-      ];
-      for (final LiveCatalogStoreStatus status in LiveCatalogStoreStatus.values) {
-        final LiveCatalogStoreOutcome outcome = LiveCatalogStoreOutcome(status);
-        expect(outcome.isUsable, usable.contains(status), reason: 'corrupt and refused must look unusable');
-        expect(outcome.state, isNull);
-      }
+    test('only corrupt and refused withhold the state a caller renders', () async {
+      // Two halves, because either one alone hides a bug. The property is pinned on hand-built outcomes: a
+      // verdict is usable exactly when it carries a state, whatever its label says. The mapping is pinned on
+      // the paths the seam really takes, because a `corrupt` result that quietly carried an empty state would
+      // still satisfy the property while letting a screen paint nothing over unreadable bytes.
+      const LiveCatalogState state = LiveCatalogState();
+      expect(LiveCatalogStoreOutcome(LiveCatalogStoreStatus.ok, state: state).isUsable, isTrue);
+      expect(LiveCatalogStoreOutcome(LiveCatalogStoreStatus.absent, state: state).isUsable, isTrue);
+      expect(LiveCatalogStoreOutcome(LiveCatalogStoreStatus.saved, state: state).isUsable, isTrue);
+      expect(LiveCatalogStoreOutcome(LiveCatalogStoreStatus.corrupt).isUsable, isFalse);
+      expect(LiveCatalogStoreOutcome(LiveCatalogStoreStatus.refused).isUsable, isFalse);
+      expect(
+        LiveCatalogStoreOutcome(LiveCatalogStoreStatus.corrupt, state: state).isUsable,
+        isTrue,
+        reason: 'isUsable answers about the state, not the label — so the seam, not the caller, must withhold it',
+      );
+
+      final SharedPreferences prefs = await open();
+      final LiveCatalogStore store = LiveCatalogStore(prefs);
+      expect(store.load().isUsable, isTrue, reason: 'an absent device still hands back a seeded empty state');
+      final LiveCatalogStoreOutcome saved = await store.save(_catalog());
+      expect(saved.status, LiveCatalogStoreStatus.saved);
+      expect(saved.isUsable, isTrue, reason: 'a write that landed returns the state it wrote');
+      final LiveCatalogStoreOutcome refused = await store.save(const LiveCatalogState(schemaVersion: 2));
+      expect(refused.status, LiveCatalogStoreStatus.refused);
+      expect(refused.isUsable, isFalse, reason: 'a refused write may not leave the caller holding a state');
+      final LiveCatalogStoreOutcome corrupt = LiveCatalogStore(
+        await open(<String, Object>{LiveCatalogStore.storageKey: '{oops'}),
+      ).load();
+      expect(corrupt.status, LiveCatalogStoreStatus.corrupt);
+      expect(corrupt.isUsable, isFalse, reason: 'nothing may be rendered over bytes this build cannot read');
     });
   });
 

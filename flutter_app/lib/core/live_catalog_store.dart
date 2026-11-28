@@ -8,8 +8,9 @@ import 'live_contracts.dart';
 /// The five verdicts are the same five words the webOS seam exports
 /// (`webos_app/app/js/live_catalog_store.js`) and the Swift mirror declares
 /// (`Sources/Core/LiveCatalogStore.swift`), because a support log or a translation should not have to learn
-/// three vocabularies for one behaviour. `absent` and `ok` both carry a usable state; `corrupt` and `refused`
-/// deliberately carry none, so a screen cannot render a cleared catalog by forgetting to check.
+/// three vocabularies for one behaviour. `absent` and `ok` are the load verdicts that hand back a state, `saved`
+/// hands back the state it wrote, and `corrupt` and `refused` deliberately hand back none, so a screen cannot
+/// render a cleared catalog by forgetting to check.
 enum LiveCatalogStoreStatus { ok, absent, corrupt, saved, refused }
 
 /// Outcome of a single read or write: a status, the state when there is a trustworthy one, and a message that

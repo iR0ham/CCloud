@@ -48,8 +48,9 @@ window.CC = window.CC || {};
     return CC.store.has(KEY);
   }
 
-  // The five verdicts a caller branches on: `absent` and `ok` both carry a usable state, while `corrupt` and
-  // `refused` deliberately carry none. They are strings rather than an enum because a screen renders
+  // The five verdicts a caller branches on: `absent` and `ok` are the load verdicts that hand back a state,
+  // `saved` hands back the state it wrote, and `corrupt` and `refused` deliberately hand back none. They are
+  // strings rather than an enum because a screen renders
   // text from them and the suite compares them literally on all three ports.
   var STATUS_OK = 'ok';
   var STATUS_ABSENT = 'absent';
