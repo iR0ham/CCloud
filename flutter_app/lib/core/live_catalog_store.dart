@@ -64,6 +64,14 @@ class LiveCatalogStore {
   /// matches the webOS seam's suffix exactly.
   static const String storageKey = 'ccloud.liveCatalog';
 
+  /// The extra note a `saved` verdict carries when the write boolean was the only evidence available, because
+  /// the storage round trip that would have confirmed the write failed. Dart-only: the webOS seam
+  /// (`webos_app/app/js/live_catalog_store.js:139`) and the Swift mirror
+  /// (`Sources/Core/LiveCatalogStore.swift:126`) read back from real storage synchronously and so have no
+  /// unverified path to name. The status stays `saved`, so no caller branches differently and the five verdicts
+  /// are untouched; only the message gains the truth a support log needs.
+  static const String unverifiedSaveMessage = 'live catalog saved without a storage read-back';
+
   final SharedPreferences _prefs;
 
   /// True when *something* is stored under the key, without decoding it. Lets a screen tell "this device has
@@ -119,6 +127,11 @@ class LiveCatalogStore {
   /// rejected would still read back perfectly from the cache, and rule 3 would be testing the wrong thing. The
   /// boolean the plugin returns is the other half of the evidence, and the cache is re-synced before answering
   /// either way so a caller that inspects `load()` after a refusal learns what storage really holds.
+  ///
+  /// When that round trip is the part that fails, verification is impossible rather than merely negative, so the
+  /// verdict degrades to the plugin boolean and says so through [unverifiedSaveMessage]. Reporting `refused`
+  /// instead would lose the user's action on a storage layer that can be read but not listed, and reporting a
+  /// bare `saved` would claim evidence this call does not have.
   Future<LiveCatalogStoreOutcome> save(LiveCatalogState state) async {
     final String text;
     try {
@@ -142,7 +155,11 @@ class LiveCatalogStore {
     if (!wrote || !landed) {
       return _writeRefused();
     }
-    return LiveCatalogStoreOutcome(LiveCatalogStoreStatus.saved, state: state);
+    return LiveCatalogStoreOutcome(
+      LiveCatalogStoreStatus.saved,
+      state: state,
+      message: resynced ? null : unverifiedSaveMessage,
+    );
   }
 
   /// Removes the document, which is what an explicit "forget this catalog" action means. Returns whether
@@ -152,8 +169,18 @@ class LiveCatalogStore {
   /// `remove` empties the cache before the platform answers (`shared_preferences_legacy.dart:196-200`), so both
   /// signals are required: the boolean catches a refusal, and the re-sync makes the answer about storage rather
   /// than about this process's intentions.
+  ///
+  /// Nothing here may consult the cache first. `containsKey` only knows what *this* instance was handed at
+  /// `getInstance()`, so a document another process wrote, or one the platform restored, would answer "nothing
+  /// to remove" and report success while leaving the bytes in storage — a wipe that silently does nothing. Swift
+  /// asks the filesystem (`LiveCatalogStore.swift:81`) and webOS asks `CC.store.has` (`live_catalog_store.js:152`),
+  /// both of which are storage, so the removal attempt is unconditional here and storage decides the result. The
+  /// "already absent is success" rule survives because no supported platform reports a missing key as a failed
+  /// removal — per the pinned plugin sources, not a device run: `SharedPreferencesAndroid.remove` forwards
+  /// `edit().remove(key).commit()`, which answers whether the write landed; foundation's `remove` is a void
+  /// pigeon call; and the Linux and Windows stores return the result of rewriting their JSON file. The existing
+  /// `clearing a device that never stored anything is success` test is what pins that here.
   Future<bool> clear() async {
-    if (!hasStoredDocument) return true;
     bool removed = false;
     try {
       removed = await _prefs.remove(storageKey);

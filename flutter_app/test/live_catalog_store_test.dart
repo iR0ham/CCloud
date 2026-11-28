@@ -162,6 +162,84 @@ class _RefusingStore extends SharedPreferencesStorePlatform {
   Future<bool> clear() async => false;
 }
 
+/// A storage double that answers every call *optimistically* while its backing map does whatever the flags say.
+///
+/// The plugin's own in-memory double always succeeds and always agrees with itself, so the three shapes this
+/// seam has to survive cannot be produced with it: a write that is accepted and then dropped, a listing that
+/// throws so the read-back cannot run at all, and a document that exists in storage but not in the cache this
+/// instance was built with. `_RefusingStore` above covers the blunt case (every mutation says no); this covers
+/// the ones where a mutation *says yes*, which is where a seam that trusts the boolean would go wrong.
+///
+/// Each test below sets exactly one flag and asserts the counters, so a verdict can only come from the shape
+/// that test claims to exercise.
+class _OptimisticStore extends SharedPreferencesStorePlatform {
+  _OptimisticStore(Map<String, Object> appKeyed)
+    : stored = <String, Object>{
+        for (final MapEntry<String, Object> entry in appKeyed.entries) _pluginPrefix + entry.key: entry.value,
+      };
+
+  static const String _pluginPrefix = 'flutter.';
+
+  /// Keys as the platform holds them, that is with the plugin's own namespace included.
+  final Map<String, Object> stored;
+
+  /// Report a successful write while keeping nothing, which is what a quota-limited or private-mode layer does
+  /// when it accepts the call and discards the bytes.
+  bool dropsWrittenValues = false;
+
+  /// Fail every listing, so `reload()` cannot reach storage and the read-back is impossible rather than merely
+  /// negative. Set this *after* `getInstance()`, because the first listing is what builds the instance.
+  bool refusesToList = false;
+
+  /// Report an empty world on the listing `getInstance()` makes, then answer truthfully. That is the shape a
+  /// document has when another process wrote it after this instance cached its keys.
+  bool hidesFirstListing = false;
+
+  int writeAttempts = 0;
+  int removalAttempts = 0;
+  int listings = 0;
+
+  /// Whether storage still holds `value` under an app-visible key.
+  bool holds(String appKey, Object value) => stored[_pluginPrefix + appKey] == value;
+
+  /// Whether the app-visible key is still present at all.
+  bool holdsKey(String appKey) => stored.containsKey(_pluginPrefix + appKey);
+
+  @override
+  Future<Map<String, Object>> getAll() async {
+    listings += 1;
+    if (refusesToList) {
+      throw Exception('storage listing refused');
+    }
+    if (hidesFirstListing && listings == 1) {
+      return <String, Object>{};
+    }
+    return Map<String, Object>.from(stored);
+  }
+
+  @override
+  Future<bool> setValue(String valueType, String key, Object value) async {
+    writeAttempts += 1;
+    if (!dropsWrittenValues) {
+      stored[key] = value;
+    }
+    return true;
+  }
+
+  @override
+  Future<bool> remove(String key) async {
+    removalAttempts += 1;
+    stored.remove(key);
+    return true;
+  }
+
+  @override
+  Future<bool> clear() async {
+    stored.clear();
+    return true;
+  }
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -177,6 +255,14 @@ void main() {
     // afterwards so `getInstance()` loads through the fake rather than the always-succeeding in-memory double.
     SharedPreferences.setMockInitialValues(const <String, Object>{});
     SharedPreferencesStorePlatform.instance = _RefusingStore(initial);
+    return SharedPreferences.getInstance();
+  }
+
+  /// Opens preferences over a caller-built [_OptimisticStore], whose flags a test may change after the instance
+  /// exists — the only way to model storage that changes, or stops answering, between startup and the call.
+  Future<SharedPreferences> openOptimistic(_OptimisticStore platform) async {
+    SharedPreferences.setMockInitialValues(const <String, Object>{});
+    SharedPreferencesStorePlatform.instance = platform;
     return SharedPreferences.getInstance();
   }
 
@@ -468,6 +554,95 @@ void main() {
       );
     });
   });
+
+  group('storage that answers yes without meaning it') {
+    test('a write the platform accepts but does not keep is refused, not saved', () async {
+      // Rule 3's whole reason for existing, on the branch `_RefusingStore` cannot reach: a platform that says
+      // `true` and stores nothing. Dropping the read-back comparison from `save` turns this red, because the
+      // plugin boolean alone would report a save the device never got.
+      final _OptimisticStore platform = _OptimisticStore(<String, Object>{});
+      platform.dropsWrittenValues = true;
+      final SharedPreferences prefs = await openOptimistic(platform);
+      final LiveCatalogStore store = LiveCatalogStore(prefs);
+
+      final LiveCatalogStoreOutcome written = await store.save(_catalog());
+      expect(written.status, LiveCatalogStoreStatus.refused);
+      expect(written.message, 'live catalog write did not reach storage');
+      expect(written.state, isNull, reason: 'a save that cannot be shown to exist may not be handed to a caller');
+      expect(written.isUsable, isFalse);
+      expect(platform.writeAttempts, 1, reason: 'the seam asked once, and the refusal is the read-back, not the answer');
+      expect(
+        platform.holdsKey(LiveCatalogStore.storageKey),
+        isFalse,
+        reason: 'nothing reached storage, which is the fact the verdict has to describe',
+      );
+      expect(
+        store.hasStoredDocument,
+        isFalse,
+        reason: 'the cache was re-synced, so the instance no longer believes its own optimistic write',
+      );
+    });
+
+    test('a save whose read-back cannot run is saved, and says it was unverified', () async {
+      // The other degraded edge: not a storage layer that lied, but one that cannot be asked. `refused` here
+      // would lose the user's action on a device whose write did land; a bare `saved` would claim evidence this
+      // call does not have. The status vocabulary stays at five, and only the message carries the difference.
+      final _OptimisticStore platform = _OptimisticStore(<String, Object>{});
+      final SharedPreferences prefs = await openOptimistic(platform);
+      final LiveCatalogStore store = LiveCatalogStore(prefs);
+      expect(store.load().message, isNull, reason: 'setup: the ordinary verdict carries no note');
+
+      platform.refusesToList = true;
+      final LiveCatalogState state = _catalog();
+      final LiveCatalogStoreOutcome written = await store.save(state);
+      expect(
+        written.status,
+        LiveCatalogStoreStatus.saved,
+        reason: 'an unrunnable listing is not evidence of a failed write, so it may not become a refusal',
+      );
+      expect(identical(written.state, state), isTrue);
+      expect(
+        written.message,
+        LiveCatalogStore.unverifiedSaveMessage,
+        reason: 'the caller has to be able to log that this save rests on the plugin boolean alone',
+      );
+      expect(written.isUsable, isTrue);
+      expect(platform.writeAttempts, 1);
+      expect(
+        platform.holds(LiveCatalogStore.storageKey, LiveCatalogMigration.encode(state)),
+        isTrue,
+        reason: 'storage really does hold the document, which is why refusing would have been the wrong verdict',
+      );
+    });
+
+    test('clear deletes a document the plugin cache never saw', () async {
+      // The review finding this closes: `clear` used to answer from `containsKey`, which only knows what this
+      // instance cached at startup. A document another process wrote would read as "nothing to remove", so the
+      // wipe would report success while the bytes stayed — a user who asked to forget their playlists keeping
+      // them silently. Restoring that early return turns the two storage assertions below red.
+      final String text = LiveCatalogMigration.encode(_catalog());
+      final _OptimisticStore platform = _OptimisticStore(<String, Object>{LiveCatalogStore.storageKey: text});
+      platform.hidesFirstListing = true;
+      final SharedPreferences prefs = await openOptimistic(platform);
+      final LiveCatalogStore store = LiveCatalogStore(prefs);
+
+      expect(store.hasStoredDocument, isFalse, reason: 'setup: the cache really is blind to the document');
+      expect(platform.holdsKey(LiveCatalogStore.storageKey), isTrue, reason: 'setup: storage holds it');
+
+      expect(
+        await store.clear(),
+        isTrue,
+        reason: 'storage ends up holding nothing, which is the only thing the caller asked about',
+      );
+      expect(platform.removalAttempts, 1, reason: 'the platform was asked even though this instance saw no key');
+      expect(
+        platform.holdsKey(LiveCatalogStore.storageKey),
+        isFalse,
+        reason: 'and the document is gone, rather than merely unlisted by a stale cache',
+      );
+      expect(store.hasStoredDocument, isFalse);
+    });
+  }
 
   group('clearing', () {
     test('clear reports whether storage really holds nothing', () async {
