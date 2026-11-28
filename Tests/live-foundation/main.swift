@@ -1025,6 +1025,410 @@ check(RendererSupport.partiallySupported.rawValue == "Partially Supported", "Par
 check(RendererSupport.unsupported.rawValue == "Unsupported", "Unsupported persists verbatim")
 check(RendererSupport.notYetVerified.rawValue == "Not Yet Verified", "Not Yet Verified persists verbatim")
 
+// MARK: - Multi-source playlist parser (task B2-S)
+
+// The same bytes the Dart suite (B2-D) reads, so a difference in verdict is a difference in the
+// platforms a user can actually move a catalog between. Everything below is pinned against the
+// parsed object rather than encoded text: Foundation escapes `/` as `\/` in JSON, so a raw
+// substring comparison could never be port-neutral (proof: `Sources/Core/APIClient.swift:206`).
+let playlistFixtureDirectory = "\(repoRoot)/Tests/fixtures/multi-source"
+
+func playlistFixture(_ name: String) -> String {
+    let path = "\(playlistFixtureDirectory)/\(name)"
+    guard let data = FileManager.default.contents(atPath: path) else {
+        fail("missing fixture \(path)")
+    }
+    guard let text = String(data: data, encoding: .utf8) else {
+        fail("fixture \(path) is not UTF-8")
+    }
+    return text
+}
+
+func issueCodes(_ issues: [CatalogIssue]) -> [String] {
+    issues.map(\.code)
+}
+
+// MARK: identity hash
+
+check(StableKeyHash.hash("same") == StableKeyHash.hash("same"),
+      "stableKeyHash is deterministic across calls")
+check(StableKeyHash.hash("same") != StableKeyHash.hash("different"),
+      "stableKeyHash separates distinct inputs")
+check(StableKeyHash.hash("same").count == 32, "the identity digest is 128 bits, rendered as 32 digits")
+check(StableKeyHash.hash("same") == StableKeyHash.hash("same").lowercased(),
+      "identity digits are lowercase, so a persisted id never depends on a platform's case rules")
+check(StableKeyHash.hash("").count == 32, "the empty input still yields a full 32-digit value")
+check(StableKeyHash.hash("") != StableKeyHash.hash("same"),
+      "an unseeded accumulator cannot masquerade as the empty-input hash")
+check(StableKeyHash.hash("پرس").count == 32, "non-ASCII input hashes over UTF-8 bytes")
+check(StableKeyHash.hash("پرس") != StableKeyHash.hash("press"),
+      "Persian and Latin spellings are distinct identities, not one folded key")
+
+let hashSegments = stride(from: 0, to: 32, by: 8).map {
+    String(Array(StableKeyHash.hash("segment-check"))[$0..<$0 + 8])
+}
+check(hashSegments.count == 4, "the digest is four eight-digit passes")
+check(Set(hashSegments).count == 4,
+      "all four FNV passes contribute, so a single-pass bug is visible: \(hashSegments)")
+
+// Golden vectors. These lines exist so the webOS and Dart ports can pin the *same literals* rather
+// than trusting that three independent implementations of one recipe agree; the values are printed
+// from the runner, never transcribed from a developer machine.
+for golden in ["", "playlist:valid", "پرس"] {
+    print("golden stableKeyHash(\"\(golden)\") = \(StableKeyHash.hash(golden))")
+}
+
+// MARK: match key
+
+check(LiveMatchKey.key("پرس تی‌وی") == LiveMatchKey.key("پرس تی وی"),
+      "the match key folds ZWNJ into a separator")
+check(LiveMatchKey.key("IRIB ۱") == LiveMatchKey.key("irib 1"),
+      "the match key folds Persian digits, which Foundation's folding does not")
+check(LiveMatchKey.key("  Press-TV  ") == "press tv", "the match key drops punctuation and edges")
+check(LiveMatchKey.key("Press TV (720p)") == "press tv 720p",
+      "the match key folds separators but deliberately does not strip quality noise")
+check(LiveMatchKey.key(LiveTVM3UText.displayName("Press TV (720p)")) == "press tv",
+      "so the shared display-name rule is what removes the quality token before matching")
+
+// MARK: parsePlaylist
+
+let validText = playlistFixture("valid.m3u")
+let valid = LivePlaylistParser.parse(playlistID: "playlist:valid", text: validText, baseURL: nil)
+check(valid.contentHash == StableKeyHash.hash(validText),
+      "contentHash is the identity of the exact decoded bytes")
+check(valid.inputBytes == validText.utf8.count, "inputBytes counts UTF-8 bytes, not characters")
+check(valid.format == .m3uChannelList, "a headed channel list is classified as one")
+check(!valid.truncated, "a fixture inside every ceiling is not reported as partial")
+check(valid.channels.count == 3, "the valid fixture yields three channels")
+check(valid.channels.first?.providerChannelId == "PressTV",
+      "the `@quality` marker and the country suffix are stripped from provider identity")
+check(valid.channels.first?.countryCode == "IR", "the country comes from the tvg-id suffix")
+check(valid.channels.first?.streamUrls.count == 2, "quality variants stay two separate addresses")
+check(valid.channels.first?.logoUrl == "https://img.example/press.png", "tvg-logo survives")
+check(valid.channels.last?.languages.isEmpty == true,
+      "a row without tvg-language invents no language")
+check(valid.channels.first?.displayName == "Press TV", "the display name drops the quality token")
+check(valid.channels.first?.tvgId == "PressTV.ir",
+      "the untouched tvg-id survives for identity review")
+check(valid.channels.first?.line == 2, "line numbers are 1-based physical lines")
+check(valid.channels.last?.providerChannelId == "MusicTV", "the third row keeps its own id")
+check(valid.channels.last?.streamUrls == ["https://music.example/live.m3u8"],
+      "a single address stays single")
+check(valid.channels.first?.languages == ["English"], "tvg-language is parsed, not guessed")
+check(valid.channels.map { $0.countryCode ?? "" } == ["IR", "IR", "IR"],
+      "every fixture row states Iran in its own tvg-id")
+check(valid.issues.isEmpty, "a clean playlist reports no issues")
+
+let empty = LivePlaylistParser.parse(
+    playlistID: "playlist:empty", text: playlistFixture("empty.m3u"), baseURL: nil
+)
+check(empty.format == .empty, "a header-only document is empty rather than invalid")
+check(empty.channels.isEmpty && empty.issues.isEmpty,
+      "an empty catalog is invented from nothing, with no phantom issues")
+check(!empty.truncated, "eight bytes cross no ceiling")
+
+let hls = LivePlaylistParser.parse(
+    playlistID: "playlist:hls", text: playlistFixture("hls-master.m3u8"), baseURL: nil
+)
+check(hls.format == .hlsMediaManifest,
+      "an HLS master manifest is classified, not imported as channels")
+check(hls.issues.first?.code == "unsupportedMediaManifest" && hls.issues.count == 1,
+      "the manifest refusal is one named issue, not a silent empty list")
+check(hls.channels.isEmpty, "no channel is invented from a media manifest")
+
+let malformed = LivePlaylistParser.parse(
+    playlistID: "playlist:malformed", text: playlistFixture("malformed.m3u"), baseURL: nil
+)
+check(malformed.format == .m3uChannelList, "one good row keeps the document a channel list")
+check(malformed.channels.count == 1, "exactly one channel survives the malformed fixture")
+check(malformed.channels.first?.displayName == "Good TV", "the surviving row is the well-formed one")
+for code in ["missingName", "missingStream", "malformedEntry", "invalidUrl"] {
+    check(issueCodes(malformed.issues).contains(code),
+          "the malformed fixture reports \(code)")
+}
+check(malformed.issues.allSatisfy { ($0.line ?? 0) > 0 },
+      "every issue names a physical line, because the UI has to say which row broke")
+
+let twinText = "#EXTM3U\n"
+    + "#EXTINF:-1 ,Twin TV\nhttps://twin.example/a.m3u8\n"
+    + "#EXTINF:-1 ,Twin TV\nhttps://twin.example/b.m3u8\n"
+let twin = LivePlaylistParser.parse(playlistID: "playlist:twin", text: twinText, baseURL: nil)
+check(twin.channels.count == 2,
+      "identity rule 2: two id-less rows of one name stay two channels")
+check(twin.channels.first?.providerChannelId != twin.channels.last?.providerChannelId,
+      "the fallback key carries an occurrence index, so twins cannot collapse")
+check(twin.channels.first?.providerChannelId.hasPrefix("fallback:") == true,
+      "a fallback identity is visibly a fallback")
+let twinRegistry = LiveSourceRegistry.register(
+    parsed: twin, playlistId: "playlist:twin", providerNamespace: "fixture:provider"
+)
+check(twinRegistry.members.count == 2 && twinRegistry.sources.count == 2,
+      "the registry keeps the twins separate all the way to sources")
+check(twinRegistry.members.first?.memberId != twinRegistry.members.last?.memberId,
+      "two fallback members never share an id")
+
+let relText = "#EXTM3U\n#EXTINF:-1 tvg-id=\"Rel.ir\",Rel TV\nstream.m3u8\n"
+let relNoBase = LivePlaylistParser.parse(playlistID: "playlist:rel", text: relText, baseURL: nil)
+check(relNoBase.channels.isEmpty, "a relative address without a base is not a channel")
+check(issueCodes(relNoBase.issues).contains("invalidUrl"),
+      "and the refusal is named rather than dropped")
+let relWithBase = LivePlaylistParser.parse(
+    playlistID: "playlist:rel", text: relText,
+    baseURL: URL(string: "https://cdn.example/live/index.m3u8")
+)
+check(relWithBase.channels.first?.streamUrls == ["https://cdn.example/live/stream.m3u8"],
+      "a relative address resolves against the HTTP(S) base the playlist was fetched from")
+check(relWithBase.issues.isEmpty, "resolution is not an error")
+let relFileBase = LivePlaylistParser.parse(
+    playlistID: "playlist:rel", text: relText, baseURL: URL(string: "file:///tmp/index.m3u8")
+)
+check(relFileBase.channels.isEmpty,
+      "a local base must not smuggle a relative path into a playable URL")
+check(issueCodes(relFileBase.issues).contains("invalidUrl"), "and it says so")
+
+let bigRows = (0..<50_001).map {
+    "#EXTINF:-1 tvg-id=\"C\($0).ir\",Channel \($0)\nhttps://cdn.example/\($0).m3u8\n"
+}.joined()
+let memberCeiling = LivePlaylistParser.parse(
+    playlistID: "playlist:large", text: "#EXTM3U\n\(bigRows)", baseURL: nil
+)
+check(memberCeiling.channels.count == 50_000,
+      "the member ceiling keeps the permitted prefix instead of failing the playlist")
+check(memberCeiling.truncated, "a truncated parse always says so")
+check(issueCodes(memberCeiling.issues).contains("limitExceeded"),
+      "the ceiling is reported as limitExceeded")
+
+let manyURLs = (0..<101).map { "https://cdn.example/\($0).m3u8" }.joined(separator: "\n")
+let urlCeiling = LivePlaylistParser.parse(
+    playlistID: "playlist:many",
+    text: "#EXTM3U\n#EXTINF:-1 tvg-id=\"Many.ir\",Many TV\n\(manyURLs)\n",
+    baseURL: nil
+)
+check(urlCeiling.channels.first?.streamUrls.count == 100,
+      "the per-member URL ceiling keeps the first hundred addresses")
+check(urlCeiling.truncated && issueCodes(urlCeiling.issues).contains("limitExceeded"),
+      "the dropped hundred-and-first address is visible")
+
+let padding = (0..<200_001).map { "# pad \($0)" }.joined(separator: "\n")
+let lineCeiling = LivePlaylistParser.parse(
+    playlistID: "playlist:lines",
+    text: "#EXTM3U\n\(padding)\n#EXTINF:-1 tvg-id=\"Late.ir\",Late TV\n"
+        + "https://cdn.example/late.m3u8\n",
+    baseURL: nil
+)
+check(lineCeiling.truncated && issueCodes(lineCeiling.issues).contains("limitExceeded"),
+      "the physical-line ceiling stops the scan and reports it")
+check(lineCeiling.channels.isEmpty,
+      "a row past the line ceiling is not imported, because its line number would be a lie")
+
+let filler = String(repeating: "x", count: 10 * 1024 * 1024 + 16)
+let oversized = LivePlaylistParser.parse(
+    playlistID: "playlist:huge", text: "#EXTM3U\n\(filler)", baseURL: nil
+)
+check(oversized.channels.isEmpty, "a ten-mebibyte payload is refused, not parsed")
+check(issueCodes(oversized.issues).contains("oversizedInput"),
+      "oversizedInput is its own code, so a size problem never looks like a limit trip")
+check(oversized.truncated && oversized.contentHash.isEmpty,
+      "refused bytes are not hashed, because there is no imported content to key")
+
+let headerless = LivePlaylistParser.parse(
+    playlistID: "playlist:none", text: "https://cdn.example/orphan.m3u8\n", baseURL: nil
+)
+check(headerless.format == .invalid, "a document without #EXTM3U is not a channel list")
+check(headerless.channels.isEmpty, "no orphan address becomes a channel")
+check(issueCodes(headerless.issues).contains("malformedEntry"), "the header is a content issue")
+
+// MARK: registerParsedPlaylist
+
+let duplicatesRegistry = LiveSourceRegistry.register(
+    parsed: LivePlaylistParser.parse(
+        playlistID: "playlist:duplicates",
+        text: playlistFixture("duplicates.m3u"),
+        baseURL: nil
+    ),
+    playlistId: "playlist:duplicates",
+    providerNamespace: "fixture:provider"
+)
+check(duplicatesRegistry.members.count == 2, "two ids are two members")
+check(duplicatesRegistry.sources.count == 3, "three addresses are three sources")
+check(duplicatesRegistry.sources.map(\.priority) == [0, 1, 0],
+      "priority restarts for each member, so the second channel still has a primary")
+check(duplicatesRegistry.sources.allSatisfy { $0.health == .unverified },
+      "parsing a playlist is not evidence that a stream plays")
+check(duplicatesRegistry.sources.allSatisfy { $0.rendererCapability == .notYetVerified },
+      "no renderer capability is claimed without recorded playback evidence")
+check(duplicatesRegistry.sources.allSatisfy { !$0.sourceId.contains("https://") },
+      "an identifier never embeds the raw address it was built from")
+let dupFirstMemberId = "member:" + StableKeyHash.hash(
+    "playlist:duplicates\nprovider\nfixture:provider\nDup"
+)
+check(duplicatesRegistry.members.first?.memberId == dupFirstMemberId,
+      "identity rule 1 is spelled out, because the ports paste these exact seeds")
+check(duplicatesRegistry.sources.first?.sourceId
+    == "source:" + StableKeyHash.hash(
+        "\(dupFirstMemberId)\nurl\nhttps://dup.example/a.m3u8"
+    ),
+    "identity rule 3 keys on the canonical address")
+check(duplicatesRegistry.sources.first?.channelId == dupFirstMemberId,
+      "identity rule 4: a new logical channel uses its member id")
+check(duplicatesRegistry.sources.first?.memberId == dupFirstMemberId,
+      "the source records the member it came from")
+check(duplicatesRegistry.sources.first?.playlistId == "playlist:duplicates"
+    && duplicatesRegistry.sources.first?.providerNamespace == "fixture:provider",
+    "a source keeps its real playlist and namespace ownership")
+check(duplicatesRegistry.sources.first?.origin == .playlist,
+      "a parsed address is a playlist origin, not a user addition")
+check(duplicatesRegistry.sources.first?.enabled == true,
+      "a fresh source is enabled but unverified")
+check(duplicatesRegistry.sources.first?.streamUrl == "https://dup.example/a.m3u8"
+    && duplicatesRegistry.sources.first?.streamSecretRef == nil,
+    "a plaintext address is stored in streamUrl and never in a secret reference")
+check(duplicatesRegistry.sources.first?.lastSuccessfulPlaybackAt == nil
+    && duplicatesRegistry.sources.first?.lastFailedPlaybackAt == nil,
+    "no playback history is invented at parse time")
+check(duplicatesRegistry.members.first?.normalizedName == "dup tv",
+      "the match key is stored beside the display name")
+check(duplicatesRegistry.members.first?.displayName == "Dup TV"
+    && duplicatesRegistry.members.first?.group == "News"
+    && duplicatesRegistry.members.first?.countryCode == "IR",
+    "the member keeps what the playlist stated")
+check(duplicatesRegistry.members.first?.ordinal == 0
+    && duplicatesRegistry.members.last?.ordinal == 1,
+    "ordinals preserve source position so user order survives a refresh")
+check(duplicatesRegistry.members.first?.providerChannelId == "Dup",
+      "identity keys on the stripped provider id")
+check(duplicatesRegistry.members.first?.tvgId == "Dup.ir",
+      "while the member still records the raw attribute, so an `@SD` feed is recognisable")
+check(duplicatesRegistry.sources.first?.label == "منبع اصلی",
+      "the first source of a member is named in Persian")
+check(duplicatesRegistry.sources[1].label == "منبع ۲",
+      "later sources are counted with Persian digits")
+check(duplicatesRegistry.sources.last?.label == "منبع اصلی",
+      "counting restarts per member")
+check(duplicatesRegistry.issues.isEmpty, "a clean registration reports no issues")
+
+let hintText = "#EXTM3U\n#EXTINF:-1 tvg-id=\"Hints.ir\",Hints TV\n"
+    + "https://cdn.example/a.m3u8\nhttps://cdn.example/b.mpd\n"
+    + "https://cdn.example/c.MP4?x=M3U8\nhttps://cdn.example/d.m3u8?sig=1\n"
+    + "https://cdn.example/stream\n"
+let hintRegistry = LiveSourceRegistry.register(
+    parsed: LivePlaylistParser.parse(playlistID: "playlist:hint", text: hintText, baseURL: nil),
+    playlistId: "playlist:hint",
+    providerNamespace: "fixture:provider"
+)
+check(hintRegistry.sources.map(\.protocolHint) == ["hls", "dash", "mp4", "hls", "unknown"],
+      "the hint comes from the canonical path extension only, never from the query")
+
+check(LivePlaylistParser.canonicalStreamURL("HTTPS://CDN.Example:443/Live.A.m3u8?Q=1")
+    == "https://cdn.example/Live.A.m3u8?Q=1",
+    "canonicalization folds scheme and host only: path case is case-sensitive on CDNs")
+check(LivePlaylistParser.canonicalStreamURL("http://cdn.example:80/a.m3u8")
+    == "http://cdn.example/a.m3u8",
+    "a default port is the same origin as no port, so keeping both would double every list")
+check(LivePlaylistParser.canonicalStreamURL("https://cdn.example/a.m3u8#top") == nil,
+    "a fragment is refused rather than stripped, because two rows would silently merge")
+check(LivePlaylistParser.canonicalStreamURL("ftp://cdn.example/a.m3u8") == nil,
+    "only HTTP(S) is playable on this build")
+check(LivePlaylistParser.canonicalStreamURL("not a url") == nil,
+    "an unparseable address is refused, not stored")
+check(LivePlaylistParser.canonicalStreamURL("https://cdn.example") == nil,
+    "no path means no manifest to play")
+check(LivePlaylistParser.canonicalStreamURL("https://user:pass@cdn.example/a.m3u8") == nil,
+    "userinfo is a credential, not part of a canonical address")
+
+check(LivePlaylistParser.isSensitiveURL("https://user:pass@cdn.example/a.m3u8"),
+      "userinfo makes an address sensitive")
+check(LivePlaylistParser.isSensitiveURL("https://cdn.example/a.m3u8?token=abc")
+    && LivePlaylistParser.isSensitiveURL("https://cdn.example/a.m3u8?Key=abc"),
+      "credential query keys are matched case-insensitively")
+check(LivePlaylistParser.isSensitiveURL("https://cdn.example/a.m3u8?x=1&Signature=abc"),
+      "any credential-looking key in the query marks the address")
+check(!LivePlaylistParser.isSensitiveURL("https://cdn.example/a.m3u8;Signature=abc"),
+      "a query only begins at `?`, so a path parameter is not a credential")
+check(LivePlaylistParser.isSensitiveURL("https://cdn.example/a.m3u8?auth=1")
+    && LivePlaylistParser.isSensitiveURL("https://cdn.example/a.m3u8?credential=x")
+    && LivePlaylistParser.isSensitiveURL("https://cdn.example/a.m3u8?password=x"),
+      "the whole canonical key set is recognised")
+check(!LivePlaylistParser.isSensitiveURL("https://cdn.example/a.m3u8?quality=720")
+    && !LivePlaylistParser.isSensitiveURL("https://cdn.example/monkey.m3u8")
+    && !LivePlaylistParser.isSensitiveURL("https://cdn.example/a.m3u8?monkey=1"),
+      "matching is on exact keys, or a legitimate `monkey` channel would silently disappear")
+
+let credentialText = "#EXTM3U\n#EXTINF:-1 tvg-id=\"Secret.ir\",Secret TV\n"
+    + "https://cdn.example/a.m3u8?token=abc\nhttps://cdn.example/b.m3u8\n"
+let secretRegistry = LiveSourceRegistry.register(
+    parsed: LivePlaylistParser.parse(playlistID: "playlist:secret", text: credentialText, baseURL: nil),
+    playlistId: "playlist:secret",
+    providerNamespace: "fixture:provider"
+)
+check(secretRegistry.sources.count == 1
+    && secretRegistry.sources.first?.streamUrl == "https://cdn.example/b.m3u8"
+    && secretRegistry.sources.first?.priority == 0,
+    "a credential-bearing address never becomes a plaintext stream URL")
+check(issueCodes(secretRegistry.issues).contains("secretStorageUnavailable"),
+      "and it is refused with the honest code: the row parsed fine, only the store is missing")
+
+let caseText = "#EXTM3U\n#EXTINF:-1 tvg-id=\"Same.ir\",Same TV\n"
+    + "https://cdn.example/a.m3u8\nHTTPS://CDN.Example/a.m3u8\n"
+let caseRegistry = LiveSourceRegistry.register(
+    parsed: LivePlaylistParser.parse(playlistID: "playlist:case", text: caseText, baseURL: nil),
+    playlistId: "playlist:case",
+    providerNamespace: "fixture:provider"
+)
+check(caseRegistry.members.count == 1 && caseRegistry.sources.count == 1,
+      "two spellings of one origin are one source")
+check(caseRegistry.issues.isEmpty,
+      "deduplicating is not an error and not a ceiling, so it must report nothing")
+check(caseRegistry.sources.first?.streamUrl == "https://cdn.example/a.m3u8"
+    && LivePlaylistParser.canonicalStreamURL(caseRegistry.sources.first!.streamUrl)
+        == caseRegistry.sources.first?.streamUrl,
+      "canonicalization is idempotent, or a refresh would mint a new sourceId and lose history")
+check(caseRegistry.sources.first?.sourceId
+    == "source:" + StableKeyHash.hash(
+        "\(caseRegistry.members.first!.memberId)\nurl\nhttps://cdn.example/a.m3u8"
+    ),
+    "the deduplicated source keeps the canonical identity")
+
+let longURL = "https://cdn.example/" + String(repeating: "a", count: 8_193) + ".m3u8"
+let longText = "#EXTM3U\n#EXTINF:-1 tvg-id=\"Long.ir\",Long TV\n\(longURL)\n"
+    + "https://cdn.example/ok.m3u8\n"
+let longParsed = LivePlaylistParser.parse(playlistID: "playlist:urltoolong", text: longText, baseURL: nil)
+let longRegistry = LiveSourceRegistry.register(
+    parsed: longParsed, playlistId: "playlist:urltoolong", providerNamespace: "fixture:provider"
+)
+check(longRegistry.sources.count == 1
+    && longRegistry.sources.first?.streamUrl == "https://cdn.example/ok.m3u8",
+    "an over-long URL is dropped whole, never truncated into a plausible wrong address")
+check(longParsed.truncated && issueCodes(longParsed.issues).contains("limitExceeded"),
+      "and dropping it makes the parse partial, which the result must admit")
+
+let pureFirst = LiveSourceRegistry.register(
+    parsed: valid, playlistId: "playlist:valid", providerNamespace: "builtin:ccloud"
+)
+let pureSecond = LiveSourceRegistry.register(
+    parsed: valid, playlistId: "playlist:valid", providerNamespace: "builtin:ccloud"
+)
+check(pureFirst.members.map(\.memberId) == pureSecond.members.map(\.memberId)
+    && pureFirst.sources.map(\.sourceId) == pureSecond.sources.map(\.sourceId),
+    "the registry is a pure function of one parse result, so a refresh cannot reshuffle identity")
+let otherNamespace = LiveSourceRegistry.register(
+    parsed: valid, playlistId: "playlist:valid", providerNamespace: "builtin:other"
+)
+check(otherNamespace.members.first?.memberId != pureFirst.members.first?.memberId,
+    "a different namespace must not merge its identically-named channels")
+check(!pureFirst.sources.isEmpty
+    && pureFirst.sources.allSatisfy { $0.streamSecretRef == nil }
+    && pureFirst.sources.allSatisfy { $0.health != .available }
+    && pureFirst.members.allSatisfy { $0.providerNamespace == "builtin:ccloud" },
+    "no secret reference, no capability claim and no ownership leak on a clean parse")
+
+let emptyRegistry = LiveSourceRegistry.register(
+    parsed: empty, playlistId: "playlist:empty", providerNamespace: "fixture:provider"
+)
+check(emptyRegistry.members.isEmpty && emptyRegistry.sources.isEmpty
+    && emptyRegistry.issues.isEmpty,
+    "a playlist with no usable row registers nothing at all")
+
 // MARK: - Result
 
 print("live foundation fixtures: \(fixtureDirectory)")

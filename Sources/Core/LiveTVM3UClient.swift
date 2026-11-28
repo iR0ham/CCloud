@@ -159,7 +159,7 @@ enum LiveTVM3U {
     /// `#EXTINF:-1 tvg-id="AbadanTV.ir@SD" tvg-logo="…" group-title="General",Abadan TV`
     private static func entry(from line: String) -> Entry? {
         guard let comma = line.lastIndex(of: ",") else { return nil }
-        let name = displayName(String(line[line.index(after: comma)...]))
+        let name = LiveTVM3UText.displayName(String(line[line.index(after: comma)...]))
         guard !name.isEmpty else { return nil }
 
         let identifier = attribute("tvg-id", in: line)
@@ -185,37 +185,10 @@ enum LiveTVM3U {
         return String(rest[rest.startIndex..<end])
     }
 
-    /// iptv-org appends the stream quality to the channel name; the row shows the name only.
-    static func displayName(_ raw: String) -> String {
-        var result = ""
-        var index = raw.startIndex
-        while index < raw.endIndex {
-            let character = raw[index]
-            if character == "(" || character == "[" {
-                let closer: Character = character == "(" ? ")" : "]"
-                if let end = raw[index...].firstIndex(of: closer),
-                   isNoise(String(raw[raw.index(after: index)..<end])) {
-                    index = raw.index(after: end)
-                    continue
-                }
-            }
-            result.append(character)
-            index = raw.index(after: index)
-        }
-        return result.split(separator: " ", omittingEmptySubsequences: true)
-            .map(String.init)
-            .joined(separator: " ")
-    }
-
-    private static func isNoise(_ inner: String) -> Bool {
-        let token = inner.lowercased().replacingOccurrences(of: " ", with: "")
-        guard !token.isEmpty else { return true }
-        if ["4k", "8k", "sd", "hd", "fhd", "uhd", "hevc", "multiaudio", "backup"].contains(token) {
-            return true
-        }
-        if token.hasPrefix("not") { return true }
-        return token.range(of: #"^\d{1,4}[kpi]\d*$"#, options: .regularExpression) != nil
-    }
+    // The display-name text rule (`displayName`/`isNoise`) now lives in `LiveTVM3UText.swift`,
+    // unchanged: that file has no dependencies, so the headless contract harness can compile and pin
+    // it together with the multi-source parser, and both Live TV paths then share one recipe instead
+    // of two that could drift.
 }
 
 // MARK: - Name matching
