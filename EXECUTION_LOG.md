@@ -474,3 +474,61 @@ license texts are unchanged by this slice.
 Exact next action: B1-S mirrors these contracts in Swift against the same
 `Tests/fixtures/migration/catalog-v1.json`, then B1-J mirrors them in the webOS JavaScript, then B2
 freezes the cross-language agreement fixtures.
+
+## 2026-11-28 (project manager) — Independent re-derivation of the H1–H3 / B1-D entry
+
+The section above was written by the implementing engineer and pushed while the project manager was
+re-reading the same runner logs from the API. Rather than post a second copy of the same record, this
+addendum states only what was independently confirmed, what was added, and one coordination fact.
+
+Confirmed from fresh downloads, not from the report: `git ls-remote` equals local `HEAD`; the
+hardening slice is green at `5a9ad4a` (Quality `46093092478`, CI `46093092487`, Build `46093092524`)
+and the head is green at `eb052b2` (Quality `46094277018`, CI `46094276971`, Build `46094276974`,
+completed `2026-11-28T02:00:31Z`, eight jobs all `completed success`). In Android job `140824185335`
+the manager counted `20` `ok:` lines, `0` `##[error]` annotations, and **`0` skipped steps**, with
+`merged manifest artifact: …/merged_manifest/release/outputReleaseAppLinkSettings/AndroidManifest.xml`
+appearing exactly once; `APK/AAB legal assertions passed: 14 files per package` also appears once. The
+provenance suite prints `Ran 14 tests` in both Quality runs (`0.011s` at `5a9ad4a`, `0.007s` at the
+head), so the fourteenth test is executed, not merely committed. Windows installer job `140825644700`
+reprinted `Legal files are SHA-256 byte-equal to the canonical repository copies (14 compared)` against
+the installed tree `C:\Program Files\CCloud`, and webOS job `140821955598` on `node: v20.20.2` printed
+`# tests 10 / # pass 10 / # fail 0 / # skipped 0`.
+
+Three specific claims the report made were checked because they decide acceptance, and all three hold.
+`build-android.yml` at head derives the identity token from the artifact rather than hardcoding it:
+`:179` reads `APP_ID="$("$APKANALYZER" manifest application-id "$APK")"`, `:183` pins it with
+`test "$APP_ID" = "com.ccloud.ccloud"`, and `:273`/`:274` then require that same value in the selected
+merged manifest and as `package="…"` in the decoded shipped manifest. `require_token` call sites are
+`15` at `1382a93` and `18` at head, and the only added `|| true` in the range is the
+`grep -A2 -F 'android:name="android.hardware.touchscreen"' … > "$TOUCHSCREEN" || true` context dump,
+which sits in front of a hard `::error::` + `exit 1` check. The `4570277` Build run
+`46093489864` really is a queued-run cancellation with **zero jobs started**, so it neither supports
+nor contradicts any platform gate.
+
+Two points of precision to carry forward. First, the residual limit of H1 is narrower than the note
+above implies but is not zero: the new assertions prove the selected merged manifest declares the same
+`applicationId` as the APK under test, not that those exact file bytes were compiled into that APK, so
+a stale artifact from the same module and variant could still satisfy the pair. That is the remedy the
+review asked for, and the remaining gap is recorded here rather than presented as closed. Second, the
+engineer's mid-task chat summary said the analyzer commit "only removed that dead import", while the
+committed diff also rewrites `_optDateText` to `value?.toUtc().toIso8601String()`; the ledger entry
+above discloses both correctly, so this is a reporting-precision note about the interim message, not a
+defect in the recorded evidence.
+
+Coordination fact: this branch's ledger tail is written by more than one member on one shared
+checkout. The engineer's `7124c28` landed first, so the manager's overlapping draft was discarded
+instead of committed, and this shorter addendum takes its place. Future appends must re-read
+`git ls-remote` immediately before writing the tail.
+
+Acceptance position: H1, H2 and H3 are **closed with hosted evidence**; Task B1-D is **implemented and
+hosted-verified at unit level** — its RED (`46093489869`) and GREEN (`46094276971`, five named cases
+inside `133 tests passed`) both exist — and `Tests/fixtures/migration/catalog-v1.json` plus
+`flutter-legacy-prefs.json` were compared against the plan's Shared Fixtures block and match
+byte-for-byte, so B1-S and B1-J may consume them as frozen. Nothing here changes the release posture:
+all four platforms stay `INTERNAL-ONLY-*`, `RELEASE_PRODUCTION_READY` is unset, device and runtime
+acceptance is NOT VERIFIED, and the falsifiable mutations for H1 and H2 remain **stated, not
+executed** because no intentionally broken commit was pushed.
+
+Exact next action: obtain a scoped independent review of `1382a93..41039b2` — the two workflow commits,
+the provenance fix and the first Phase B Dart code — before any Swift file is written, because B1-S
+duplicates the Dart contract shape and a defect found afterwards would be paid for three times.

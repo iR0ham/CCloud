@@ -7,15 +7,17 @@ dated evidence below is a ledger and must not be restated as history that did no
 
 - Repository: `/Users/roham/Documents/CCloudMac`, remote `iR0ham/CCloud` (public).
 - Working branch: `ci/github-first-foundation`.
-- HEAD and pushed remote branch head are both
-  `cbc48ee249a9402841369fe0087091ccc85d71b5` (`git ls-remote` confirmed): nothing is held locally
-  any more. This section said `18dec96` was unpushed while `2a244aa` was the remote head; that was
-  true at the time of writing and is superseded here, which is the dated correction the reviewer's
-  note N4 asked for.
-- Commit order on the branch: `88bc7ea` (Android assertion target fix) → `8a1ef3f` (ledger +
-  checkpoint) → `221ce95` (Windows byte-equality) → `9b55536` (provenance digests) → `2a244aa`
-  (webOS dev-proxy bound) → `18dec96` (Android green addendum) → `709d9ed` (checkpoint refresh) →
-  `cbc48ee` (three-closed-gates ledger addendum).
+- HEAD and pushed remote branch head were both
+  `cbc48ee249a9402841369fe0087091ccc85d71b5` when the previous sentence was written; that was true at
+  the time and is superseded here. As of this refresh the code head is
+  `eb052b248ac0255fabbf30788bd964f2d35a5315`, and `git ls-remote` and local `HEAD` both returned
+  `41039b253da00005ba9083ce08833e7188bae32c` (two ledger commits on top of it) before this file was
+  edited — so on resume, re-run `git ls-remote` rather than trusting any head written here.
+- Commit order on the branch, continuing the previous list: `cbc48ee` (three-closed-gates ledger
+  addendum) → `1382a93` (accepted re-review + hardening items) → `4c80ad3` (**H1** merged-manifest
+  binding) → `e1eb4db` (**H2** optional-touchscreen assertion) → `5a9ad4a` (**H3** provenance path
+  canonicalization) → `4570277` (B1-D fixtures + failing tests, hosted RED) → `ea28b29` (B1-D Dart
+  contracts + codec) → `eb052b2` (analyzer-clean) → `7124c28` + `41039b2` (ledger and plan appends).
 - `main`: `6dfd925095b0090b623443f396388fd4d552db63` — untouched, never developed on.
 - Worktree: clean.
 - Open pull requests: none. Release tags: none (`v2.0.0` was never tagged).
@@ -94,6 +96,34 @@ Reviewer notes and how they are triaged:
   bytes == `SOURCES.md` digests), not upstream authenticity of a license text. No network fetch is
   done on purpose; the claim must never be widened in later reports.
 
+### At `5a9ad4a` (gate-hardening slice H1 + H2 + H3) and `eb052b2` (Task B1-D head)
+
+| Head | Workflow | Run | Result and specific proof |
+| --- | --- | --- | --- |
+| `5a9ad4a` | Quality | `46093092478` | **success**; `provenance: 10 retained files verified against SOURCES.md (offline, recomputed SHA-256, no network fetch)` and `Ran 14 tests in 0.011s` / `OK` — the fourteenth test is the new `test_documented_symlink_cannot_leave_the_checkout` |
+| `5a9ad4a` | CI | `46093092487` | **success** |
+| `5a9ad4a` | Build all platforms | `46093092524` | **success**, 8/8 jobs; Android job `140818355917` printed `ok: merged manifest contains com.ccloud.ccloud`, `ok: APK manifest contains package="com.ccloud.ccloud"`, `ok: APK manifest contains android:required="false"` and `ok: APK manifest pairs android.hardware.touchscreen with android:required="false"` |
+| `eb052b2` | Quality | `46094277018` | **success**; same provenance line, `Ran 14 tests in 0.007s` / `OK` |
+| `eb052b2` | CI | `46094276971` | **success**; Flutter job `140821955659`: `No issues found! (ran in 15.3s)` and `🎉 133 tests passed, 1 skipped`, with all five `live_contracts_test.dart` cases green by name; webOS job `140821955598` on `node: v20.20.2`: `# tests 10 / # pass 10 / # fail 0`; the one skip is the pre-existing macOS-host-only `platform_identity_test.dart` case |
+| `eb052b2` | Build all platforms | `46094276974` | **success**, completed `2026-11-28T02:00:31Z`; eight jobs all `completed success`; Android job `140824185335` has **0 failed and 0 skipped steps** with `20` `ok:` lines, `0` `##[error]` annotations and `APK/AAB legal assertions passed: 14 files per package`; Windows installer job `140825644700` reprinted `Legal files are SHA-256 byte-equal to the canonical repository copies (14 compared)` against `C:\Program Files\CCloud` |
+
+Hosted RED for the test-first order: CI `46093489869` at `4570277` is **failure** in job
+`140819528805`, step `Analyze`, with `Target of URI doesn't exist:
+'package:ccloud/core/live_catalog_codec.dart'` (and `live_contracts.dart`) — the exact Step 2
+prediction. Build `46093489864` at that SHA is **cancelled with zero jobs started** (a queued run
+replaced by the next push), so it is evidence about nothing. `ea28b29` stayed red for a diagnosed
+non-gate reason: CI `46093928877` job `140820881485` and Build `46093928922` jobs `140821258518` /
+`140821258527` all failed only in step `Analyze` on `warning • Unused import …`, which is why `Test`
+showed `skipped` there; `eb052b2` fixed the warning without touching an assertion.
+
+Gate integrity across `1382a93..eb052b2`, re-derived by the project manager rather than copied:
+`require_token` call sites went **15 → 18**; `build-android.yml` is `+55/−4`; the only added `|| true`
+is the touchscreen context-window dump that feeds a hard `::error::` + `exit 1` check; no
+`continue-on-error`, `set +`, test `skip`/`only`/`todo` or dropped required token appears in the range;
+`set -euo pipefail` is intact in all four Android script blocks; the standing macOS skips (sign,
+temporary keychain removal, hosted UI smoke, UI evidence upload) and the CI `Live API verification`
+skip are unchanged.
+
 ### Earlier heads, for continuity
 
 - `6fb03bf`: Quality `46085379874` success, CI `46085379959` success (first hosted proof of the
@@ -147,48 +177,75 @@ The owner's Mac is not used for project execution workloads.
     nothing refuted; all 26 branch runs are `run_attempt=1` with at most one run per workflow per SHA,
     and the failures at `3d6e876`, `7b2db7b`, `6fb03bf` and `28869df` remain recorded as failures —
     no red was converted to green.
+11. Reviewer notes H1/H2/H3 closed on runners: `.github/workflows/build-android.yml` now selects the
+    merged manifest from four explicit candidates, hard-fails on an ambiguous narrowed fallback, and
+    binds `$APP_ID` (read from the APK under test) into both manifest assertions; the optional-
+    touchscreen contract is asserted as a value and as a feature pairing; `_resolve_within` in
+    `scripts/verify_provenance.py` canonicalizes both sides and re-checks containment, with a committed
+    symlink regression that runs in Quality (`Ran 14 tests` / `OK`). Hosted green at `5a9ad4a` and
+    `eb052b2`.
+12. Phase B1-D is the first Phase B code in the repository: `flutter_app/lib/core/live_contracts.dart`
+    (420 lines), `flutter_app/lib/core/live_catalog_codec.dart` (507 lines),
+    `flutter_app/test/live_contracts_test.dart` (93 lines) and the two frozen fixtures
+    `Tests/fixtures/migration/catalog-v1.json` / `flutter-legacy-prefs.json`, which match the plan's
+    Shared Fixtures block byte-for-byte. Hosted RED `46093489869` → hosted GREEN `46094276971` with all
+    five cases green by name inside `133 tests passed, 1 skipped` (the skip is pre-existing and
+    macOS-host-only). `Tests/fixtures/multi-source/*` remains unauthored because B2 owns it.
 
 ## Current task
 
-- The remediation slice is **closed**: reviewed (ACCEPT WITH NOTES), independently audited, and hosted
-  green at every commit through `cbc48ee`.
-- Active work moved to the reviewer's hardening notes: one focused slice for N1 (bind the merged
-  manifest to this APK), N2 (assert `android:required="false"` instead of only claiming it) and
-  N3 (canonicalize the provenance checker's path resolution), each with its own hosted RED → GREEN.
-- Phase B1-D (Dart Multi-Source contracts + frozen shared fixtures) is unblocked and starts after
-  that slice, so the reviewed head does not move underneath an open review.
-- Nothing is held locally: HEAD equals the remote head.
+- The remediation slice and the reviewer's hardening notes are both **closed with hosted evidence**:
+  H1 = `4c80ad3`, H2 = `e1eb4db`, H3 = `5a9ad4a`, all green at `5a9ad4a` and again at `eb052b2`.
+- Phase B has started: **Task B1-D** (Dart contracts, codec, five contract tests, two frozen migration
+  fixtures) is implemented and hosted-verified at unit level, with its own RED (`46093489869`) and
+  GREEN (`46094276971`) pair. Nothing outside `flutter_app/lib/core`, `flutter_app/test` and
+  `Tests/fixtures/migration` was touched, so no Swift, JavaScript, UI or playback file is in scope yet.
+- Active work is now the **scoped independent review of `1382a93..41039b2`** (the two workflow commits,
+  the provenance fix, the first Phase B Dart code and the ledger appends). B1-S stays queued until that
+  verdict lands, because B1-S and B1-J mirror the Dart contract shape and a defect found afterwards
+  would be paid for three times.
+- Nothing is held locally beyond this checkpoint edit: HEAD equals the remote head at `41039b2`.
 
 ## Remaining tasks (ordered, with the real gate for each)
 
 1. ~~Independent re-review~~ — **closed**: ACCEPT WITH NOTES for `6fb03bf..cbc48ee`, notes N1–N5
    triaged into the work items below. The Android assertion commit `88bc7ea` and the evidence-gap
    slice `221ce95`/`9b55536`/`2a244aa` were folded into it, as this section previously required.
-2. **Gate-hardening slice (from the review)** — N1 narrow the merged-manifest `find` fallback to
-   `*/merged_manifest/release/*`, fail on ambiguity, and assert a package-identity token in it;
-   N2 add `require_token "APK manifest" "$MANIFEST" 'android:required="false"'` or correct the
-   comment; N3 make `scripts/verify_provenance.py` canonicalize and re-check containment. Each fix
-   must be shown able to go RED on a runner before it is trusted GREEN.
-3. **Phase B1 — cross-language contracts, then B2 parsers/registries** (Dart first, then Swift,
-   then JavaScript, sharing the frozen fixtures). No B1/B2 file exists yet; verified by search.
-3. ~~Windows package byte-equality evidence gap~~ — **closed and hosted verified**: both Windows
+2. ~~Gate-hardening slice~~ — **closed with hosted evidence**: H1 added the runner-resolved
+   `outputReleaseAppLinkSettings` path as an explicit candidate, narrowed the fallback glob to
+   `*/merged_manifest/release/*`, made an ambiguous remainder `exit 1`, and asserts `$APP_ID` (read
+   from the APK at `:179`, pinned at `:183`) inside both the merged manifest and the decoded shipped
+   manifest; H2 asserts `android:required="false"` *and* pairs it with
+   `android.hardware.touchscreen`; H3 canonicalizes both sides in `_resolve_within` and re-checks
+   containment, proven by a committed symlink vector that runs on the runner (`Ran 14 tests`).
+   Residual, stated precisely: H1 proves the selected manifest declares the APK's `applicationId`, not
+   that those exact bytes were compiled into the APK. The RED halves of H1/H2 are **stated, not
+   executed**, because no intentionally broken commit was pushed.
+3. **Scoped re-review of `1382a93..41039b2`** — gate: an independent verdict on the changed Android
+   gate, the provenance fix and the Dart contracts, with the pre-existing macOS-skip set and the
+   `Live API verification` skip confirmed unchanged.
+4. **Phase B1 continuation — B1-S (Swift), then B1-J (JavaScript), then B2 parsers/registries**, all
+   sharing the frozen fixtures. `Tests/fixtures/multi-source/*` is still unauthored by design (B2 owns
+   it); verified by search.
+5. ~~Windows package byte-equality evidence gap~~ — **closed and hosted verified**: both Windows
    packages print `Legal files are SHA-256 byte-equal to the canonical repository copies
-   (14 compared)` at run `46087990039`.
-4. ~~Provenance hash enforcement~~ — **closed and hosted verified**: `scripts/verify_provenance.py`
+   (14 compared)` at run `46087990039`, and the installer job repeats it against
+   `C:\Program Files\CCloud` at run `46094276974`.
+6. ~~Provenance hash enforcement~~ — **closed and hosted verified**: `scripts/verify_provenance.py`
    recomputes every retained-text digest recorded in `SOURCES.md` offline as a blocking Quality step
    (`provenance: 10 retained files verified…`). Deliberately no network re-fetch comparison; that
    would make the gate depend on upstream availability.
-5. ~~webOS dev-proxy unbounded read~~ — **closed and hosted verified**: `proxyFetch` now uses the
+7. ~~webOS dev-proxy unbounded read~~ — **closed and hosted verified**: `proxyFetch` now uses the
    same bounded byte-counting reader and the `response-too-large` policy code, covered by two new
-   deterministic regressions (10/10 green in CI `46087990047`).
-6. ~~Remaining security and packaging review~~ — **done, with one residual fix**: the re-scan of
-   `verify_provenance.py`, the Windows digest loop and `net.js` produced only N3 above, and the
+   deterministic regressions (10/10 green in CI `46087990047` and again `46094276971`).
+8. ~~Remaining security and packaging review~~ — **done**: the re-scan of `verify_provenance.py`, the
+   Windows digest loop and `net.js` produced only N3 above (now fixed by H3), and the
    `bundle-msvc-runtime.ps1` question is answered **no** — its 14 outputs are always hash-compared by
    the paired assert script, so a separate digest list would only duplicate the set and risk drift.
-7. **Phase C failover, Phase D/E/F subtitles, Phase G full matrix** — after B is hosted-green.
-8. **Unified versioning decision + release manifest** — canonical `2.0.0+22` today; the release
-   bump and manifest generation are not implemented.
-9. **Docs synchronization** — `OVERNIGHT_RELEASE_EXECUTION_REPORT.md` at the end, per mission.
+9. **Phase C failover, Phase D/E/F subtitles, Phase G full matrix** — after B is hosted-green.
+10. **Unified versioning decision + release manifest** — canonical `2.0.0+22` today; the release
+    bump and manifest generation are not implemented.
+11. **Docs synchronization** — `OVERNIGHT_RELEASE_EXECUTION_REPORT.md` at the end, per mission.
 
 ## Open blockers (production release)
 
@@ -206,22 +263,29 @@ None of these may be cleared by changing a label, a flag, or a document claim.
 
 ## Exact next action
 
-1. Land the gate-hardening slice as remaining-task item 2 (N1 + N2 in
-   `.github/workflows/build-android.yml`, N3 in `scripts/verify_provenance.py` plus a mutation-shaped
-   regression), one logical commit per concern, pushed to `ci/github-first-foundation` and verified by
-   a fresh Quality + CI + Build run at that exact SHA.
-2. Then start Phase B1-D (Dart contracts + frozen shared fixtures) with hosted RED → GREEN per
-   `docs/superpowers/plans/2026-11-25-multi-source-subtitles.md`; the review verdict explicitly allows
-   B1 to begin, so no further approval gate is needed before it.
-3. Keep `EXECUTION_LOG.md` appends serialized: this checkpoint update and the log addendum for the
-   review land together, and any later append waits for the previous member's push.
-4. Do not report or tag anything as release-ready: the reviewer confirmed at `cbc48ee` that
-   `INTERNAL-ONLY-*` labels and the absent `RELEASE_PRODUCTION_READY=true` still close publication,
-   and every release job shows `skipped`.
-5. Superseded instructions that used to be here: extend the review to `88bc7ea..2a244aa` (done), and
-   promote the discovered merged-manifest path into the explicit candidate list — that framing was
-   wrong, because the path the runner actually resolved is *not* one of the three explicit candidates,
-   so the correct fix is N1's narrowed fallback plus an identity token, not a path promotion.
+1. ~~Land the gate-hardening slice~~ — **done**: `4c80ad3` (H1) + `e1eb4db` (H2) + `5a9ad4a` (H3), one
+   concern per commit, hosted green at `5a9ad4a` (Quality `46093092478`, CI `46093092487`, Build
+   `46093092524`) and green again at the head.
+2. ~~Start Phase B1-D~~ — **done**: `4570277` (fixtures + failing tests, hosted RED
+   `46093489869`) → `ea28b29` (contracts) → `eb052b2` (analyzer-clean, hosted GREEN `46094276971`
+   inside a fully green Build `46094276974`).
+3. **Get the scoped independent review of `1382a93..41039b2` back, then start B1-S** from
+   `docs/superpowers/plans/2026-11-25-multi-source-subtitles.md` (Swift contracts against the same
+   `Tests/fixtures/migration/catalog-v1.json`), with the plan's hosted RED before implementation and
+   hosted GREEN after. Do not push while that review is in flight — two earlier verdicts came back
+   partial exactly because the head moved underneath the reviewer.
+4. Keep `EXECUTION_LOG.md` appends serialized, and re-check `git ls-remote` immediately before writing
+   the tail: in this slice the engineer's `7124c28` landed while the project manager was composing an
+   overlapping section, and the duplicate draft was discarded rather than committed.
+5. Do not report or tag anything as release-ready: `INTERNAL-ONLY-*` labels, the absent
+   `RELEASE_PRODUCTION_READY=true`, the four skipped macOS release steps and the skipped
+   `Live API verification` all still close publication at `eb052b2`, and green CI is build-time
+   evidence only.
+6. Superseded instructions that used to be here: extend the review to `88bc7ea..2a244aa` (done); and
+   the claim that promoting the discovered merged-manifest path into the explicit candidate list was
+   the *wrong* framing. Landed H1 does both the path promotion **and** the narrowed fallback plus the
+   `$APP_ID` identity token, which is strictly better than either alone — the earlier sentence was
+   written before anyone knew the fourth candidate would be a legitimate explicit entry.
 
 ## How to resume after an interruption
 
