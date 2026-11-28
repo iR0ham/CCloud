@@ -469,6 +469,27 @@ None of these may be cleared by changing a label, a flag, or a document claim.
    port, `streamSecretRef` still has no verified secret store, no Phase B library is consumed by a Live TV
    screen yet (that is B4), and production release stays blocked.
 
+10. **Item 9's next action is done; this supersedes it.** Task B2-S is **hosted-verified for the Swift port**
+    at `e2400e3cdc58132e9cf139681ee210282b5ad540`, read from CI `46109951234` job `140871026873`
+    (`macOS arm64 typecheck`): `typecheck OK (48 files)`, `assertions: 348` /
+    `==> live foundation assertions: 348 (floor 150)` / `live foundation OK`, i.e. **121** new contract checks
+    over the `227` baseline with none removed. The three runner-printed golden vectors are now the literals
+    B2-J and B3 must pin: `811c9dc59e3779b985ebca6bc2b2ae35` for `""`, `981a29df6c39c1531339e5c1aef7688f`
+    for `"playlist:valid"`, `e724bb8086a3208c85ff01962c8b8030` for `"پرس"`. The empty-input vector is the
+    structural one — it reveals the four FNV-1a seeds, which is why three ports can be pinned rather than
+    trusted. Same head: `Flutter analyze and tests`, `webOS static …`, `Version and canonical metadata` and all
+    six Quality jobs `success`; in `Build all platforms` the macOS, webOS IPK and `windows / Dart analyze`
+    jobs `success`, while `android / Android/TV universal APK + AAB` and `windows / Windows release build` were
+    still `in_progress` at reading time and are **not** claimed.
+    **Current exact next action:** **B2-J** — add `webos_app/app/js/playlist_parser.js` plus
+    `Tests/webos/playlist_parser.test.js`, plain ES2017 only (`var`, function expressions, no arrow functions,
+    template literals, `let`/`const`, optional chaining or nullish coalescing, because the syntax ceiling is
+    enforced by a text scan of the file, not by `node --check`), no `new URL()` (it normalizes dot-segments,
+    default ports and percent-encoding, which would diverge from Dart `Uri.tryParse` and Swift
+    `URLComponents`), manual authority split with the userinfo boundary at the **last** `@`, same five ceilings
+    and issue codes, pinning the three golden literals above and the same fixture verdicts as the Dart and
+    Swift suites.
+
 ## How to resume after an interruption
 
 - `cd /Users/roham/Documents/CCloudMac && git status --short && git log --oneline -8`
