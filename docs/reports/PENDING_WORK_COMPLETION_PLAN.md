@@ -393,3 +393,42 @@ previous request stopped at `6fb03bf`) and, beyond that, owner-supplied device a
 legal/signing decisions in section 3. Phase B may be planned against a stable foundation once that review
 lands; it should not wait on further CI plumbing, because further CI would now only add checks for
 evidence classes that already exist.
+
+## 10. Dated update — 2026-11-28 (independent review accepted; hardening items added)
+
+Sections 1–9 above are the historical snapshot and are not restated as current truth. This section
+records what changed after the `2a244aa` ledger, at head `cbc48ee`.
+
+### 10.1 Inventory outcome
+
+| Item | Previous state | Now | Evidence |
+| --- | --- | --- | --- |
+| Independent review (`#9`) | outstanding, last verdict REJECT at `6fb03bf` | **ACCEPT WITH NOTES** for `6fb03bf..cbc48ee` | reviewer re-derived the four prior blockers as closed from runner logs and committed blobs, not from this plan's wording |
+| Hosted evidence claims for the three closed gates | asserted by the implementing member | **independently VERIFIED** | Test Engineer re-downloaded the logs for runs `46087125808`, `46087990039`, `46087990020`, `46087990047`, `46089580613`, `46089580608`, `46089580637`; nothing refuted |
+| `cbc48ee` (docs-only) hosted status | Build still running | **green** — Quality `46089580613`, CI `46089580608`, Build `46089580637` 8/8 jobs | Android job `140807097206`; second independent pass of the manifest gate |
+| `bundle-msvc-runtime.ps1` digest question | open decision | **closed, answer no** | its 14 staged outputs are hash-compared by the paired assert script in every Windows job, so a second digest list duplicates and can drift |
+| Security re-scan of the new scripts | open | **done, one residual fix (N3)** | path containment is lexical only in `scripts/verify_provenance.py:190-195` |
+| Phase B1 readiness | blocked on review | **unblocked** | reviewer: no confirmed defect in the range prevents B1; only non-blocking prerequisites listed below |
+
+### 10.2 New work items created by the review (each with its real gate)
+
+- **H1 — bind the merged manifest to the APK under test** (`N1`, Low/Medium). Gate: a hosted run where
+  narrowing the fallback and asserting an identity token still passes, plus a stated mutation showing
+  the assertion can go RED when the wrong manifest is selected. Without it the four literal contracts
+  rest on a first-match `find` over `build/app/intermediates`.
+- **H2 — assert `android:required="false"` instead of only describing it** (`N2`, Low). Gate: hosted
+  pass with the token added; the decoded rendering is already proven faithful by the `6fb03bf` dump.
+- **H3 — canonicalize path resolution in the provenance checker** (`N3`, Low). Gate: a new
+  `Tests/test_verify_provenance.py` vector using a committed symlink that escapes the checkout, RED
+  first on a runner, then GREEN after the fix.
+- H1–H3 are one focused slice, one logical commit per concern, and must not be split across Android
+  build cycles.
+- **Not work items:** `N4` (checkpoint staleness) is closed by this commit's checkpoint update; `N5`
+  is a reporting constraint — internal consistency must never be reported as upstream authenticity.
+
+### 10.3 Sequencing consequence
+
+The remediation-and-evidence arc is finished. The critical path is now: H1–H3 hardening slice →
+Phase B1-D (Dart contracts + frozen shared fixtures) → B1-S → B1-J → B2 cross-language agreement.
+Device/runtime acceptance, native-media relinking, corresponding-source material, and signing or
+notarization remain owner-side blockers and are unchanged by any of the green CI evidence above.

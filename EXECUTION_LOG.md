@@ -252,3 +252,89 @@ Exact next action: hand `8a1ef3f..2a244aa` to the Code Reviewer for the scoped r
 previous review request stopped at `6fb03bf`. No further packaging- or provenance-assertion work is
 queued behind this slice; the remaining critical path is that verdict plus owner-supplied device
 acceptance and the legal/signing decisions, not more CI.
+
+## 2026-11-28 (review) — Scoped re-review accepted with notes; Phase B1 unblocked
+
+Append-only entry. The held ledger commits `18dec96` and `709d9ed` are now on the remote inside
+`cbc48ee`; `git ls-remote origin refs/heads/ci/github-first-foundation` and local `HEAD` both return
+`cbc48ee249a9402841369fe0087091ccc85d71b5`, and the worktree is clean. `main` is unchanged at
+`6dfd925095b0090b623443f396388fd4d552db63`.
+
+### What was requested and what came back
+
+Two independent read-only tasks were dispatched after the evidence-gap slice landed: a scoped
+re-review of `6fb03bf..cbc48ee` (the earlier review requests stopped at `7b2db7b` and `6fb03bf`, both
+REJECT), and a hosted-evidence audit that re-derives every claimed runner line rather than trusting
+this ledger.
+
+- Code Reviewer: **ACCEPT WITH NOTES**. All four of its earlier blockers were confirmed closed on
+  evidence, not on my description, and no finding in the new range is blocking. Phase B1 (Dart
+  Multi-Source contracts plus frozen shared fixtures) was declared safe to start.
+- Test Engineer: **all six audited claims VERIFIED, nothing refuted.** Every branch run examined is
+  `run_attempt=1` with at most one run per workflow per SHA, the earlier failures at `3d6e876`,
+  `7b2db7b`, `6fb03bf` and `28869df` are still recorded as failures, and the audited logs contain
+  zero `##[error]` and zero `not ok` annotations — so no red action was hidden as green.
+- One requested research task returned no result and is treated as an evidence gap rather than as a
+  completed input; nothing in this entry depends on it.
+
+### New hosted fact
+
+`cbc48ee` (documentation only) is itself hosted green: Quality `46089580613`, CI `46089580608`, Build
+all platforms `46089580637` with all eight jobs successful (Android job `140807097206`). The Android
+manifest gate has now passed twice independently, at `8a1ef3f` and at `cbc48ee`. The Build run was
+still `in_progress` when the engineer's entry above was written; that entry's refusal to claim it was
+correct, and this line is the dated completion rather than a restatement.
+
+### Reviewer notes and their disposition
+
+- **N1 (Low/Medium)** — `.github/workflows/build-android.yml:207-209`: when the three explicit
+  candidate paths are absent, the fallback takes the first `*release*`-matching manifest in sort
+  order, so the four literal assertions are not provably bound to the bytes inside the APK under test.
+  Both green runs resolved
+  `build/app/intermediates/merged_manifest/release/outputReleaseAppLinkSettings/AndroidManifest.xml`,
+  which is the app module's merged manifest, but that binding is circumstantial. Note that the
+  resolved path is **not** one of the three explicit candidates, so the queued "promote the discovered
+  path into the candidate list" idea was the wrong shape; the fix is to narrow the fallback to
+  `*/merged_manifest/release/*`, fail on ambiguity, and assert a package-identity token such as
+  `com.ccloud.ccloud` inside the chosen file.
+- **N2 (Low)** — `build-android.yml:267-268` says the optional-touchscreen contract is asserted on the
+  shipped package, but only the feature name is checked, so `android:required="true"` would still pass.
+  The `6fb03bf` failure dump proves the decoded manifest renders `android:required="false"` faithfully,
+  so the token can simply be asserted rather than the comment being softened.
+- **N3 (Low)** — `scripts/verify_provenance.py:190-195` rejects absolute paths and `..` lexically but
+  never canonicalizes, so `:237` and the digest step would follow a committed symlink out of the
+  checkout while the `:255-260` sweep still counted it as a documented retained file.
+- **N4 (Low)** — `docs/reports/OVERNIGHT_EXECUTION_STATE.md` still described `18dec96` as unpushed at
+  `cbc48ee`; corrected in this commit's checkpoint update, together with the "resolved through the
+  bounded `find` fallback" wording, which the direct log read at line 1928 confirms was accurate.
+- **N5 (Informational)** — the new chain proves internal consistency (package bytes == canonical repo
+  bytes == documented digests), never upstream authenticity. No fetch is performed on purpose, and this
+  claim must not be widened in later reports.
+
+### Gate integrity, stated so it can be re-checked mechanically
+
+Required `require_token` assertions went from twelve to fifteen across the range; the orientation
+prohibition went from one grep to two (portrait rejected in the merged manifest, any
+`android:screenOrientation=` rejected in the shipped package); no literal was deleted, because the four
+moved from the decoded manifest to the merged manifest with attribute-presence checks left behind.
+`set -euo pipefail` is intact in all four Android script blocks. The only `continue-on-error: true` in
+the repository is pre-existing at `.github/workflows/build-windows.yml:167` on **Build installer (Inno
+Setup)**, a best-effort artifact-production step; the package asserts at `:141` and `:292`, the
+installer install-and-launch job, and both new Quality provenance steps are hard-failing. The
+`bundle-msvc-runtime.ps1` digest question is answered **no**: its fourteen outputs are always
+hash-compared by the paired assert script, so a second digest list would duplicate the set and create
+drift risk.
+
+### Uncovered by all of this
+
+Device and runtime acceptance is still absent for Android phone/TV, macOS, webOS and Windows media
+playback; `cnativeapi.dll was not loaded by the running process` warnings mean the native plugin load
+path is unproven even where the launch smoke test passed; macOS signing/notarization and the hosted UI
+smoke steps are skipped in every Build run; `Live API verification` never ran (`inputs.live_api` false);
+the webOS dev-proxy proof is Node 20 `vm` evidence, not Chromium 68; artifact hashes are the runner's own
+`sha256sum` output, not third-party attestation. All of it is build-time CI evidence. Production release
+remains blocked, and the reviewer independently confirmed that nothing in this range permits a release
+claim.
+
+Exact next action: land N1 + N2 + N3 as one focused gate-hardening slice with a mutation-shaped
+regression each, hosted RED then GREEN at that SHA, then start Phase B1-D.
