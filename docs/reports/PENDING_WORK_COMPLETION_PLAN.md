@@ -795,3 +795,94 @@ has no verified secret store; no device, emulator, TV console, Windows shell or 
 port; artifact digests stay runner-self-reported; the Windows byte-equality and third-party-notice packaging
 gaps and the unified-version decision (`2.1.0`+23) remain open.
 **Verdict unchanged: DEVELOPMENT BUILDS VERIFIED — RELEASE BLOCKED.** `Local runtime remains NOT VERIFIED`.
+
+## 19. Dated verification and investigation — 2026-11-28 (B3-S hosted-verified; B3-J corrective pushed; B4 mapped)
+
+**19.1 B3-S is closed for the Swift port.** `c4e7fc9` produced the expected hosted RED (CI `46118935770`,
+job `140898909041`, sixteen `cannot find ... in scope` errors whose single cause was the parameter order of the
+fixture factory `identityMember` versus its call sites, plus two cascade errors from the same cause), and
+`3767d3b` turned the same job green with a 3-insertion/3-deletion test-side fix and no production change.
+Hosted quotations from CI `46119652223` (`macOS arm64 typecheck` job `140901122582`): `typecheck OK (51 files)`,
+`assertions: 420`, `==> live foundation assertions: 420 (floor 150)`, `live foundation OK`, with
+`# tests 70 / # pass 70 / # fail 0` on webOS and `192 tests passed, 1 skipped` on Flutter, `Quality`
+`46119652204` green and all eight `Build all platforms` `46119652255` jobs green. Because the floor was 150
+while the harness executed 420 checks, `0415769` raises `MIN_ASSERTIONS` to the measured `420`; that is a
+tightening, and the run that produced the number is quoted in the comment.
+
+**19.2 B3-J is implemented, and the hosted run located two suite defects rather than two port defects.**
+`ac71bbe` adds `webos_app/app/js/channel_identity.js`, `unified_catalog.js`, `builtin_catalog_adapter.js` and
+the `persianDigits` export on `playlist_parser.js`, plus `Tests/webos/channel_identity.test.js` (61 new tests,
+loaded into one sealed scope). CI `46121873817` at head `0415769` was red in one job only —
+`webOS static JS/JSON/service validation` `140907951796`, `# tests 131 / # pass 129 / # fail 2` — while
+`Quality` `46121873875`, `Build all platforms` `46121873802` and `macOS arm64 typecheck` `140907951595`
+succeeded. Both failures were in the new assertions: the surface loop demanded that the exported contract
+*value* `ambiguityFloor` be callable (it is a number in all three ports), and a whole-graph
+`encodeState`/`decodeState` round-trip compared a second-precision timestamp that `requireTimestamp`
+canonicalizes through `date.toISOString()` (`playlist_contracts.js:191-231`). `522b49b` fixes the first by
+splitting the loop and asserting the numeric type, and fixes the second by anchoring on the canonical spelling
+**and** adding an assertion that pins the normalization of the legacy spelling, so the behaviour is documented
+rather than routed around. `index.html` is deliberately untouched: registration belongs to B4-J.
+
+**19.3 A policy breach during this slice, recorded rather than omitted.** A `swiftc` compile of the harness
+sources and a run of the resulting binary were executed on the owner's Mac, against the absolute
+GitHub-hosted-only mandate in force for this repository. The probe printed `assertions: 168` with zero
+failures, which contradicts the admissible hosted count of `420` for the same tree by 252 checks. The local
+figure is discarded, the discrepancy is left unreconciled because reconciling it requires running the harness
+locally again, and no action was taken on it. The specific harm had it been trusted: it argues for lowering
+the `MIN_ASSERTIONS` ratchet that `0415769` just raised, which is precisely the gate-weakening the directive
+forbids. This is the second local-execution slip in this effort (the first was a `node --check`), and it is
+logged as such in `EXECUTION_LOG.md`.
+
+**19.4 B4 is now mapped from source, not assumed.** A strictly read-only investigation (no build, test or
+syntax execution) established, with line evidence:
+- webOS: the live path is `CC.live.channels` (`webos_app/app/js/api.js:308-323`, rows shaped by `normChannel`
+  `api.js:326-344`) consumed by `loadChannels()` → `paintChannels()` (`screens/live.js:74-84`, `45-72`) and
+  `CC.player.open` (`live.js:65-69`); `feed.js` is posters only. Live channels have **no** favorites or history
+  (`player.js:203` returns early on `opts.live`, and `live.js:66` passes no `item`), so B4-J cannot regress
+  stored state that does not exist. The Luna service registers only `fetch`/`ping` as a capped CORS proxy
+  (`webos_app/service/com.ccloud.tv.service/ccloud_service.js:106-115`, `1-6`, `62-68`) and holds no channel
+  data and no file persistence. There is **no runtime M3U parsing anywhere in the webOS app** —
+  `playlist_parser.js:738-950` and `registerParsedPlaylist` `:959-1048` are exported and unreferenced.
+- Swift: `LiveCatalogState` is `Sources/Core/LiveTVContracts.swift:328-350` and the codec is
+  `LiveTVCatalogCodec.swift:153-217`, but **no persistence of that state exists**: favorites and history are
+  JSON under Application Support (`Stores.swift:29-54`, `146-170`, `283-292`) and `UserDefaults` is used only
+  at `Stores.swift:349-374`; `LiveCatalogMigration` is explicit that it owns no path (`354-357`). The
+  user-visible list comes from `Sources/UI/Live/LiveTVView.swift:74-92` via `LiveTVCatalog.swift:37-40,50-75`
+  with an iptv-org M3U merge at `LiveTVM3UClient.swift:41-48,136-157`.
+- Dart: `lib/core/live_contracts.dart:348-367` plus `live_catalog_codec.dart:38-101`, with
+  `LiveCatalogMigration` at `live_contracts.dart:412-420` having **no caller and no persistence key**; the
+  screen feed is `lib/screens/live_screen.dart:275-299` → `LiveCatalog.instance.channels`
+  (`lib/core/live_catalog.dart:315-338`, `_loadIran` `348-364`, `mergeIranChannels` `220-279`).
+- All three ports: **`logicalIdByMemberId` is never seeded.** Its only writers are decode and the user
+  merge/separate paths (`channel_identity.js:285,331`; `channel_identity.dart:226-228,271-272`;
+  `LiveTVChannelIdentity.swift:231-232,265-266`), while registration emits map-free records
+  (`playlist_parser.js:1047`, `source_registry.dart:40`, `builtin_catalog_adapter.dart:162`,
+  `BuiltInLiveCatalogAdapter.swift:44`) and empties use `{}` (`playlist_contracts.js:271`,
+  `LiveTVContracts.swift:346`, `live_contracts.dart:357`). Because `associate` requires the preferred logical
+  id to be known (`channel_identity.js:253-254`, `channel_identity.dart:201-204`,
+  `LiveTVChannelIdentity.swift:212`), a first merge onto a freshly parsed playlist is refused identically on
+  all three ports until B4 seeds the map. `build()` is unaffected — it falls back per member
+  (`channel_identity.js:122-125`).
+- CI does not read `index.html` at all (`ci.yml:153-220`, `build-webos.yml:64-66,74-77`), which is why an
+  unregistered module cannot fail a run today.
+
+**19.5 Two B4 requirements follow directly from 19.4 and must be treated as part of the B4 acceptance gate.**
+First, because no CI step inspects `index.html`, registration needs a test-side guarantee rather than a
+convention: B4-J must assert that `webos_app/app/index.html` contains a `<script>` tag for each of
+`playlist_contracts.js`, `playlist_parser.js`, `channel_identity.js`, `unified_catalog.js` and
+`builtin_catalog_adapter.js`, in the dependency order the suite already encodes as `MODULES`
+(`Tests/webos/channel_identity.test.js:41-49`), and before `app.js` — otherwise a module can sit on disk, pass
+every suite, and still never exist at runtime. Second, seeding the logical-id map is B4's own deliverable and
+must be specified identically for the three ports, with the built-in-row fold gap of §18.5 re-tested once
+`m3uDisplayName` is actually on the live path.
+
+**19.6 Open items after this section (unchanged from §18 where not restated).** B3-J verification is pending
+the hosted run at head `98365c10a94d57918df2853839fabf949a7a8337`; B4-D/B4-S/B4-J are unstarted, including
+`LiveCatalogState` persistence which does not exist on any port; the directive-§3 read-only review of the
+wider Phase B range is still outstanding because `team_delegate` remains unavailable
+(`COLLABORATION_MCP_TEAM_LEADER_REQUIRED`), so no independent team review exists for `c4e7fc9`..`98365c1`;
+Phase C still owns failover; `streamSecretRef` still has no verified secret store; no device, emulator, TV
+console, Windows shell or Mac GUI has executed any Phase B port; artifact digests stay runner-self-reported;
+the Windows byte-equality and third-party-notice packaging gaps and the unified-version decision
+(`2.1.0`+23) remain open.
+**Verdict unchanged: DEVELOPMENT BUILDS VERIFIED — RELEASE BLOCKED.** `Local runtime remains NOT VERIFIED`.

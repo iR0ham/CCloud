@@ -1260,3 +1260,59 @@ this code; `assertions: 420` is compile-and-run evidence from a `macos-15` runne
 byte-equality and third-party-notice packaging gaps stay open, the unified-version decision (`2.1.0`+23) is
 still the owner's, and the Phase B exit gate is unfilled. Production release remains blocked.
 `Local runtime remains NOT VERIFIED`.
+
+## 2026-11-28 (project manager) — Directive-§3 read-only review of the B3 range, and the B4 map
+
+**Review status and its limits.** `team_delegate` still refuses with `COLLABORATION_MCP_TEAM_LEADER_REQUIRED`,
+so the team Code Reviewer did not review anything in this slice. What follows is a **strictly read-only
+independent review performed by the project manager under directive §3, explicitly NOT a review by the
+unavailable Code Reviewer team member**, and it changes no file. It covers `ac71bbe` and `522b49b` (the B3-J
+webOS port) plus cross-port parity against `985dea1`/`34efcc7` (B3-S) and `136a580` (B3-D).
+
+**Parity checks actually performed (source evidence, not assertion).**
+- Candidate ladder: identical tiers and evidence names on all three ports — `95`/`90` on exact provider id with
+  the country split (`channel_identity.dart:120-129`, `LiveTVChannelIdentity.swift:137`,
+  `channel_identity.js:105`), `85` name+country+logo (`:132`/`:141`/`:109`), `75` name+country
+  (`:136`/`:144`/`:112`), `70` name+logo (`:140`/`:147`/`:115`), `50` name-only (`:143`/`:149`/`:117`), with
+  the same conflict-flag placement at each tier.
+- Ambiguity rule: `score < floor || providerConflict || countryConflict` verbatim in
+  `channel_identity.dart:74`, `channel_identity.js:70`, and `LiveTVChannelIdentity.swift:132` (Swift names the
+  provider term `conflict`; same expression).
+- Floor constant: `85` in all three (`channel_identity.dart:59`, `LiveTVChannelIdentity.swift:66`,
+  `channel_identity.js:33`), and the webOS export surfaces it (`channel_identity.js:361`) instead of a screen
+  hardcoding it.
+- Association validation: enforcement order is `fewerThanTwoMembers → duplicateMember → unknownMember →
+  unknownPreferredLogicalChannel → memberAssociatedElsewhere` on every port
+  (`channel_identity.dart:189-211`, `LiveTVChannelIdentity.swift:206-207`,
+  `channel_identity.js:238-261`). The *declaration* order of the error enum differs in Dart/Swift
+  (`:32-36`, `:37-41`), which is cosmetic only: a grep for index-based serialization (`.index`, `rawValue`,
+  `ordinal`, `asInt`, `CaseIterable`) across both files returns nothing, so no error code is persisted by
+  position.
+- `logicalIdOf` fallback to the member's own id, and `membersOfLogicalChannel` recorded-order-then-catalog
+  fallback, match (`channel_identity.dart:151-169`, `channel_identity.js:122-125`).
+- All validation completes before any mutation, and `separate` re-derives rather than trusting stored groups
+  (`channel_identity.dart:265-272`, `channel_identity.js:323-331`).
+
+**Findings.**
+1. No B3 defect found in the webOS port. The two hosted failures were suite-side, and `522b49b` corrected them
+   by tightening expectations (a numeric type assertion and a canonical timestamp anchor plus a new assertion
+   pinning the codec's normalization) rather than by relaxing anything.
+2. **Open functional gap, by design of this phase:** `logicalIdByMemberId` is never seeded on any port, so a
+   first merge onto a freshly parsed playlist is refused identically in Dart (`channel_identity.dart:201-204`),
+   Swift (`LiveTVChannelIdentity.swift:212`) and JavaScript (`channel_identity.js:253-254`). This is a B4
+   deliverable, now specified in §19.5 of the plan, not a B3 regression.
+3. **Open asymmetry:** built-in catalog rows bypass `m3uDisplayName`, so a provider row carrying its own
+   `(720p)`-style suffix yields no merge suggestion for a clean-named sibling (under-suggestion only;
+   candidates never auto-merge). Tracked since §18.5; must be re-tested once the fold is on the live path.
+4. **Verification gap in the test design:** every webOS suite loads modules by hand through `loadInto`, and no
+   CI step inspects `index.html`, so a module can be green in CI while never existing at runtime. B4-J must
+   carry a registration assertion (see §19.5) instead of relying on convention.
+5. `persianDigits` is now shared between the playlist path and the built-in adapter via an additive export on
+   `playlist_parser.js`. Accepted: a second copy of the label rule is what produces «منبع ۲» beside «منبع 2».
+6. The local-execution breach recorded above stands as a process finding: the discarded `168` probe is the
+   concrete example of why local runs cannot substitute for hosted evidence.
+
+**Outcome.** ACCEPT WITH NOTES for the B3-J implementation as code reviewed by the project manager, subject to
+the hosted re-verification at head `98365c1` for the TESTED claim. This is **not** Phase B approval: gaps 2, 3
+and 4 are unresolved, no device or OS shell has executed any port, and the Phase B exit gate in §13.1/§18
+remains unfilled. Production release stays blocked.

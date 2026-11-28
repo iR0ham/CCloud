@@ -302,6 +302,25 @@ The owner's Mac is not used for project execution workloads.
 
 ## Current task
 
+- **Checkpoint 2026-11-28 (B3-J corrective pushed, hosted re-verification pending).** Task B3-J (webOS
+  logical channel resolution) landed as `ac71bbe` with the `MIN_ASSERTIONS` 150 → 420 ratchet in `0415769`;
+  the first hosted run of that head was red in exactly one job, `webOS static JS/JSON/service validation`
+  `140907951796`, reporting `# tests 131 / # pass 129 / # fail 2` — the new suite contributed 61 tests and 59
+  of them passed, so both failures were suite defects rather than port defects. `Quality` `46121873875` and
+  `Build all platforms` `46121873802` succeeded and `macOS arm64 typecheck` `140907951595` succeeded at that
+  head. The two corrections are `522b49b` (the surface loop no longer demands that the contract *value*
+  `ambiguityFloor` be callable; the timestamp anchor now uses the canonical
+  `2026-11-25T00:00:00.000Z` spelling that `requireTimestamp` emits, with a new assertion pinning that a
+  second-precision stamp is normalized on read) and `98365c1` (the B3-S ledger section). Both are pushed;
+  `ci/github-first-foundation` head is `98365c10a94d57918df2853839fabf949a7a8337`, `main` untouched.
+  **B3-J is not yet marked verified**: the gate is a hosted `# fail 0` at this head. A breach is also
+  recorded rather than omitted — a `swiftc` compile and harness run were executed on the owner's Mac during
+  this slice, against the GitHub-hosted-only mandate; its `assertions: 168` output is discarded as
+  inadmissible (the admissible count for this tree is the hosted `420`), and acting on it would have pointed
+  at lowering the ratchet that `0415769` raised. See the `2026-11-28` B3-S section of `EXECUTION_LOG.md`.
+  Next: read the hosted webOS job at `98365c1`, then start B4 (wiring plus the unpopulated
+  `logicalIdByMemberId` seeding gap) — B4-J must add the `index.html` script tags, which B3-J deliberately did
+  not touch.
 - **Checkpoint 2026-11-28 (latest): Phase B2 is closed as a hosted-verified library on all three ports, and
   B3-D is the active task.** Remote head `3001cfa2029dbd02336a8aa82f00840b66a79e22`, worktree clean, no open
   pull request. See addendum 11 below for the job-by-job numbers. B2-D, B2-S and B2-J have no production
