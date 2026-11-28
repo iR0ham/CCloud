@@ -194,14 +194,14 @@ void main() {
     });
 
     test('the fold that produces a name match is the shared script fold, not a raw compare', () {
-      // Arabic ي versus Persian ی, a Persian digit versus an ASCII one, and a quality suffix: all three
-      // are the differences the two live datasets actually contain.
-      final candidate = findChannelCandidate(
-        _member(memberId: 'member:fold1', name: 'Press TV (720p)'),
-        _member(memberId: 'member:fold2', playlistId: 'playlist:b', name: 'Press TV'),
+      // Arabic ك versus Persian ک, and a Persian digit versus an ASCII one: both are differences the two
+      // live datasets actually contain, and both are folded by the shared `liveNameKey`.
+      final letterVariant = findChannelCandidate(
+        _member(memberId: 'member:fold1', name: 'كورد TV'),
+        _member(memberId: 'member:fold2', playlistId: 'playlist:b', name: 'کورد TV'),
       );
-      expect(candidate, isNotNull, reason: 'the display-name noise token must not break the match');
-      expect(candidate!.score, 50);
+      expect(letterVariant, isNotNull, reason: 'the two letter spellings are one station');
+      expect(letterVariant!.score, 50);
 
       final persianDigit = findChannelCandidate(
         _member(memberId: 'member:fold3', name: 'شما ۲'),
@@ -214,6 +214,38 @@ void main() {
         _member(memberId: 'member:fold6', playlistId: 'playlist:b', name: 'Press TV'),
       );
       expect(unrelated, isNull, reason: 'no shared evidence means no candidate at all');
+    });
+
+    test('stripping display-name noise is the parser\'s job, and identity relies on it', () {
+      // Separation of concerns, asserted instead of assumed. `m3uDisplayName` drops ` (720p)` while the
+      // playlist is being read; `liveNameKey` only folds script, case and digits. So two members whose
+      // stored names still differ by the token must not pair, while the same row arriving through the
+      // real parser must pair with the clean built-in name. A second fold inside the identity layer would
+      // silently merge rows the caller believes are distinct, which is exactly what Phase B forbids.
+      final rawToken = findChannelCandidate(
+        _member(memberId: 'member:noise1', name: 'Press TV (720p)'),
+        _member(memberId: 'member:noise2', playlistId: 'playlist:b', name: 'Press TV'),
+      );
+      expect(rawToken, isNull, reason: 'the identity layer invents no folding the parser did not perform');
+
+      final parsedMember = registerParsedPlaylist(
+        parsed: parsePlaylist(
+          playlistId: 'playlist:b',
+          text: '#EXTM3U\n'
+              '#EXTINF:-1 tvg-id="PressTV.ir" group-title="News",Press TV (720p)\n'
+              'https://cdn.example/p.m3u8\n',
+        ),
+        playlistId: 'playlist:b',
+        providerNamespace: 'iptv-org',
+      ).members.single;
+      expect(parsedMember.displayName, 'Press TV');
+      final candidate = findChannelCandidate(
+        _member(memberId: 'member:noise3', name: 'Press TV'),
+        parsedMember,
+      );
+      expect(candidate, isNotNull, reason: 'through the parser the two rows are one station');
+      expect(candidate!.score, 50);
+      expect(candidate.evidence, MatchEvidence.exactNameOnly);
     });
 
     test('a member is never a candidate for itself', () {
