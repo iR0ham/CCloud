@@ -30,8 +30,10 @@ const ROOT = path.resolve(__dirname, '../..');
 const JS_DIR = path.join(ROOT, 'webos_app', 'app', 'js');
 const INDEX_HTML = path.join(ROOT, 'webos_app', 'app', 'index.html');
 
-// The modules this slice needs, in the order both the suites and `index.html` load them: the storage helper
-// first, then the four library layers, then the seam that calls them.
+// The modules these slices need, in the order both the suites and `index.html` load them: the storage helper
+// first, then the four library layers, then the seam that calls them, then the S1 composer that joins a loaded
+// state onto the built-in rows. `live_source_composer.js` is in this list so the registration and ordering
+// assertions below cover it; its own behaviour is pinned by `Tests/webos/live_source_composer.test.js`.
 const MODULES = [
   'util.js',
   'playlist_contracts.js',
@@ -39,7 +41,8 @@ const MODULES = [
   'channel_identity.js',
   'unified_catalog.js',
   'builtin_catalog_adapter.js',
-  'live_catalog_store.js'
+  'live_catalog_store.js',
+  'live_source_composer.js'
 ];
 
 // The files task B4-2 newly registers in the shipped page. `util.js` was always there.
