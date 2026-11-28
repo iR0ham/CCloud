@@ -1486,9 +1486,9 @@ func identityMember(
     playlistId: String = "playlist:a",
     namespace: String = "famelack",
     providerId: String = "",
+    country: String? = nil,
     logo: String? = nil,
     group: String? = nil,
-    country: String? = nil,
     ordinal: Int = 0
 ) -> ChannelMember {
     ChannelMember(
@@ -1938,8 +1938,8 @@ check(idnOrdered.first?.memberIds == ["member:o2", "member:o1"] && idnOrdered.fi
 let idnTwinState = identityState(
     playlists: [identityPlaylist("playlist:a"), identityPlaylist("playlist:b")],
     members: [
-        identityMember("member:t1", name: "Twin", providerId: "TWIN", namespace: "iptv-org", country: "IR"),
-        identityMember("member:t2", name: "Twin", playlistId: "playlist:b", providerId: "TWIN", namespace: "iptv-org", country: "IR"),
+        identityMember("member:t1", name: "Twin", namespace: "iptv-org", providerId: "TWIN", country: "IR"),
+        identityMember("member:t2", name: "Twin", playlistId: "playlist:b", namespace: "iptv-org", providerId: "TWIN", country: "IR"),
     ],
     sources: [
         identitySource("t1s", channelId: "member:t1", memberId: "member:t1"),
