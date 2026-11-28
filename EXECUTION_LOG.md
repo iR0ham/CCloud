@@ -967,8 +967,9 @@ ref), and the runner text below is the whole evidence for it:
   checks. No existing check was removed to reach that number.
 * The golden digests the Swift harness printed, which are now the literals the Dart and webOS suites must pin:
   `stableKeyHash("") = 811c9dc59e3779b985ebca6bc2b2ae35`,
-  `stableKeyHash("playlist:valid") = 981a29df6c39c1531339e5aef7688f` — read the value from the log, which is
-  `981a29df6c39c1531339e5c1aef7688f` — and `stableKeyHash("پرس") = e724bb8086a3208c85ff01962c8b8030`. The empty
+  `stableKeyHash("playlist:valid") = 981a29df6c39c1531339e5c1aef7688f` and
+  `stableKeyHash("پرس") = e724bb8086a3208c85ff01962c8b8030` (each copied verbatim from its own
+  `golden stableKeyHash(...) = ...` line in the job log, re-read rather than recalled). The empty
   input is the useful one: it exposes the four FNV seeds (`0x811c9dc5`, `0x9e3779b9`, `0x85ebca6b`,
   `0xc2b2ae35`) in order, because hashing zero bytes leaves each accumulator at its seed. That is a structural
   proof, not a coincidence, and it is why B2-J can pin these instead of trusting three implementations.
