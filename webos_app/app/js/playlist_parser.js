@@ -1065,6 +1065,10 @@ window.CC = window.CC || {};
     canonicalStreamUrl: canonicalStreamUrl,
     isSensitiveUrl: isSensitiveUrl,
     protocolHint: protocolHint,
+    // Additive (task B3-J): the built-in catalog adapter labels its sources with the same Persian-numeral
+    // rule this module already uses at `registerParsedPlaylist`, and a second copy of that rule is how a
+    // playlist and the fixed list end up showing «منبع ۲» and «منبع 2» for the same station.
+    persianDigits: persianDigits,
     parsePlaylist: parsePlaylist,
     registerParsedPlaylist: registerParsedPlaylist
   };
