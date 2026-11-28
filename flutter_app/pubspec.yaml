@@ -29,6 +29,12 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^6.0.0
+  # Test-only, and already in the resolution graph through `shared_preferences`. Naming it here is what lets
+  # `test/live_catalog_store_test.dart` install a storage implementation that *refuses* a write or a removal:
+  # the plugin's own in-memory double always succeeds, so without this seam the rule "a save proves the write
+  # took" would be untested on this port while it is tested on webOS and macOS. No app code imports it and it
+  # ships in no artefact.
+  shared_preferences_platform_interface: ^2.4.1
 
 flutter:
   uses-material-design: true
