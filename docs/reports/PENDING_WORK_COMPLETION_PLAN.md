@@ -338,3 +338,58 @@ assertion commit. The section 4 dependency graph is otherwise unchanged. Platfor
 lacks device/runtime evidence for Android phone/TV, Windows, macOS and webOS, and the four
 distribution labels stay `INTERNAL-ONLY-*`; production release remains blocked by the native-media
 provenance, relinking, signing/notarization and device-acceptance items in section 6.
+
+## 9. Dated update — 2026-11-28 (hosted ledger at `2a244aa`, three evidence gaps closed)
+
+Sections 7 and 8 stay as written. The Full-stack Engineer slice that ran after section 8 took the three
+items still open in `docs/reports/OVERNIGHT_EXECUTION_STATE.md` (Windows legal byte-equality, provenance
+digest enforcement, `proxyFetch` read bound) and moved all three to hosted-verified.
+
+### 9.1 Item outcomes
+
+| # | Gap | Now | Commits | Hosted evidence |
+| --- | --- | --- | --- | --- |
+| G1 | Windows package asserted legal-file existence only | **HOSTED VERIFIED** | `221ce95` | `Build all platforms` `46087990039` success; `…(14 compared)` byte-equality line printed for the portable dir, the installed `C:\Program Files\CCloud` tree and the Skia compat package |
+| G2 | `SOURCES.md` digests were claims nothing recomputed | **HOSTED VERIFIED** | `9b55536` | Quality `46087990020` success; `provenance: 10 retained files verified against SOURCES.md (offline, recomputed SHA-256, no network fetch)` plus `Ran 13 tests … OK` in `Required NOTICE files` `140801997670` |
+| G3 | localhost dev proxy ended in an unbounded `response.text()` | **HOSTED VERIFIED** | `2a244aa` | CI `46087990047` success; `webOS static` `140801998020` ran `# tests 10 / # pass 10 / # fail 0` on Node `20`, the two dev-proxy regressions included |
+
+The same run kept every earlier gate intact: nothing was made optional, no `continue-on-error` or
+`|| true` was introduced, `build-android.yml` was not touched, and the Android job (`140802338051`) is
+green at this head — so section 8's N2 is now hosted-verified on a re-based head rather than only on
+`8a1ef3f`.
+
+### 9.2 Why G1 + G2 together matter more than each alone
+
+Packaging asserts "shipped file == repository file" (Android archive bytes, webOS and macOS `cmp`, now
+Windows SHA-256), while the provenance gate asserts "repository file == the digest `SOURCES.md`
+documents". Composed, that makes the documented digests transitively true for the shipped legal texts on
+all four platforms. Before this slice Windows broke the chain at the first link and all four platforms
+broke it at the second, because no machine ever recomputed a digest.
+
+### 9.3 What did not change
+
+- Falsifiability is documented rather than executed: the exact controlled mutation for each of the five
+  new assertion classes is recorded in the `## 2026-11-28 (CI evidence gaps)` section of
+  `EXECUTION_LOG.md`. `Tests/test_verify_provenance.py` does run fixture-tree mutations on the runner,
+  which is the only red/green evidence the GitHub-only mandate permits.
+- Section 3 production blockers are untouched: native-media provenance and redistribution, Android
+  relinking materials, corresponding-source offers, Windows GPL build configuration, Developer ID
+  signing/notarization, and every real-device acceptance item. `Legal/DISTRIBUTION_STATUS.md` still reads
+  `INTERNAL-ONLY-*` for all four platforms, and the canonical identity is still `2.0.0` / build `22`.
+- No Phase B multi-source or subtitle contract work was started.
+
+### 9.4 Consequence for sequencing
+
+The CI-side evidence inventory is closed. Each of the four rows that section 2 classified
+"IMPLEMENTED — NOT TESTED" is now hosted-verified at `2a244aa`: legal packaging (Quality `46087990020`,
+including the new provenance recomputation), webOS transport (CI `46087990047`, `# pass 10`), the Android
+manifest assertion (job `140802338051` success), and the Windows staging plus Skia compatibility rerun
+(jobs `140802337977` and `140803894634` success, both printing the 14-file byte-equality line). The
+section 2 tables stay exactly as written; this section supersedes their classification under the
+append-only rule.
+
+The next real gate is not more automation: it is the scoped code re-review of `8a1ef3f..2a244aa` (the
+previous request stopped at `6fb03bf`) and, beyond that, owner-supplied device acceptance plus the
+legal/signing decisions in section 3. Phase B may be planned against a stable foundation once that review
+lands; it should not wait on further CI plumbing, because further CI would now only add checks for
+evidence classes that already exist.

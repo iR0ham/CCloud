@@ -147,3 +147,108 @@ This is an append-only execution record. New evidence is added as dated entries;
   slice; it will be rebased onto their pushed head to avoid two competing appends.
 - Local runtime/build/test status: **NOT VERIFIED** by mandate; every statement above is hosted log
   evidence.
+
+## 2026-11-28 (CI evidence gaps) — Windows legal byte-equality, offline provenance, bounded dev proxy
+
+Full-stack Engineer slice over the three gaps `docs/reports/OVERNIGHT_EXECUTION_STATE.md` listed as
+still open. Baseline `8a1ef3f`, pushed head `2a244aad359444bd80bbeb50468362d006aab396`, one commit per
+concern:
+
+- `221ce95` — `scripts/assert-windows-package.ps1`: the 14 staged legal paths are now SHA-256 compared
+  against the canonical copies in the same checkout (`$PSScriptRoot/..`), in addition to the existing
+  existence checks for the exe, `flutter_windows.dll`, the three MSVC CRT DLLs, `libmpv-2.dll` and
+  `data/app.so`. The file list was split into `$runtimeFiles` + `$legalFiles` so the existing
+  incompleteness message is unchanged; every mismatch is emitted as a `::error::` annotation naming the
+  file with both digests, then a single throw. The compared set was read off
+  `scripts/bundle-msvc-runtime.ps1` (three documents at the package root plus the whole `Legal/` tree),
+  not assumed, and matches the 14 files `scripts/stage_legal.py` stages.
+- `9b55536` — `scripts/verify_provenance.py` (new) plus `Tests/test_verify_provenance.py` (new) wired as
+  two blocking steps in the `required-notices` job of `.github/workflows/quality.yml`, which therefore
+  gained `actions/setup-python` pinned to `a26af69b…` (`v5`, Python 3.12). The checker parses both
+  documented forms (the `Retained text:` / `Text SHA-256:` bullet pair and the `| path | url | digest |`
+  table), recomputes SHA-256 from the bytes in the checkout, and fails on a mismatch, a missing file, a
+  path that escapes the checkout, a retained bullet with no digest, an orphan digest, a non-64-hex
+  digest, the same file documented twice with different digests, and any file in `Legal/licenses/` that
+  `SOURCES.md` never mentions. It is offline by construction: the media_kit pub.dev archive digests are
+  deliberately skipped because those tarballs are not in the checkout, which is why table rows are
+  filtered by whether the first cell looks like a repository-relative path.
+- `2a244aa` — `webos_app/app/js/net.js`: `proxyFetch` (the localhost-only dev branch) now ends in the
+  shared `readBoundedText` instead of `response.text()`, so the last unbounded read path in the
+  transport layer is covered by the same 8 MiB cap and the same `response-too-large` policy error.
+  `Tests/webos/transport.test.js` gained two append-only regressions (`ok 9`, `ok 10` in the hosted run);
+  the eight previous tests were not touched, and the new ones assert `textCalls: 0`, so a regression to
+  the unbounded `text()` path cannot pass them.
+
+Hosted evidence, all at `2a244aa` (`gh run list --commit <full SHA>`), nothing run locally:
+
+- Quality `46087990020` **success**. `Required NOTICE files` (`140801997670`) ran
+  `python3 scripts/verify_provenance.py` and printed ten `provenance: ok Legal/licenses/…` lines with
+  sizes and digests, then the count that proves the recomputation happened:
+  `provenance: 10 retained files verified against SOURCES.md (offline, recomputed SHA-256, no network fetch)`.
+  `python3 Tests/test_verify_provenance.py` then printed `Ran 13 tests in 0.005s` / `OK`.
+- CI `46087990047` **success**, including `webOS static JS/JSON/service validation` (`140801998020`)
+  with `# tests 10`, `# pass 10`, `# fail 0` on the pinned Node `20` runner — i.e. the ten transport
+  regressions, the two dev-proxy cases among them.
+- `Build all platforms` `46087990039` **completed success**, 8/8 jobs. The new Windows assertion printed
+  `Legal files are SHA-256 byte-equal to the canonical repository copies (14 compared): D:\a\CCloud\CCloud`
+  in three separate packages: `Windows release build` (`140802337977`) for
+  `D:\a\_temp\ccloud-release\windows`, `Windows installer install + smoke test` (`140803894618`) for the
+  real install target `C:\Program Files\CCloud`, and `Windows compatibility package (Skia)`
+  (`140803894634`) for `…\windows-compat`. The installer-job line is stronger evidence than a staged
+  directory: the bytes that reach the installed tree are the canonical ones.
+- `android / Android/TV universal APK + AAB` (`140802338051`) is **success at this head too**, so the
+  `8a1ef3f`-baseline Android evidence above now holds after my three commits as well.
+- Ledger sequencing: this branch also carries the two addenda that were deliberately held locally on top
+  of my pushed head — `18dec96` (Android manifest gate) and `709d9ed` (recovery-checkpoint refresh) — so
+  that one append per ledger file wins instead of two competing edits in the same file.
+
+Falsifiability — the exact controlled mutation for each new assertion. These are stated deliberately,
+not committed and not run: no local execution is permitted by mandate and a committed failing state
+would break the branch.
+
+- Windows byte-equality: append one byte to the staged `NOTICE` in a packaged directory after
+  `bundle-msvc-runtime.ps1` has run. Existence still passes; the assert must emit
+  `::error::staged legal file is not byte-equal to the canonical copy: NOTICE: package <hash> != canonical <hash>`
+  and throw `Legal byte-equality failed for 1 staged file(s): NOTICE: …`. The pre-slice version passed.
+- Provenance gate: flip one hex character in any `- Text SHA-256:` value in `SOURCES.md`, or append one
+  byte to `Legal/licenses/GPL-2.0.txt` while leaving the document alone. Both must print
+  `error: … digest mismatch for Legal/licenses/GPL-2.0.txt: SOURCES.md says <documented>, the file is <actual>`
+  and exit 1. Deleting a `Text SHA-256:` bullet must produce
+  `retained text … has no \`Text SHA-256\` entry`, and dropping an undocumented text into
+  `Legal/licenses/` must produce `is packaged as a retained license text but has no digest entry in
+  SOURCES.md`. The fixture-tree forms of the mismatch and mutated-byte cases are executed as tests
+  `test_digest_mismatch_names_the_offending_file` and `test_mutated_license_byte_breaks_the_gate` inside
+  `Tests/test_verify_provenance.py`, which the runner ran green, so the failure path itself has hosted
+  evidence rather than only a stated prediction.
+- webOS dev proxy: restore `return r.text();` in `proxyFetch`. Test 9 fails (the oversized body resolves,
+  `textCalls` becomes 1, `cancels` 0) and test 10 fails on `textCalls: 0`; the other eight still pass,
+  which is exactly why this path was invisible before.
+
+Still unverified after this slice, deliberately:
+
+- Nothing here is device or runtime acceptance. The Windows jobs prove install and launch on a runner,
+  not playback; Android, macOS and webOS still have no device evidence, and the four distribution
+  labels stay `INTERNAL-ONLY-*`. `Legal/DISTRIBUTION_STATUS.md` and the release gate variables are
+  untouched. Canonical version/build stayed `2.0.0` / `22`, and no Phase B multi-source or subtitle
+  contract work was started.
+- The dev-proxy bound is Node 20 `vm` evidence against the real `net.js`, not a Chromium 68 browser run;
+  the ES2017 compatibility of the change is argued from the diff (function call into an existing helper,
+  no new syntax) rather than from a webOS device.
+- The provenance gate proves the retained texts match the digests this repository documents, not that
+  those texts are the true upstream license bodies.
+- Platform byte-equality is now uniform rather than a gap: Android compares the extracted archive
+  members against the canonical bytes, webOS `cmp`s the IPK payload, and `scripts/make_dist.sh`
+  `cmp`s the macOS bundle resources during the hosted package step, but Windows alone previously checked
+  only that the legal files existed. This slice closes that last asymmetry, so for every packaged
+  platform: packaged legal file == canonical repository file (packaging assertion) and canonical
+  repository file == the digest `SOURCES.md` claims (Quality provenance gate). The combination is what
+  makes the documented digests transitively true for shipped packages, which neither half did alone.
+- What that chain still does not prove: that the documented digest is the genuine upstream license text.
+  Nothing fetches upstream, so the gate is internal-consistency evidence, not upstream verification, and
+  the FFmpeg / libmpv / mpv native-media provenance, relinking, corresponding-source and signing
+  blockers are unchanged by this slice.
+
+Exact next action: hand `8a1ef3f..2a244aa` to the Code Reviewer for the scoped re-review, because the
+previous review request stopped at `6fb03bf`. No further packaging- or provenance-assertion work is
+queued behind this slice; the remaining critical path is that verdict plus owner-supplied device
+acceptance and the legal/signing decisions, not more CI.
