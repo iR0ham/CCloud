@@ -951,3 +951,52 @@ entry set them: no library is consumed by any Live TV screen yet (wiring and mig
 `streamSecretRef` has a verified secret store on any platform, and no runner proves behaviour on a device,
 an OS release or a real player. Local builds, tests and analysis remain forbidden by repository policy, so
 every number above came from GitHub-hosted logs.
+
+---
+
+## 2026-11-28 (project manager) — Task B2-S is hosted-verified for the Swift port at `e2400e3`
+
+`e2400e3cdc58132e9cf139681ee210282b5ad540` is the remote head (confirmed with `git ls-remote`, not with a cached
+ref), and the runner text below is the whole evidence for it:
+
+* Job `140871026873` (`macOS arm64 typecheck`): `typecheck OK (48 files)` — 46 at the previous head, and the two
+  additions are exactly `Sources/Core/LivePlaylistParser.swift` and `Sources/Core/LiveTVM3UText.swift`, which
+  `scripts/typecheck.sh` picks up by globbing `Sources/**/*.swift`, so no project registration was needed.
+* Same job: `assertions: 348`, `==> live foundation assertions: 348 (floor 150)`, `live foundation OK`. The
+  baseline was `227` at `09f826c`, so the Swift parser and registry mirror contributed **121** new contract
+  checks. No existing check was removed to reach that number.
+* The golden digests the Swift harness printed, which are now the literals the Dart and webOS suites must pin:
+  `stableKeyHash("") = 811c9dc59e3779b985ebca6bc2b2ae35`,
+  `stableKeyHash("playlist:valid") = 981a29df6c39c1531339e5aef7688f` — read the value from the log, which is
+  `981a29df6c39c1531339e5c1aef7688f` — and `stableKeyHash("پرس") = e724bb8086a3208c85ff01962c8b8030`. The empty
+  input is the useful one: it exposes the four FNV seeds (`0x811c9dc5`, `0x9e3779b9`, `0x85ebca6b`,
+  `0xc2b2ae35`) in order, because hashing zero bytes leaves each accumulator at its seed. That is a structural
+  proof, not a coincidence, and it is why B2-J can pin these instead of trusting three implementations.
+* The rest of the head is unchanged: `Flutter analyze and tests`, `webOS static JS/JSON/service validation` and
+  `Version and canonical metadata` all `success`; Quality's six jobs (`Workflow lint`, `Repository hygiene`,
+  `Secret scan`, `Required NOTICE files`, `Version consistency`, `Dependency vulnerability scan`) all
+  `success`; `Live API verification` still `skipped`. In `Build all platforms`, `macOS arm64 build`,
+  `webOS IPK` and `windows / Dart analyze` are `success`, while `android / Android/TV universal APK + AAB` and
+  `windows / Windows release build` were still `in_progress` when this entry was written and are deliberately
+  not claimed.
+
+Decisions taken inside this slice, recorded because they are the parts a reviewer should challenge:
+
+1. **The display-name rule moved files instead of being copied.** `LiveTVM3U.displayName`/`isNoise` are now
+   `LiveTVM3UText` in a dependency-free file, and the shipping client calls it. Same text, same behaviour; the
+   reason is that `LiveTVM3UClient.swift` declares a `@MainActor` URLSession client, so the harness could not
+   compile it without the networking and model layers — and a *copy* of the rule would let the built-in Iran
+   list and the new catalog disagree about a station's name, which is exactly how a refresh mints a duplicate
+   member.
+2. **`LiveTVNameKey.key` was deliberately left alone.** The new path uses `LiveMatchKey`, which re-expresses
+   the Dart scalar recipe, because Foundation `folding(options:)` is ICU/locale-sensitive and does not map
+   `۱`→`1`. Retargeting the shipping key would change name matching for existing users, which is an owner
+   decision rather than a by-product of adding a parser.
+3. **No Swift RED cycle was staged for B2-S.** The Dart half already produced the falsifiable-RED evidence at
+   `e7bbe8d`; a Swift compile failure would only have re-proved that a missing symbol is missing, so the
+   contract assertions were written into the same push. The hosted run is what proves they hold.
+
+What this does not mean: no Live TV screen parses a playlist with this code yet (B4 wires it), no
+`streamSecretRef` has a verified secret store, the harness runs on a `macos-15` runner rather than on a user's
+Mac, and `assertions: 348` is contract evidence, not playback evidence. Local builds and tests remain forbidden
+by repository policy, so `Local runtime remains NOT VERIFIED`.
