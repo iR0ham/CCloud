@@ -3,7 +3,7 @@
  * This is the JavaScript half of a three-port contract. The Dart original lives in
  * `flutter_app/lib/core/playlist_parser.dart` + `source_registry.dart` + `live_catalog.dart`, the
  * Swift port in `Sources/Core/LivePlaylistParser.swift` + `Sources/Core/LiveTVM3UText.swift`, and
- * the same seven files under `Tests/fixtures/multi-source/` are what all three are judged against.
+ * the same five files under `Tests/fixtures/multi-source/` are what all three are judged against.
  * Verdicts, issue codes, ceiling numbers and identity strings are therefore not free choices here:
  * a playlist that yields three members on Android must yield three members on a TV, or the catalog
  * a user syncs between them is a coin flip.
@@ -696,7 +696,15 @@ window.CC = window.CC || {};
     var candidate = null;
     if (reference.hadScheme) {
       candidate = raw;
-    } else if (baseReference !== null && STREAM_SCHEMES.indexOf(baseReference.scheme.toLowerCase()) !== -1) {
+    } else if (
+      baseReference !== null &&
+      baseReference.authority !== null &&
+      STREAM_SCHEMES.indexOf(baseReference.scheme.toLowerCase()) !== -1
+    ) {
+      // The authority check is not defensive padding: `Uri.resolve` on an authority-less base yields
+      // the reference as an authority (`https:live.m3u8` -> host `live.m3u8`, empty path), which the
+      // canonicalizer then refuses. A hand-written resolver that inserted the literal `null` here
+      // would instead *accept* a host named "null", so the two ports would disagree on one row.
       candidate = resolveAgainst(baseReference, reference);
     }
     if (candidate === null) {

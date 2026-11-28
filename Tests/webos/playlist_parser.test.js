@@ -2,7 +2,7 @@
 
 // Task B2-J: the webOS half of the M3U parser and source registry contract.
 //
-// Same seven fixtures, same verdicts, same identity recipes as
+// Same five fixtures, same verdicts, same identity recipes as
 // `flutter_app/test/playlist_parser_test.dart` and the `Multi-source playlist parser` block of
 // `Tests/live-foundation/main.swift`. A port that passes its own suite but disagrees with the other
 // two is worse than a port with no suite, so the checks below are written to fail on a *semantic*
@@ -388,6 +388,16 @@ test('relative addresses resolve only against an HTTP(S) base', function () {
     'a local base must not smuggle a relative path into something a player will fetch'
   );
   assert.deepEqual(codes(fileBase), ['invalidUrl']);
+
+  // A base that carries a scheme but no authority is the case where a hand-written resolver and
+  // `Uri.resolve` part company: Dart's resolution puts the reference *in* the authority slot and the
+  // canonicalizer then refuses it for having no path, so the observable answer is "no channel". A
+  // naive merge would instead emit a host spelled `null` and hand the user a fake channel.
+  const authoritylessBase = CC.parsePlaylist('playlist:rel', text, 'https:');
+  assert.equal(authoritylessBase.channels.length, 0, 'an authority-less base resolves nothing');
+  assert.deepEqual(codes(authoritylessBase), ['invalidUrl']);
+  const emitted = JSON.stringify(authoritylessBase);
+  assert.equal(emitted.indexOf('https://null'), -1, 'no literal `null` host can reach a record');
 });
 
 test('relative resolution follows RFC 3986 dot segments', function () {
