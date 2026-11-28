@@ -1883,3 +1883,72 @@ stated as predictions and readable only once the runner prints them: `# tests 17
 by mutation: re-introducing `case.` reddens the whole file again; changing `rows: rows` back to `into: rows` is an
 analyzer error; restoring `group('…') {` at `:558` reopens the eleven-error cascade; lowering the label in
 `_insertMinted`'s declaration while leaving `:173` alone breaks the same call from the other side.
+
+## 2026-11-28 (full-stack engineer) — batch 1 (`04522c3`) settled the syntax questions and exposed two more causes
+
+**What the runner printed for `04522c33bd31fa0d3fb025f6d4bd50f79d99d5b3`.** CI run `46163657892`: job
+`141036313017` (macOS) succeeded, and its log carries `typecheck OK (53 files)` at line 293 and `==> live
+foundation assertions: 705 (floor 705)` at line 326 — so the 471 → 705 ratchet is proven by the same run that
+raised it, and the Swift half of S1 is green against a floor it now cannot silently drop below. Quality run
+`46163657894` succeeded. Job `141036313319` (webOS) still failed at step 7, but with a different shape: `# tests
+172 / # pass 169 / # fail 3`. The 172 is the point — the suite's own predicted discovery count, which the file
+could not report while it was unparsable, so the reserved-word repair did exactly its job and the three
+remaining failures are the first real executions of three of its cases. Job `141036313292` (Flutter) still
+failed at step 7 `Analyze`, with three issues rather than eleven: `Expected to find ','` and `Too many positional
+arguments: 2 expected, but 3 found` at `test/live_catalog_store_test.dart:647:3`, and `Expected to find ')'` at
+`:702:5`. Step 8 `Test` was skipped for the third consecutive run, so the Dart suites remain unexecuted and
+nothing in this paragraph is runtime evidence for them. Build run `46163657895`: `macos / macOS arm64 build`,
+`webos / webOS IPK`, `windows / Windows release build`, `windows / Windows runtime smoke test`, `windows /
+Windows installer install + smoke test` and `windows / Windows compatibility package (Skia)` all succeeded,
+while `windows / Dart analyze` and `android / Android/TV universal APK + AAB` failed; the android job's failing
+step is `Analyze` with the identical three issues, so both build failures are the same single root cause rather
+than two platform problems.
+
+**Correction to the entry above, recorded rather than rewritten.** It stated that all eleven analyzer errors were
+"one cascade from those two missing tokens (`, ()`)" and that the repair was the opening line. The opener was
+necessary but not sufficient: a `group(…, () { … })` call also needs its `)` and `;`, and the block ended with a
+bare `}`. Fixing the opener moved the report from eleven errors to three; fixing the closer at `:645` is what
+removes them. The falsifier is now sharper than the one above claims — restoring only the opener yields three
+errors, restoring only the closer yields the original eleven.
+
+**Cause 4 — the composer passed `null` where the contract's nullable field is absence.**
+`live_source_composer.js:126` called `CC.playlistContracts.issue(code, message, null)`, and that factory
+(`playlist_contracts.js:690`) maps an *omitted* line to `null` while an explicit `null` falls through to
+`requireInteger` and throws `live catalog issue.line must be an integer`. So `compose()` aborted on the path that
+builds any diagnostic: `sensitive-merged-url` failed inside `contributedUrls` and `fold-gap-diagnostic` inside
+`foldGapIssues`. The repair is in the caller, which is where the misuse was: the third argument is dropped, so the
+emitted record stays the canonical `{code, message, line: null}` that the Dart (`int? line`) and Swift (`Int?`)
+ports produce and that this suite pins with `issue.line === null`. `playlist_contracts.js` is untouched — it is a
+hosted-verified B2-J module with its own `Tests/webos/live_contracts.test.js` expectations, and widening its
+validator to accept an explicit null would change a shared contract to satisfy one caller. Falsifier: put the
+`, null` back and both cases fail again with the same message; no other assertion depends on the argument.
+
+**Cause 5 — the harness wrote bytes no writer in this app writes, and the seam was right to refuse them.** The
+third failure (`an empty stored catalog composes to today's list, and the same slot can carry a merge`) put the
+fixture's JSON object text directly under `ccloud.liveCatalog`, but `CC.store.get` (`util.js:43`) parses what it
+reads, so `load()` received an object and answered `corrupt` — the documented verdict for "a JSON object stored
+under this key is a different shape than the codec contract" (`live_catalog_store.js:107-109`). The production
+behaviour is correct; the fixture write was wrong. Because `CC.store.set` (`util.js:50`) stringifies, the bytes a
+real writer leaves there are double-encoded, and the test now writes exactly that. The assertion is unchanged and
+still runs against the fixture's own document rather than this build's encoder output, so it cannot be satisfied
+by a round trip through my own codec. Falsifier: revert to a single `JSON.stringify` and the case fails `corrupt`
+against `ok` again; make `load()` accept a stored object and the same case would pass for the wrong reason, which
+is what the seam's own corrupt-document case at `:473` guards.
+
+**Why this batch took a second push, against the brief's one-push rule.** The rule's stated purpose was that
+`ci.yml:41` and `quality.yml:23` set `cancel-in-progress: true`, so a second push would cancel the runs producing
+batch 1's comparison. Batch 2 was therefore held until every batch-1 run had settled (CI and Quality completed,
+Build `46163657895` finished), and only then pushed — one push for this batch, with no in-flight run cancelled and
+the batch-1 evidence above intact. That is a deviation from the letter of the assignment and it is recorded here
+rather than presented as compliance.
+
+**Batch 2 predictions, not measurements.** Expected once the runners print them: webOS `# tests 172 / # pass 172 /
+# fail 0`; Flutter step 7 clean (0 issues) so step 8 finally runs and prints `🎉 235 tests passed, 1 skipped.`;
+macOS unchanged at `typecheck OK (53 files)` and `==> live foundation assertions: 705 (floor 705)`; Build all
+platforms with `windows / Dart analyze` and `android / Analyze` green. **Local runtime remains NOT VERIFIED** —
+no `node --test`, `node --check`, `flutter analyze`, `flutter test`, `swiftc`, build or package workload ran on
+this Mac; the two repairs were derived from the committed sources, the pinned
+`shared_preferences-2.5.6/lib/src/shared_preferences_legacy.dart` (`remove` empties the cache before the platform
+answers at `:196-200`, `_setValue` passes the prefixed key at `:204-211`, `reload` propagates a platform failure at
+`:248-252`) and the runner logs, and the structural balance of the Dart suite was checked by counting openers
+against closers (8 `group(` / 8 indent-two `});`, 21 `test(` / 21 indent-four `});`).
