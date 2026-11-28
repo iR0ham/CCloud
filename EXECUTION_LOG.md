@@ -657,3 +657,121 @@ failing assertions first, hosted RED, then the Swift contracts, then hosted GREE
 without touching a Dart, webOS, UI, playback or existing Swift app file. Do not report or tag anything as
 release-ready: all four platforms remain `INTERNAL-ONLY-*`, `RELEASE_PRODUCTION_READY` is unset, and green
 CI is build-time evidence only.
+
+---
+
+## 2026-11-28 (project manager) — B1-S and B1-J landed to hosted RED, four distinct root causes, corrective slice
+
+Reconciled from the repository and the hosted runners after the fact, not from earlier status reports.
+`HEAD` at the start of this segment was `aab31be` on `ci/github-first-foundation`, in sync with
+`origin/ci/github-first-foundation`; `main` is untouched at `6dfd925`. All execution evidence below is
+GitHub-hosted; nothing was built, compiled or tested on the owner's Mac, so every statement about *runtime*
+behaviour of the corrective slice is **NOT VERIFIED** until the run at the new head.
+
+### Commits actually landed for B1-S / B1-J, with the per-commit hosted truth
+
+| Commit | Concern | Hosted runs for that exact SHA |
+| --- | --- | --- |
+| `10a1986` | Swift contract harness + fixtures before the port (intended RED) | CI `46101769870` **failure**, Quality `46101769917` success, Build `46101769890` success |
+| `78830ca` | the schema-v1 Swift catalog port plus the review corrections | CI `46103129293` **failure** (`macOS arm64 typecheck`), Build `46103129306` **failure** (`macos / macOS arm64 build`), Quality `46103129323` success |
+| `809964a` | make the new Swift files compile on the runner | **no runs at all** (`total_count: 0`) — pushed inside a batch, only the tip's runs survive `cancel-in-progress` |
+| `aef55e1` | webOS contract suite before its port (intended RED) | CI `46103926430` **failure** (`webOS static JS/JSON/service validation`, `macOS arm64 typecheck`), Quality `46103926409` success, Build `46103926434` success |
+| `5922626` | compile the additive Swift timestamp assertion | **no runs at all** (`total_count: 0`) — same batch effect |
+| `aab31be` | the schema-v1 webOS catalog port | CI `46104459953` **failure** (jobs `140853973038` step `Run webOS regressions`, `140853973103` step `Run Live TV foundation tests`), Quality `46104460135` success, Build `46104460101` success |
+
+So the B1-S RED-before/GREEN-after pair is proven only for RED: the Swift port has never been green on a
+runner, and `809964a`/`5922626` are individually unverified commits whose content is carried by later tips.
+The intended REDs (`10a1986`, `aef55e1`) and the unintended ones are distinguished below by their logs.
+
+### What `aab31be` actually failed on, read from the runner logs
+
+`gh run view --log-failed` returned nothing for these jobs, so the logs were read with `gh run view --job …
+--log` plus ANSI stripping; the webOS job renders its step titles as `UNKNOWN STEP`, so the failing step had
+to be found from log content rather than the step column. Four causes, none of them the same:
+
+1. **`10` JavaScript failures — harness defect, not a contract difference.** Messages read
+   "Values have same structure but are not reference-equal". `require('node:assert/strict')` makes
+   `deepEqual` behave as `deepStrictEqual`, which compares prototypes, while the module was evaluated inside
+   `vm.runInNewContext`, so its arrays and objects carried that realm's prototypes. Hosted counts:
+   `# tests 30 / # pass 18 / # fail 12` (the `10` realm failures plus tests 8 and 14 below;
+   `Tests/webos/transport.test.js` passed all 10 of its tests).
+2. **1 JavaScript failure — my own test bug.** Test 8 called `assert.equal()` with a single argument, so
+   Node raised `ERR_MISSING_ARGS`. Fixed to `assert.ok(..., <reason>)`; a balanced-parenthesis scan of the
+   file then checked that no other two-argument assertion form is invoked with one (the first scan was
+   itself wrong — it opened depth on the `(` and flagged every call — and was corrected before use).
+3. **1 JavaScript failure — a real module gap.** Test 14 asserted that `2026-02-31T00:00:00Z` is refused;
+   the module accepted it, because its code comment claimed a strictness that its `new Date` fallback did
+   not implement. That is the only one of the four that was a source defect.
+4. **1 Swift failure at `Tests/live-foundation/main.swift:913` — test defect.** The assertion searched the
+   encoded document for the literal `https://…`, and Foundation's JSON writer escapes `/` as `\/` on Apple
+   platforms, so it could never match. The repository already documents that behaviour at
+   `Sources/Core/APIClient.swift:206`, which strips `"\\/"`. The codec was right; the assertion measured
+   escaping instead of the contract. The Swift job prints no `assertions: <n>` line at this head because the
+   harness `fail()` exits at the first failure.
+
+### Corrective slice — committed as `43ff4bb`, pending its hosted run
+
+* `Tests/webos/live_contracts.test.js`: the module is now loaded in the test's own realm through
+  `new Function` with `window`, `localStorage`, `sessionStorage`, `document`, `navigator`, `location`,
+  `fetch`, `XMLHttpRequest`, `WebSocket`, `require`, `process`, `Buffer`, `global`, `globalThis` all declared
+  as parameters and bound to `undefined` (only a fresh `scope` object is bound to `window`), preserving the
+  inertness the `vm` sandbox existed for. `node:vm` import removed. No assertion was loosened, and the
+  alternatives that would have passed — non-strict `deepEqual`, JSON round-tripping — were rejected because
+  §2 forbids weakening assertions to get green.
+* `webos_app/app/js/playlist_contracts.js`: `requireTimestamp` now validates month (`1..12`), day against
+  `DAYS_IN_MONTH` widened by `isLeapYear`, and hour/minute/second bounds, with a distinct
+  `is not a real calendar instant` message; the rejection table in the suite grew from one case to six
+  (`2026-02-31`, `2026-02-29` in a common year, `2026-04-31`, month `13`, month `00`, day `00`) and the
+  acceptance table gained `2028-02-29` in both spellings so the rule is a calendar check, not "February ends
+  at 28".
+* `Sources/Core/LiveTVCatalogCodec.swift`: `LiveCatalogDate.date(from:)` re-derives year/month/day from the
+  text and refuses an impossible day instead of trusting `ISO8601DateFormatter`'s range behaviour, which is
+  not documented and therefore not part of any contract this port may depend on.
+* `Tests/live-foundation/main.swift`: the escaping-dependent substring test replaced by structural checks on
+  the parsed snapshot document (two sources, the address kept for the source that stores one, **no**
+  `streamUrl` key for the secret-backed source, its `streamSecretRef` retained) plus the escaping-independent
+  key count; six calendar cases and one document-level `expectDataCorrupted` added.
+* Net assertion count: **11 assertions added, 0 removed or relaxed** across the two ports.
+
+Two comments that had shipped claims I could not evidence ("none of which the Dart or Swift reader accepts",
+"the Dart and Swift readers reject them outright") were rewritten. Primary-source check performed before
+committing: the dart:core `DateTime.parse` documentation states that the method "accepts out-of-range
+component values and interprets them as overflows into the next larger component" (its own example parses
+`"2020-01-42"` as 2020-02-11), accepts date-only values, reads a zone-less timestamp as local time, and
+names `DateFormat.parseStrict` from `package:intl` as the rejecting alternative. The Dart port therefore does
+**not** currently agree with the two hardened ports, and the earlier comment text was wrong.
+
+### Review status — read-only, and not the team reviewer
+
+`team_delegate` to the Code Reviewer is refused in this session shape with
+`COLLABORATION_MCP_TEAM_LEADER_REQUIRED`, so §3's fallback applies: the review of `1382a93..597b4db` and of
+this slice is a **separate strictly read-only review performed locally, explicitly NOT a review by the team
+Code Reviewer member**. It found no blocking issue in the corrective diff beyond the two unevidenced comments
+above, and it cannot substitute for the independent team review Phase B still lacks.
+
+### Uncovered by all of this
+
+* No local execution: the realm loader, the calendar validator and the structural Swift assertions are
+  **implemented, NOT VERIFIED** — no runner has executed them yet.
+* No pre-slice Swift baseline exists, so the `MIN_ASSERTIONS=150` floor in `Tests/live-foundation/run.sh` is
+  a claim this repository has never seen satisfied.
+* The Dart date reader gap is now a recorded B3 item, not a silent difference.
+* `streamSecretRef` still has a persisted shape with no verified secret store behind it on any platform; the
+  webOS and Swift libraries have no production consumer until B4; all device/runtime acceptance for macOS,
+  Android phone, Android TV, Windows and webOS remains **NOT VERIFIED**; macOS signing/notarization and UI
+  smoke are skipped; the Windows package byte-equality gap, provenance-hash enforcement, legal notice
+  packaging verification and the remaining security/packaging review are untouched by this slice.
+* Production release stays **BLOCKED**; `RELEASE_PRODUCTION_READY` remains unset and all four platforms remain
+  `INTERNAL-ONLY-*`.
+
+Exact next action: push this corrective slice as one focused commit, then read the CI run at the new head for
+`live foundation OK` plus its `assertions: <n>` line and `# fail 0`, and only then mark B1-S/B1-J hosted
+verified in `PENDING_WORK_COMPLETION_PLAN.md`.
+
+**Landed as:** `43ff4bb` (the four corrective changes above, code and tests) and the following docs commit
+(the three ledgers). Both are on `ci/github-first-foundation`; nothing was pushed while a claim in the diff
+was still unsupported, which is why the Dart `DateTime.parse` wording was checked against the primary
+documentation before the commit was created. The two runs still outstanding at the time of writing are the
+CI and Build workflows at the new head: until they report `live foundation OK` with its
+`assertions: <n>` line and `# fail 0`, task B1-S and B1-J stay **implemented, NOT VERIFIED**, and no
+pending-work row may read TESTED.
