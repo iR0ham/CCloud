@@ -862,6 +862,11 @@ void main() {
 
 ## Task B1-S: Swift Contracts, Additive Migration, and Hosted Runner
 
+> **Read the Addendum 2026-11-28 at the end of this document first.** Items 1-5 there supersede parts
+> of this task: the canonical timestamp form and Swift's date strategy, `supportedSchemaVersion` as a
+> stated member, the `xcrun swiftc -sdk/-target` runner convention, the fixture-path anchor, and the
+> countable-proof requirement for the new Swift step.
+
 **Files:**
 - Create: `Sources/Core/LiveTVContracts.swift`
 - Create: `Sources/Core/LiveTVCatalogCodec.swift`
@@ -1105,6 +1110,11 @@ The first `main.swift` assertions must verify: absent data returns `.empty`; the
 - [ ] **Step 5: Commit.** Stage only the Swift contract/codec, test runner, fixtures, and workflow; commit `feat: add Swift live catalog contracts`.
 
 ## Task B1-J: JavaScript Contracts, Additive Migration, and Hosted Node Tests
+
+> **Read the Addendum 2026-11-28 at the end of this document first.** Items 1-3 and 6 there supersede
+> parts of this task: the canonical timestamp form with lenient parsing, `supportedSchemaVersion` as a
+> stated member, and the test location `Tests/webos/live_contracts.test.js` driven by the existing
+> `node --test Tests/webos/*.test.js` step instead of `webos_app/test/`.
 
 **Files:**
 - Create: `webos_app/app/js/playlist_contracts.js`
@@ -3032,3 +3042,70 @@ The compatibility document must contain one row for every specification feature 
 - **Type consistency:** `PlaylistRecord`, `ChannelMember`, `ChannelSourceRecord`, `LogicalChannel`, `ChannelPreference`, `ChannelWatchRecord`, `LiveCatalogState`, `UnifiedCatalogSnapshot`, `LivePlaybackContext`, `PlaybackAttemptContext`, `SourceOrigin`, `SourcePolicy`, `SourceHealth`, `SubtitleStyle`, `SubtitleTrack`, `SubtitlePreferences`, and `SubtitleSelectionRecord` retain the same field names and semantics across Dart, Swift, and JavaScript; the five identity-error cases are `ChannelIdentityErrorCode` in Dart, `ChannelIdentityError` in Swift, and `ChannelIdentityError.<code>` errors in JavaScript. `PlaylistParseResult` carries `contentHash`/`inputBytes`; sources include `rendererCapability`, `origin`, and `lastFailedPlaybackAt`; `SourcePolicy` includes `bufferingThresholdMs`; preferences include nullable `lastSuccessfulSourceId`. Refresh reconciliation is by stable `sourceId`; a valid empty refresh is successful zero-channel cleanup, while invalid or nonempty zero-valid refresh is an error with last-good retention; re-enabled sources return to `unverified`; playback-only health transitions and timestamp cooldowns are explicit. `LivePlaybackContext` and `PlaybackAttemptContext` remain runtime-only and are excluded from channel/request JSON; stale callbacks must match generation, source ID, and attempt number; `sourceId` is never substituted for request-local media IDs; `channelId` always means logical channel ID.
 - **Parallel safety:** Platform tasks that may run in parallel own disjoint files; shared Swift foundation/player harness files are owned sequentially by their ordered phase tasks. `.github/workflows/ci.yml` is modified sequentially by B1-S, B1-J, B4-S, and finally G1; B4-D/B4-J do not own it. `unified_catalog.js` is created by B3-J and modified by B4-J. `SubtitleSettingsView.swift` is created by D2 and modified by F2. `MainActivity.kt` is owned only by E1. The G1 compatibility/verification documents are created by G1 and modified only by the sequential G2 task. Shared migration/playlist/subtitle/discovery fixtures have one producer and explicit consumers.
 - **Verification honesty:** This document is a source/design artifact. No build, test, analysis, formatting, runtime, device, workflow dispatch, commit, or push was performed during its creation. Local runtime remains **NOT VERIFIED**.
+
+---
+
+## Addendum 2026-11-28 — binding decisions for Task B1-S and Task B1-J
+
+Recorded by the project manager after the read-only review of `1382a93..597b4db`, whose High note was
+that the persisted timestamp **text form** was never pinned. This addendum is part of the contract:
+where it disagrees with a literal snippet above, this addendum wins, and the reason is stated so the
+deviation is not mistaken for drift. Items 1 and 2 are already committed and hosted-green at
+`fcd456c`; items 3-6 bind the Swift and JavaScript ports.
+
+1. **Canonical timestamp text form (already frozen in Dart by `28019c8`).** Persisted live-catalog
+   timestamps are RFC 3339 UTC with exactly three fractional digits — `2026-01-01T00:00:00.000Z` — which
+   is what `DateTime.toIso8601String()` writes and what `webos_app/app/js/store.js:70`
+   (`new Date().toISOString()`) already writes. **Decoding accepts both** that form and the
+   seconds-precision form used by the frozen `Tests/fixtures/migration/catalog-v1.json`
+   (`2026-01-01T00:00:00Z`), and normalizes to the canonical form on the next write. Consequence for the
+   ports: Swift must **not** reuse the bare `.iso8601` strategy its sibling stores use
+   (`Sources/Core/Stores.swift:35`, `:40`, `Sources/Core/DownloadsStore.swift:70`), because Foundation's
+   default `ISO8601DateFormatter` excludes fractional seconds and would reject a Dart-written document.
+   Swift encodes with `[.withInternetDateTime, .withFractionalSeconds]` and decodes fractionals-first with
+   a seconds-precision fallback. Do not "solve" this by editing `_dateText` in Dart: the millisecond form
+   is the chosen canonical form and the fixture is frozen.
+2. **Symmetric schema-version handling (already frozen in Dart by `28019c8`).** `encode` rejects any
+   `schemaVersion` the decoder does not support, with a message that begins exactly
+   `Unsupported live catalog schema`, and writes the supported constant rather than the caller's field.
+   Swift and JavaScript mirror both halves, sharing that message prefix so a later cross-language
+   agreement test can assert on one string.
+3. **`supportedSchemaVersion` is a stated contract member, not a Dart-only accident.** The review found
+   it as a public Dart symbol absent from every interface list. It is now specified for all three ports:
+   Dart `LiveCatalogStateCodec.supportedSchemaVersion` (exists), Swift
+   `LiveCatalogStateCodec.supportedSchemaVersion` in `Sources/Core/LiveTVCatalogCodec.swift`, JavaScript
+   `CC.liveContracts.supportedSchemaVersion` in `webos_app/app/js/playlist_contracts.js`. Each port must
+   reference the constant instead of inlining `1`, and a B2 agreement assertion may compare the three.
+4. **Swift runner flags follow the repository, not this document's snippet.** The `run.sh` block above
+   calls bare `swiftc`, but every hosted Swift compile in this repo pins the SDK and target
+   (`scripts/typecheck.sh:11-12`, `Tests/api/run.sh:18,30-31`, `Tests/player/run.sh:25,103`,
+   `build.sh:13,35-36` all use `xcrun swiftc … -target arm64-apple-macos15.0 -sdk "$SDK"`). Whether bare
+   `swiftc` resolves the macOS SDK on `macos-15` is **NOT VERIFIED** and must not be settled on the
+   owner's Mac, so B1-S uses
+   `xcrun swiftc -O -swift-version 5 -module-name CCloudLiveFoundationTests -module-cache-path "$CACHE"
+   -target arm64-apple-macos15.0 -sdk "$(xcrun --show-sdk-path)" …` with the same four sources and the
+   same `mktemp -d` output path. Everything else in the snippet (the `set -euo pipefail` header, the
+   `$ROOT` computation, the `trap` cleanup) stays.
+5. **The Swift step must produce countable proof.** No workflow step inspects `macos-typecheck` output,
+   and this repo's own Swift idiom is `try?`-and-return (`Sources/Core/Stores.swift:96`), so a missing
+   fixture would otherwise yield a silently passing step — the exact failure mode this phase exists to
+   prevent. Requirements: the test binary receives the repository root as `argv[1]` (with
+   `#filePath`-derived resolution as fallback, since the binary lives in `mktemp -d`), every fixture
+   read **hard-fails** on absence or parse error instead of returning, the binary prints a final
+   `assertions: <n>` line and exits non-zero on any failed assertion, and `run.sh` greps its own output
+   for that line and enforces a floor on `<n>`. B1-S therefore creates the first Swift test baseline in
+   this repository; there is no earlier Swift test count to compare against.
+6. **B1-J test location: `Tests/webos/live_contracts.test.js`, not `webos_app/test/…`.** The Files block
+   above names `webos_app/test/live_contracts.test.js` and a new `node --test webos_app/test/*.test.js`
+   step. Use the repository's existing JS test home (`Tests/webos/`, already driven by
+   `.github/workflows/ci.yml:167-168`) and extend that step to `node --test Tests/webos/*.test.js`.
+   Reason: identical `../..` fixture depth so the proven `path.resolve(__dirname, '../..')` idiom from
+   `Tests/webos/transport.test.js:17` ports unchanged; test code stays out of the packaged `app/` tree;
+   and that step already prints `# tests / # pass / # fail / # skipped`, which is the countable proof
+   item 5 requires. This is a test-placement decision only — the assertions, the ES2017 ceiling (no
+   `let`/`const`/optional chaining/nullish coalescing), the `window.CC` attachment and the
+   "does not access `localStorage`" rule from the task body are unchanged and still binding.
+7. **Ordering reaffirmed.** B1-D → B1-S → B1-J → B2. B1-J follows B1-S because B1-S is the run that
+   reads the frozen fixture from a second language, which is where a residual wire-format mismatch would
+   surface. Neither B1-S nor B1-J may touch `UserDefaults`, `localStorage`, Application Support, playback
+   code, UI code, or any consumer: migration triggers and disk I/O belong to B4-S/B4-J.

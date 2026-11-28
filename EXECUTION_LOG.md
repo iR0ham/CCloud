@@ -532,3 +532,128 @@ executed** because no intentionally broken commit was pushed.
 Exact next action: obtain a scoped independent review of `1382a93..41039b2` — the two workflow commits,
 the provenance fix and the first Phase B Dart code — before any Swift file is written, because B1-S
 duplicates the Dart contract shape and a defect found afterwards would be paid for three times.
+
+## 2026-11-28 (project manager) — Read-only review verdict for `1382a93..597b4db` and the two blocking notes it required
+
+**Provenance of this review, stated so it is never miscited.** The team's Code Reviewer member was
+unreachable: `team_delegate` answered `COLLABORATION_MCP_TEAM_LEADER_REQUIRED` twice in this session
+shape, once with the roster id used successfully earlier the same day and once with a freshly listed
+agent id, so the refusal is a host-shape limit and not a bad identifier. Per the owner's directive
+("inspect whether the team-review capability is now available; if it is not, perform a separate,
+strictly read-only review… clearly label this as a read-only independent review, NOT as a review by the
+unavailable Code Reviewer"), the review was commissioned from a local agent with no role in the
+implementation. **It is not a team-member verdict.** The reviewer recorded zero writes and zero local
+execution workloads.
+
+**Verdict: ACCEPT WITH NOTES**, head actually reviewed `597b4db676382077d959eea5d77aafe75761984f` (it
+did not move during the review). No gate was weakened anywhere in the range. Independently re-derived,
+not copied from this ledger: the eight-file numstat for `1382a93..eb052b2`; `require_token` 15 → 18 with
+no call site removed; six of the seven workflow files byte-identical across `1382a93..597b4db`
+(`release.yml`, `quality.yml`, `ci.yml`, `build-windows.yml`, `build-macos.yml`, `build-webos.yml`),
+which is the strongest available form of "release posture untouched"; baseline Android job
+`140815355943` carrying 16 `ok:` lines and no `android:required="false"` line at all, so the +4 delta is
+exactly H1(2)+H2(2); both migration fixtures `cmp`-identical to the plan block including the trailing
+`0a`; `LiveCatalogMigration.migrate/encode` byte-identical to the plan's declaration and every record
+field faithful; and `EXECUTION_LOG.md` append-only across the range (`git log -p` shows no deletions).
+
+**Two corrections to my own previous entries, plus one review claim that did not survive checking.**
+
+1. Two rows of the "proves the new assertions executed" table in my previous section quote lines that
+   already existed at the baseline and therefore prove nothing about this slice. I re-fetched the
+   baseline logs myself rather than accepting the review's word: Quality `46092170673` job
+   `140815355485:164` prints `provenance: 10 retained files verified against SOURCES.md (offline,
+   recomputed SHA-256, no network fetch)` at `2026-11-28T01:15:29Z`, i.e. at `1382a93` where H3 did not
+   exist, so that line evidences the digest recompute and nothing about containment; and Android job
+   `140815355943:1943` prints
+   `merged manifest artifact: build/app/intermediates/merged_manifest/release/outputReleaseAppLinkSettings/AndroidManifest.xml`
+   at `2026-11-28T01:26:16Z`, when the artifact still came from the old
+   `-path '*release*' | sort | head -1` fallback — the script printed only the final `$MERGED`, so the log
+   could not distinguish explicit-candidate selection from fallback selection. `Ran 14 tests` is the row
+   that actually evidences H3, and `merged manifest selected by:` (added in `fcd456c`) is what makes the
+   H1 mechanism observable from the next run onward. Both baseline jobs contain **zero** occurrences of
+   `android:required="false"`, which independently confirms those H2 assertions were genuinely new.
+2. My framing "`require_token` 15 → 18; the only added `|| true` is the touchscreen dump" was literally
+   true about additions and understated a strengthening: `|| true` occurrences are **3 → 3** across the
+   range, because H1 removed the baseline's `… | head -1 || true` at `1382a93:208`.
+3. **Rejected review claim, recorded so it is not re-imported later.** The review asserted that
+   `docs/reports/PENDING_WORK_COMPLETION_PLAN.md` §11.1 attributed the H3 `Ran 14 tests` / `OK` evidence
+   to CI `46094276971` and therefore contradicted this report. It does not. The committed H3 row
+   (`docs/reports/PENDING_WORK_COMPLETION_PLAN.md:452`, added at `41039b2`) already cites Quality
+   `46094277018`, which is the correct run — the provenance suite executes only from
+   `.github/workflows/quality.yml:131-133`. The sole `46094276971` reference in that file is the Phase
+   B1-D GREEN row (`:453`), and that is correct too, because that CI run's Flutter job `140821955659`
+   really does print `No issues found!` and `🎉 133 tests passed, 1 skipped`. No correction was made to
+   that document on this point. The lesson is recorded: a review finding is evidence about the reviewer's
+   reading, and a claim that a document says something must be checked against the document before the
+   document is "corrected".
+
+**The High finding, and why it was worth stopping for.** The persisted timestamp *text form* had never
+been pinned anywhere: `live_catalog_codec.dart` emits `toIso8601String()` (always three fractional
+digits), the frozen `catalog-v1.json` holds `2026-01-01T00:00:00Z`, `webos_app/app/js/store.js:70`
+emits `toISOString()`, and `Sources/Core/Stores.swift:35`/`:40` plus
+`Sources/Core/DownloadsStore.swift:70` use Foundation's `.iso8601`, whose default formatter excludes
+fractional seconds. Every Dart date assertion in `live_contracts_test.dart` was a decoded-value check, so
+`encode(migrate(fixture))` was not textually stable and no test noticed. B1-S's path of least resistance —
+copy the sibling stores — is precisely the branch that cannot read what B1-D writes, which is why this had
+to precede B1-S rather than ride along with it.
+
+**Landed, both commits hosted-green at `fcd456c37de9ef8fdf50a2ec018e3794241f06d4`.**
+
+- `28019c818474b4a4b5f08471c707b84f6999653e` (`live_catalog_codec.dart` +18/−5,
+  `live_contracts_test.dart` +45/−0): canonical form declared as RFC 3339 UTC with exactly three
+  fractional digits, accepted-both-on-read, frozen by `expect(… 'createdAt', '2026-01-01T00:00:00.000Z')`
+  plus a lenient-decode pair built from the fixture's own decoded map; `encode` now rejects a schema
+  version it cannot decode with the shared `Unsupported live catalog schema` message and writes the
+  constant; the "deliberately total" docstring was rewritten because it had become false.
+- `fcd456c37de9ef8fdf50a2ec018e3794241f06d4` (`.github/workflows/build-android.yml` +32/−19): the
+  touchscreen window is bounded by the element's own `/>` with `awk` instead of `grep -A2`, the provably
+  non-binding whole-manifest `android:required="false"` token is re-pointed at that window (so
+  `require_token` stays **18** while binding power increases), a `required="true"` declaration inside the
+  window is now its own hard failure, `merged manifest selected by:` makes the H1 mechanism observable,
+  and the comment that justified the temp file by a nonexistent SIGPIPE hazard was corrected. The
+  duplicate hand-rolled `if ! grep -Fq` branch was removed once `require_token` covered the same token in
+  the same file — that is a consolidation, not a deletion of an assertion.
+
+**Hosted evidence.** Quality `46098424061` success (`Required NOTICE files` job `140835074353`:
+`Ran 14 tests in 0.009s` / `OK`). CI `46098424212` success; Flutter job `140835074852`:
+`No issues found! (ran in 14.6s)` and `🎉 134 tests passed, 1 skipped` — one more than the baseline's
+`133`, which is exactly the single added `test(...)`, with both touched cases green by name and the one
+skip still the pre-existing `platform_identity_test.dart` macOS-host case. Build all platforms
+`46098424038` success, 8/8 jobs; Android job `140835074730` printed `merged manifest selected by:
+explicit candidate` (first run that distinguishes the mechanism),
+`ok: APK touchscreen element contains android:required="false"`, the unchanged identity tokens and
+`applicationId=com.ccloud.ccloud versionName=2.0.0 versionCode=22`, with **20** real `ok:` lines (baseline
+count preserved), `0` `##[error]`, and 23 steps / 0 skipped. Independently confirmed on the pushed diff:
+three files, zero added lines matching `continue-on-error|set +|.skip(|.only|todo(|if-no-files-found: warn`.
+Also closed a gap in my own previous section: docs head `597b4db` Build `46096515354` did complete
+**success** at `2026-11-28T02:24:25Z`, while `7124c28` has **no runs at all** because it was pushed inside
+a multi-commit push and only the tip triggers — so that commit is unverified and is not claimed otherwise.
+
+**What the review explicitly did not clear.** The `.iso8601`-rejects-fractionals behaviour and Dart's
+always-three-digits output remain documented rather than runner-observed; the B1-S round-trip test is what
+settles them. H1/H2/H3 falsifiability mutations are still **stated, not executed** — and one predicted
+error text was wrong, since the non-binding token would not have fired on `required="true"`. No Swift test
+has ever run on a hosted runner (`macOS arm64 typecheck` prints only `typecheck OK (44 files)`), so B1-S
+creates that baseline rather than comparing to one. `streamSecretRef` still has a persisted shape with **no
+verified secret store behind it on any platform**, the Dart libraries still have no production consumer, and
+device/runtime acceptance for all four platforms is unchanged at **NOT VERIFIED**.
+
+**Deferred to a later hardening pass** (Low findings, no shipped behaviour affected): make the
+`Legal/licenses/` sweep recursive, move `documented.add(key)` after the containment rejection in
+`verify_provenance.py`, state the containment contract at the interface rather than relying on the sole
+current caller, and restore a direct `LiveCatalogStateCodec.supportedSchemaVersion` reference in the Dart
+test so the importability guarantee B1-S/B1-J are specified against is proven.
+
+**Interface decisions recorded in the plan.** `docs/superpowers/plans/2026-11-25-multi-source-subtitles.md`
+gained a dated addendum whose items 1-3 and 6-7 are binding on the ports (canonical date form and Swift's
+`[.withInternetDateTime, .withFractionalSeconds]` strategy, `supportedSchemaVersion` named for all three
+languages, the `xcrun swiftc -sdk/-target` convention instead of the plan's bare `swiftc`, an `argv[1]`
+fixture anchor plus a printed `assertions: <n>` floor because nothing in `ci.yml` inspects the Swift step's
+output, B1-J's test at `Tests/webos/live_contracts.test.js` on the existing `node --test Tests/webos/*.test.js`
+step, and the B1-D → B1-S → B1-J ordering with no consumer or storage access in B1).
+
+Exact next action: land Task B1-S exactly as the plan plus that addendum specify — fixtures, runner and
+failing assertions first, hosted RED, then the Swift contracts, then hosted GREEN on `macos-typecheck` —
+without touching a Dart, webOS, UI, playback or existing Swift app file. Do not report or tag anything as
+release-ready: all four platforms remain `INTERNAL-ONLY-*`, `RELEASE_PRODUCTION_READY` is unset, and green
+CI is build-time evidence only.

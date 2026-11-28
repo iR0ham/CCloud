@@ -8,16 +8,17 @@ dated evidence below is a ledger and must not be restated as history that did no
 - Repository: `/Users/roham/Documents/CCloudMac`, remote `iR0ham/CCloud` (public).
 - Working branch: `ci/github-first-foundation`.
 - HEAD and pushed remote branch head were both
-  `cbc48ee249a9402841369fe0087091ccc85d71b5` when the previous sentence was written; that was true at
-  the time and is superseded here. As of this refresh the code head is
-  `eb052b248ac0255fabbf30788bd964f2d35a5315`, and `git ls-remote` and local `HEAD` both returned
-  `41039b253da00005ba9083ce08833e7188bae32c` (two ledger commits on top of it) before this file was
-  edited — so on resume, re-run `git ls-remote` rather than trusting any head written here.
+  `41039b253da00005ba9083ce08833e7188bae32c` when the previous sentence was written; that was true at
+  the time and is superseded here. As of this refresh local `HEAD` and `git ls-remote` both returned
+  `fcd456c37de9ef8fdf50a2ec018e3794241f06d4` — so on resume, re-run `git ls-remote` rather than
+  trusting any head written here.
 - Commit order on the branch, continuing the previous list: `cbc48ee` (three-closed-gates ledger
   addendum) → `1382a93` (accepted re-review + hardening items) → `4c80ad3` (**H1** merged-manifest
   binding) → `e1eb4db` (**H2** optional-touchscreen assertion) → `5a9ad4a` (**H3** provenance path
   canonicalization) → `4570277` (B1-D fixtures + failing tests, hosted RED) → `ea28b29` (B1-D Dart
-  contracts + codec) → `eb052b2` (analyzer-clean) → `7124c28` + `41039b2` (ledger and plan appends).
+  contracts + codec) → `eb052b2` (analyzer-clean) → `7124c28` + `41039b2` + `597b4db` (ledger, plan
+  and project-manager reconciliation) → `28019c8` (**canonical wire date form + symmetric
+  schema-version gate**) → `fcd456c` (**element-scoped touchscreen assertion + H1 observability**).
 - `main`: `6dfd925095b0090b623443f396388fd4d552db63` — untouched, never developed on.
 - Worktree: clean.
 - Open pull requests: none. Release tags: none (`v2.0.0` was never tagged).
@@ -124,6 +125,62 @@ is the touchscreen context-window dump that feeds a hard `::error::` + `exit 1` 
 temporary keychain removal, hosted UI smoke, UI evidence upload) and the CI `Live API verification`
 skip are unchanged.
 
+### At `fcd456c` (scoped independent review of `1382a93..597b4db` and its two blocking notes)
+
+**Verdict: ACCEPT WITH NOTES** for `1382a93..597b4db`. Provenance of the verdict, stated plainly: the
+team's Code Reviewer member was unreachable — `team_delegate` returned
+`COLLABORATION_MCP_TEAM_LEADER_REQUIRED` for two different member ids in this session shape — so the
+review was commissioned as a **separate strictly read-only review by a local agent with no role in the
+implementation**, which is the fallback the owner's directive authorizes. It is **not** a team-member
+verdict and must not be cited as one. The reviewer confirmed no write, stage, stash, reset, clean,
+commit or push, and no local execution workload of any kind.
+
+What that review independently re-derived, rather than accepted from this report: the eight-file
+numstat of `1382a93..eb052b2`; `require_token` **15 → 18** with no call site removed; `release.yml`,
+`quality.yml`, `ci.yml`, `build-windows.yml`, `build-macos.yml` and `build-webos.yml` **byte-identical**
+across the whole range (only `build-android.yml` changed), so `RELEASE_PRODUCTION_READY`, the macOS
+signing/notarization skips and the `Live API verification` skip are unchanged in the strongest possible
+sense; `1382a93` baseline Android job `140815355943` had **16** `ok:` lines and **no**
+`android:required="false"` line, so the +4 delta is exactly H1(2)+H2(2); both fixtures
+`cmp`-identical to the plan block including the trailing `0a` (`catalog-v1.json` 454 bytes,
+`443a57bd…`; `flutter-legacy-prefs.json` 317 bytes, `c85168a5…`); B1-D declaration-for-declaration
+faithful to the plan's `Interfaces produced` block with `LiveCatalogMigration.migrate/encode`
+byte-identical to it; and `EXECUTION_LOG.md` append-only (`git log -p … | grep '^-[^-]'` empty).
+It also found the Dart test at `4570277` RED is a valid historical gate because
+`live_contracts.dart:3` imports the codec transitively.
+
+Ten findings; the ones that changed state here:
+
+| Note | Severity | Disposition |
+| --- | --- | --- |
+| Persisted timestamp **text form was never pinned**; Dart emits `.000Z`, the frozen fixture is seconds-precision, and the repo's existing Swift `.iso8601` strategy cannot parse Dart's output | **High** | **Closed by decision + test** in `28019c8`. Canonical form is RFC 3339 UTC with exactly three fractional digits; decoding accepts both forms; frozen with a committed `expect(... '2026-01-01T00:00:00.000Z')` plus a lenient-decode pair |
+| `encode` accepted a schema version `decode` refuses, so it could write an unreadable document | Low | **Closed** in `28019c8`: `encode` now throws `FormatException('Unsupported live catalog schema')` (same prefix as `decode`) and writes the constant; new test `encode rejects a schema version the codec cannot decode` |
+| The new whole-manifest `require_token "APK manifest" "$MANIFEST" 'android:required="false"'` is **provably non-binding** — four matches exist (`leanback`, `touchscreen`, `androidx.window.extensions`, `androidx.window.sidecar`) so `required="true"` passes | Medium | **Closed** in `fcd456c`: re-pointed at the element window, so the count stays **18** while binding power increases |
+| H2 pairing was positional (`grep -A2`), fragile to an `apkanalyzer` reflow in both directions | Medium | **Closed** in `fcd456c`: window bounded by the element's own `/>` with `awk`, plus a hard failure when the window declares `android:required="true"`. The reviewer confirmed the `|| true` cannot mask a missing entry and that `set -euo pipefail` behaves correctly; only the *reason* in the old comment was wrong (no SIGPIPE exists in that statement) and it was rewritten |
+| The log could not distinguish explicit-candidate selection from the narrowed fallback | Low | **Closed** in `fcd456c` by `merged manifest selected by:`; first run printed **`explicit candidate`** |
+| `supportedSchemaVersion` is a public Dart symbol absent from the plan | Low | **Open → lands as a plan edit before B1-S** (recorded in the plan addendum) so the Swift/JS ports mirror a stated contract instead of inventing one |
+| Non-recursive `Legal/licenses/` sweep; `documented.add(key)` runs before the containment rejection; `sha256_of` does not re-check containment itself; `_optDateText` null-aware rewrite | Low | Latent, not live (no symlink is tracked anywhere in the repo, `stage_legal.py` copies from a hardcoded tuple). Deferred to a hardening item, listed under Remaining tasks |
+| `PENDING_WORK_COMPLETION_PLAN.md` §11.1 attributed the H3 `Ran 14 tests` / `OK` evidence to CI `46094276971`, which contains no such line | Medium | **Rejected after checking the document.** The committed H3 row (`:452`, added at `41039b2`) already cites Quality `46094277018`, which is where the provenance suite runs (`.github/workflows/quality.yml:131-133`); the only `46094276971` reference in that file is the correct B1-D GREEN row (`:453`). No correction was made. The other baseline-occurrence finding *was* confirmed, by re-fetching the logs: `provenance: 10 retained files verified…` really does appear at Quality job `140815355485:164` on `1382a93`, and `merged manifest artifact: …outputReleaseAppLinkSettings…` at Android job `140815355943:1943`, while both baseline logs contain **zero** `android:required="false"` lines |
+| Two `EXECUTION_LOG.md` evidence rows quote lines that already existed at the baseline | Low | **Corrected by dated addendum**; the `Ran 14 tests` row is the one that evidences H3 |
+| H2 falsifiability table predicted the wrong error for the `required="true"` mutation | Medium | **Corrected by dated addendum**; still **stated, not executed** |
+
+| Head | Workflow | Run | Result and specific proof |
+| --- | --- | --- | --- |
+| `597b4db` | Quality | `46096515368` | **success** |
+| `597b4db` | CI | `46096515292` | **success**; `macOS arm64 typecheck` `140828979218` printed only `typecheck OK (44 files)` — **no Swift test has ever run on a hosted runner**, which is what B1-S creates |
+| `597b4db` | Build all platforms | `46096515354` | **success**, completed `2026-11-28T02:24:25Z` (still `in_progress` when the review reported it, so the review's own record of that row was correct at its timestamp) |
+| `7124c28` | — | none | **NO RUNS EXIST**; it was pushed in a multi-commit push so only the tip triggered. A docs commit is not verified evidence and must not be described as verified |
+| `28019c8` + `fcd456c` | Quality | `46098424061` | **success**; `Required NOTICE files` job `140835074353`: `Ran 14 tests in 0.009s` / `OK`, 9 steps / 0 skipped |
+| `28019c8` + `fcd456c` | CI | `46098424212` | **success**; Flutter job `140835074852`: `No issues found! (ran in 14.6s)` and `🎉 134 tests passed, 1 skipped` — one more than the `597b4db` baseline's `133`, which is exactly the single added `test(...)`; both touched cases green by name (`v1 fixture round-trips and secret URLs are not serialized`, `encode rejects a schema version the codec cannot decode`); the one skip is still the pre-existing `platform_identity_test.dart` macOS-host case. `Live API verification` `140835076043` remains job-level `skipped` |
+| `28019c8` + `fcd456c` | Build all platforms | `46098424038` | **success**, 8/8 jobs; Android job `140835074730` printed `applicationId=com.ccloud.ccloud versionName=2.0.0 versionCode=22`, `merged manifest selected by: explicit candidate`, `ok: merged manifest contains com.ccloud.ccloud`, `ok: APK manifest contains package="com.ccloud.ccloud"`, `ok: APK touchscreen element contains android:required="false"` and `ok: APK manifest pairs android.hardware.touchscreen with android:required="false"`, with **20** real `ok:` lines (baseline count unchanged), **0** `##[error]` and **23 steps / 0 skipped** |
+
+Gate integrity across `597b4db..fcd456c`, counted by the project manager on the pushed diff: three
+files, `+32/−19`, `+18/−5`, `+45/−0`; added lines matching
+`continue-on-error|set +|.skip(|.only|todo(|if-no-files-found: warn` = **0**; `require_token` call
+sites still **18**; no candidate path, no ambiguity `exit 1`, no artifact, no upload and no release
+condition changed. The removed `grep -Fq` branch duplicates nothing: the same token against the same
+window file is now asserted through `require_token`, which is the stricter and more diagnostic form.
+
 ### Earlier heads, for continuity
 
 - `6fb03bf`: Quality `46085379874` success, CI `46085379959` success (first hosted proof of the
@@ -191,6 +248,19 @@ The owner's Mac is not used for project execution workloads.
     Shared Fixtures block byte-for-byte. Hosted RED `46093489869` → hosted GREEN `46094276971` with all
     five cases green by name inside `133 tests passed, 1 skipped` (the skip is pre-existing and
     macOS-host-only). `Tests/fixtures/multi-source/*` remains unauthored because B2 owns it.
+13. **Read-only review of `1382a93..597b4db` returned ACCEPT WITH NOTES and its two blocking notes are
+    closed on runners** at `fcd456c` (Quality `46098424061`, CI `46098424212`, Build `46098424038`).
+    This item supersedes two earlier sentences in this section: item 11's "asserted as a value and as a
+    feature pairing" described, at the time it was written, an assertion whose whole-manifest token was
+    in fact non-binding (four `android:required="false"` matches exist), and the review's own count
+    correction applies here too — `|| true` occurrences across `1382a93..eb052b2` are **3 → 3**, not
+    "+1 added", because H1 removed the baseline's `… | head -1 || true` fallback at
+    `1382a93:208`; that phrasing understated a strengthening. The canonical wire date form
+    (RFC 3339 UTC, three fractional digits, both forms accepted on read), the symmetric
+    schema-version gate with its shared `Unsupported live catalog schema` message, the element-scoped
+    touchscreen window with its `required="true"` hard failure, and the
+    `merged manifest selected by: explicit candidate` observability line are all hosted-verified as
+    build-time evidence. Device and runtime behaviour remains **NOT VERIFIED**.
 
 ## Current task
 
@@ -200,11 +270,18 @@ The owner's Mac is not used for project execution workloads.
   fixtures) is implemented and hosted-verified at unit level, with its own RED (`46093489869`) and
   GREEN (`46094276971`) pair. Nothing outside `flutter_app/lib/core`, `flutter_app/test` and
   `Tests/fixtures/migration` was touched, so no Swift, JavaScript, UI or playback file is in scope yet.
-- Active work is now the **scoped independent review of `1382a93..41039b2`** (the two workflow commits,
-  the provenance fix, the first Phase B Dart code and the ledger appends). B1-S stays queued until that
-  verdict lands, because B1-S and B1-J mirror the Dart contract shape and a defect found afterwards
-  would be paid for three times.
-- Nothing is held locally beyond this checkpoint edit: HEAD equals the remote head at `41039b2`.
+- Active work is now **Task B1-S** (Swift contracts + codec + the first hosted Swift test runner). The
+  scoped independent review of `1382a93..597b4db` is **back** (ACCEPT WITH NOTES, and it explicitly
+  answered "B1-S may start on top of the current Dart contracts"), and the two notes it required to
+  land *before* B1-S — the canonical wire date form and the schema-version interface statements — are
+  committed and green at `fcd456c`. Nothing is held locally beyond this checkpoint edit: local `HEAD`
+  equals the remote head at `fcd456c`.
+- Still true from the previous entry, unchanged: no Swift, JavaScript, UI or playback file has been
+  modified by any of this work, and `Tests/fixtures/multi-source/*` remains unauthored because B2 owns
+  it. `live_contracts.dart` and `live_catalog_codec.dart` have **no production consumer** — they are
+  imported only by each other and by their test, so caller behaviour on a `FormatException` (must
+  surface, must never clear the catalog) is still unproven and unowned by any test. That belongs to
+  B4-S/B4-D, not B1.
 
 ## Remaining tasks (ordered, with the real gate for each)
 
@@ -221,12 +298,29 @@ The owner's Mac is not used for project execution workloads.
    Residual, stated precisely: H1 proves the selected manifest declares the APK's `applicationId`, not
    that those exact bytes were compiled into the APK. The RED halves of H1/H2 are **stated, not
    executed**, because no intentionally broken commit was pushed.
-3. **Scoped re-review of `1382a93..41039b2`** — gate: an independent verdict on the changed Android
-   gate, the provenance fix and the Dart contracts, with the pre-existing macOS-skip set and the
-   `Live API verification` skip confirmed unchanged.
-4. **Phase B1 continuation — B1-S (Swift), then B1-J (JavaScript), then B2 parsers/registries**, all
-   sharing the frozen fixtures. `Tests/fixtures/multi-source/*` is still unauthored by design (B2 owns
-   it); verified by search.
+3. ~~Scoped re-review of `1382a93..41039b2`~~ — **closed**: ACCEPT WITH NOTES over
+   `1382a93..597b4db`, delivered by a local read-only reviewer because the team's Code Reviewer member
+   was unreachable, and the macOS-skip set plus the `Live API verification` skip were confirmed
+   unchanged by byte-identical workflow files across the range. Deferred residuals from its Low
+   findings, which change no shipped behaviour and belong to a later hardening pass rather than to
+   B1: make the `Legal/licenses/` documentation sweep recursive (`rglob`) so nested retained text
+   cannot escape the "undocumented file" invariant; move `documented.add(key)` after the containment
+   rejection in `verify_provenance.py:246` so one rejected entry cannot mask a second signal; state the
+   containment contract at the interface so callers other than the current one cannot pass an
+   uncanonicalized path to `sha256_of`; restore a direct symbol reference in the Dart test
+   (`LiveCatalogStateCodec.supportedSchemaVersion`) so the importability guarantee B1-S/B1-J are
+   specified against is proven, not inferred.
+4. **Phase B1 continuation — B1-S (Swift) in flight, then B1-J (JavaScript), then B2
+   parsers/registries**, all sharing the frozen fixtures. `Tests/fixtures/multi-source/*` is still
+   unauthored by design (B2 owns it); verified by search. The binding interface decisions B1-S and
+   B1-J must honour are recorded in the plan's dated addendum
+   (`docs/superpowers/plans/2026-11-25-multi-source-subtitles.md`), because the plan's own text left
+   five things unspecified: the Swift runner used a bare `swiftc` with no `-sdk`/`-target` while every
+   hosted Swift compile in this repo pins both, no fixture-path anchor was named for a `mktemp -d`
+   binary, nothing made the Swift step's assertions *countable* (so a `try?`-and-return on a missing
+   fixture would be a silently passing step), the date strategy was unspecified between the repo's
+   existing `.iso8601` and Dart's millisecond output, and B1-J's test location contradicted the repo's
+   `Tests/webos/` convention.
 5. ~~Windows package byte-equality evidence gap~~ — **closed and hosted verified**: both Windows
    packages print `Legal files are SHA-256 byte-equal to the canonical repository copies
    (14 compared)` at run `46087990039`, and the installer job repeats it against
@@ -269,11 +363,17 @@ None of these may be cleared by changing a label, a flag, or a document claim.
 2. ~~Start Phase B1-D~~ — **done**: `4570277` (fixtures + failing tests, hosted RED
    `46093489869`) → `ea28b29` (contracts) → `eb052b2` (analyzer-clean, hosted GREEN `46094276971`
    inside a fully green Build `46094276974`).
-3. **Get the scoped independent review of `1382a93..41039b2` back, then start B1-S** from
-   `docs/superpowers/plans/2026-11-25-multi-source-subtitles.md` (Swift contracts against the same
-   `Tests/fixtures/migration/catalog-v1.json`), with the plan's hosted RED before implementation and
-   hosted GREEN after. Do not push while that review is in flight — two earlier verdicts came back
-   partial exactly because the head moved underneath the reviewer.
+3. ~~Get the scoped independent review back, then start B1-S~~ — the review landed (ACCEPT WITH
+   NOTES, local read-only reviewer) and its two blocking notes are committed and green at `fcd456c`, so
+   the review-in-flight push freeze is lifted. **Current exact next action: land Task B1-S** from
+   `docs/superpowers/plans/2026-11-25-multi-source-subtitles.md` — Swift contracts and codec against
+   the same frozen `Tests/fixtures/migration/catalog-v1.json`, `Tests/live-foundation/{main.swift,run.sh}`
+   created from scratch, one added step in `ci.yml`'s `macos-typecheck` job — with the plan's hosted
+   **RED before** implementation (that run is the first time any Swift test executes on a runner, so
+   there is no prior baseline to compare against) and hosted **GREEN after**, on the same branch. B1-S
+   must not touch a Dart, webOS or existing Swift app file, must not wire any consumer, and must not
+   read or rewrite `UserDefaults`/Application Support: the migration trigger and disk I/O are B4-S.
+   Then B1-J, then the item-3 deferred hardening.
 4. Keep `EXECUTION_LOG.md` appends serialized, and re-check `git ls-remote` immediately before writing
    the tail: in this slice the engineer's `7124c28` landed while the project manager was composing an
    overlapping section, and the duplicate draft was discarded rather than committed.
