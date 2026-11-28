@@ -2215,6 +2215,283 @@ check(productionStore.fileURL.deletingLastPathComponent().lastPathComponent == "
 
 try? storeFM.removeItem(at: storeRoot)
 
+// MARK: - Task B4-3 S1: built-in live row composer
+//
+// Neutrality is the deliverable of this slice, so the checks below read the same bytes as the Dart and
+// JavaScript suites — `Tests/fixtures/live-composer/composer_cases.json` — instead of restating cases as Swift
+// literals. A case one port can express and the others cannot is not a contract, and the brief's claim ("with an
+// absent or empty document the output is unchanged") is only worth anything if all three suites are pinned by one
+// source of truth. Nothing in the shipping app calls `composeLiveRows` yet; S2 adds the call sites.
+//
+// Falsifiability, per group: dropping the nil guard in `composeLiveRows` reddens every `neutral` case; sorting the
+// whole result instead of inserting reddens `user-only-row` and `user-only-row-mid-list` in opposite directions;
+// omitting the `builtin:live` record injection reddens `empty-document`; letting a credential-bearing address
+// through reddens `sensitive-merged-url`'s stream list and its issue count; folding a built-in name in the
+// composer reddens `fold-gap-diagnostic`; and minting a row for a streamless channel reddens `rowCount` on the
+// cases whose documents hold an addressless member — there is none today, which is exactly why the seam block
+// below, not a fixture case, carries the refused-document proof.
+
+let composerFixturePath = "\(repoRoot)/Tests/fixtures/live-composer/composer_cases.json"
+
+func composerJSONObject(_ path: String) -> [String: Any] {
+    guard let data = FileManager.default.contents(atPath: path) else { fail("missing fixture \(path)") }
+    guard let object = try? JSONSerialization.jsonObject(with: data), let json = object as? [String: Any] else {
+        fail("fixture \(path) is not a JSON object")
+    }
+    return json
+}
+
+let composerFixture = composerJSONObject(composerFixturePath)
+
+/// Required-by-contract reads. A shape the fixture was supposed to pin but does not is a harness bug, so these
+/// fail loudly instead of skipping the checks that would have depended on them.
+func composerRequired<T>(_ value: Any?, _ label: String, line: Int = #line) -> T {
+    guard let typed = value as? T else { fail("\(label) is missing or not of the expected shape", line: line) }
+    return typed
+}
+
+func composerStrings(_ value: Any?) -> [String] {
+    (value as? [Any])?.compactMap { $0 as? String } ?? []
+}
+
+func composerObjects(_ value: Any?) -> [[String: Any]] {
+    (value as? [Any])?.compactMap { $0 as? [String: Any] } ?? []
+}
+
+func composerLists(_ value: Any?) -> [String: [String]] {
+    guard let object = value as? [String: Any] else { return [:] }
+    var out: [String: [String]] = [:]
+    for (key, raw) in object { out[key] = composerStrings(raw) }
+    return out
+}
+
+func composerStringsByName(_ value: Any?) -> [String: String] {
+    guard let object = value as? [String: Any] else { return [:] }
+    var out: [String: String] = [:]
+    for (key, raw) in object { out[key] = (raw as? String) ?? "\u{0}missing" }
+    return out
+}
+
+func composerFlagsByName(_ value: Any?) -> [String: Bool] {
+    guard let object = value as? [String: Any] else { return [:] }
+    var out: [String: Bool] = [:]
+    for (key, raw) in object { out[key] = (raw as? Bool) ?? false }
+    return out
+}
+
+func composerCountsByName(_ value: Any?) -> [String: Int] {
+    guard let object = value as? [String: Any] else { return [:] }
+    var out: [String: Int] = [:]
+    for (key, raw) in object { out[key] = (raw as? NSNumber)?.intValue ?? -1 }
+    return out
+}
+
+/// A built-in row, built the way the network client builds one.
+///
+/// The runtime decoder is deliberately not used here: `LiveTVChannel.init(from:)` fills a missing `nanoid` with
+/// a fresh UUID, so decoding the fixture would turn every identity check below into a comparison against a
+/// random value and quietly make them unfalsifiable.
+func composerBuiltIn(_ json: [String: Any]) -> LiveTVChannel {
+    LiveTVChannel(nanoid: (json["nanoid"] as? String) ?? "",
+                  name: (json["name"] as? String) ?? "",
+                  sources: LiveTVStreams(streams: composerStrings(json["streams"])),
+                  languages: composerStrings(json["languages"]),
+                  country: (json["country"] as? String) ?? "",
+                  isGeoBlocked: (json["isGeoBlocked"] as? Bool) ?? false)
+}
+
+let composerRowGroups = composerFixture["rows"] as? [String: Any] ?? [:]
+
+func composerRows(_ groupNames: [String]) -> [LiveTVChannel] {
+    groupNames.flatMap { composerObjects(composerRowGroups[$0]).map(composerBuiltIn) }
+}
+
+func composerNamed(_ rows: [LiveTVChannel], _ name: String, _ label: String, line: Int = #line) -> LiveTVChannel {
+    guard let found = rows.first(where: { $0.name == name }) else { fail("\(label): no returned row named \(name)", line: line) }
+    return found
+}
+
+/// True when any composed row carries the fixture's synthetic credential probe.
+///
+/// `SECRETVALUE` appears in no built-in row, so this is a leak detector rather than a name filter: it catches the
+/// whole family of ways a refused address could come back — an unfiltered copy, a canonicalization that kept the
+/// query, or a row minted from the member that holds it.
+func composerRowsCarrySecret(_ rows: [LiveTVChannel]) -> Bool {
+    rows.contains { row in row.streams.contains { $0.contains("SECRETVALUE") } }
+}
+
+// The built-in identity is part of the cross-language contract: three ports that name the built-in playlist
+// differently would be pinning three different behaviours while reading one fixture.
+check(composerFixture["builtInPlaylistId"] as? String == LiveSourceComposer.builtInPlaylistId,
+      "the fixture and the Swift composer name the built-in playlist identically")
+check(composerFixture["builtInProviderNamespace"] as? String == LiveSourceComposer.builtInProviderNamespace,
+      "and the built-in provider namespace identically")
+
+let composerCases = composerObjects(composerFixture["cases"])
+check(composerCases.count == 8, "the shared composer fixture carries exactly eight cases")
+
+for caseJSON in composerCases {
+    let id: String = composerRequired(caseJSON["id"], "a composer case's id")
+    let expect: [String: Any] = composerRequired(caseJSON["expect"], "\(id): expect")
+    let built = composerRows(composerStrings(caseJSON["rows"]))
+    let builtSnapshot = built
+
+    // Three documented ways to reach "no usable document": a real object, an explicit JSON null, or
+    // `rawDocument` bytes the seam refuses. Exactly one form must be present, or a fixture typo would silently
+    // downgrade a merge case into a no-op case while every expectation below still matched.
+    var state: LiveCatalogState?
+    let documentForms = [caseJSON["document"] is [String: Any],
+                         caseJSON["document"] is NSNull,
+                         caseJSON["rawDocument"] is String]
+    check(documentForms.filter { $0 }.count == 1,
+          "\(id): states exactly one document form — an object, a null, or raw text")
+    if let document = caseJSON["document"] as? [String: Any] {
+        let text = must("\(id): fixture document re-serialises") {
+            String(decoding: try JSONSerialization.data(withJSONObject: document), as: UTF8.self)
+        }
+        let decodedState = decoded(text, "\(id): fixture document decodes through the real codec")
+        // Pinned against the codec's own output so a mistyped collection key cannot turn this case into a
+        // different case: an ignored key would decode to an empty state and every merge assertion would pass
+        // for the wrong reason.
+        check(decodedState.playlists.count == composerObjects(document["playlists"]).count,
+              "\(id): every fixture playlist survived the codec")
+        check(decodedState.members.count == composerObjects(document["members"]).count,
+              "\(id): every fixture member survived the codec")
+        check(decodedState.sources.count == composerObjects(document["sources"]).count,
+              "\(id): every fixture source survived the codec")
+        state = decodedState
+    } else if let raw = caseJSON["rawDocument"] as? String {
+        expectThrows("\(id): the raw fixture document is undecodable by this build") {
+            try LiveCatalogStateCodec.decode(Data(raw.utf8))
+        }
+        let refusedIsNeutral: Bool = composerRequired(expect["neutral"], "\(id): expect.neutral")
+        check(refusedIsNeutral, "\(id): refused bytes are pinned as a neutrality case")
+    }
+
+    let composed = composeLiveRows(built, state)
+    let expectedNames: [String] = composerRequired(expect["names"], "\(id): expect.names")
+
+    let expectedRowCount: Int = composerRequired(expect["rowCount"], "\(id): expect.rowCount")
+    check(composed.rows.count == expectedRowCount,
+          "\(id): the composer returns exactly the expected number of rows")
+    check(composed.rows.map(\.name) == expectedNames,
+          "\(id): the rows come back in the expected order")
+
+    let expectedStreams = composerLists(expect["rowStreams"])
+    let expectedCountries = composerStringsByName(expect["rowCountry"])
+    let expectedLanguages = composerLists(expect["rowLanguages"])
+    let expectedGeo = composerFlagsByName(expect["rowGeoBlocked"])
+    let expectedMinted = composerStringsByName(expect["mintedNanoid"])
+    for name in expectedNames {
+        let row = composerNamed(composed.rows, name, "\(id)")
+        check(row.streams == composerRequired(expectedStreams[name], "\(id): rowStreams for \(name)"),
+              "\(id): \(name) carries exactly its expected addresses")
+        check(row.country == composerRequired(expectedCountries[name], "\(id): rowCountry for \(name)"),
+              "\(id): \(name) carries the expected country")
+        check(row.languages == composerRequired(expectedLanguages[name], "\(id): rowLanguages for \(name)"),
+              "\(id): \(name) carries the expected languages")
+        check(row.isGeoBlocked == composerRequired(expectedGeo[name], "\(id): rowGeoBlocked for \(name)"),
+              "\(id): \(name) carries the expected geo-block")
+        if let wanted = expectedMinted[name] {
+            check(row.nanoid == wanted, "\(id): \(name) is identified by the catalog's logical channel id")
+        }
+    }
+
+    // The one security property this file owns outright, checked on every case rather than only where the
+    // fixture names it: the synthetic token in `sensitive-merged-url` is chosen so that no legitimate row text
+    // can contain it, so a leak anywhere in the join shows up here too.
+    check(!composerRowsCarrySecret(composed.rows),
+          "\(id): no credential-bearing text reaches a composed row")
+
+    // A built-in row keeps its own identity through the join, because the player's `stringId` and the favorites
+    // document key on it. This is the check that catches a composer which "merges" by replacing the row.
+    for input in builtSnapshot {
+        check(composerNamed(composed.rows, input.name, "\(id): preserved").nanoid == input.nanoid,
+              "\(id): \(input.name) keeps its built-in row id")
+    }
+
+    let codes = issueCodes(composed.issues)
+    let expectedIssues = composerCountsByName(expect["issueCounts"])
+    var expectedIssueTotal = 0
+    for (code, count) in expectedIssues {
+        expectedIssueTotal += count
+        check(codes.filter { $0 == code }.count == count, "\(id): exactly \(count) \(code) issue(s) reported")
+    }
+    check(codes.count == expectedIssueTotal,
+          "\(id): the composer reports no issue codes the fixture did not name")
+
+    // Neutrality is pinned both ways. A case flagged `neutral` must return the caller's own array element for
+    // element; a case not flagged must *change* something, so a fixture whose document quietly stopped meaning
+    // anything (a renamed key, a dropped association) fails here instead of passing its own merge assertions
+    // while doing nothing in the app.
+    let wantsNeutral = (expect["neutral"] as? Bool) ?? false
+    let isNeutralOutput = composed.rows == builtSnapshot
+    if wantsNeutral {
+        check(isNeutralOutput, "\(id): neutrality — the rows are the caller's own rows, element for element")
+    } else {
+        check(!isNeutralOutput, "\(id): this case is not flagged neutral, so its rows must differ from its input")
+    }
+    check(built == builtSnapshot, "\(id): composing never mutates the caller's list")
+    check(composeLiveRows(built, state).rows == composed.rows,
+          "\(id): the same inputs compose to the same rows, so a refresh cannot shuffle the list")
+
+    if let pin = caseJSON["unifiedMemberCount"] as? [String: Any] {
+        guard let mergedState = state else { fail("\(id): a unified-member pin needs a document") }
+        let memberID: String = composerRequired(pin["channelOfMember"], "\(id): unifiedMemberCount.channelOfMember")
+        let wanted: Int = composerRequired(pin["count"], "\(id): unifiedMemberCount.count")
+        let channel = buildUnifiedChannels(mergedState).first { $0.memberIds.contains(memberID) }
+        check(channel?.memberIds.count == wanted,
+              "\(id): the unified layer holds \(wanted) members for that channel")
+    }
+}
+
+// MARK: B4-3 S1 seam: a refused document cannot reach the row list
+
+let composerRoot = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+    .appendingPathComponent("ccloud-live-composer-\(ProcessInfo.processInfo.processIdentifier)", isDirectory: true)
+let composerFM = FileManager.default
+must("creating the composer scratch directory") { try composerFM.createDirectory(at: composerRoot, withIntermediateDirectories: true) }
+
+guard let corruptCase = composerCases.first(where: { ($0["id"] as? String) == "corrupt-document" }),
+      let rawText = corruptCase["rawDocument"] as? String else {
+    fail("the shared fixture must carry a `corrupt-document` case with `rawDocument`")
+}
+let seamRows = composerRows(composerStrings(corruptCase["rows"]))
+let seamURL = composerRoot.appendingPathComponent("corrupt.json")
+let seamStore = LiveCatalogStore(fileURL: seamURL)
+must("planting the corrupt fixture document") { try Data(rawText.utf8).write(to: seamURL, options: .atomic) }
+
+let seamLoad = seamStore.load()
+check(seamLoad.status == .corrupt, "the seam reports the fixture's undecodable bytes as corrupt")
+check(seamLoad.state == nil, "and hands back no state, which is what makes the composer's nil path the real path")
+let seamBytesBefore = must("capturing the corrupt bytes") { try Data(contentsOf: seamURL) }
+let seamComposed = composeLiveRows(seamRows, seamLoad.state)
+let seamBytesAfter = must("re-reading after composing") { try Data(contentsOf: seamURL) }
+check(seamComposed.rows == seamRows, "I16: a refused document leaves today's row list identical")
+check(seamComposed.issues.isEmpty, "and a refused document is not a composer failure")
+check(seamBytesBefore == seamBytesAfter, "I16: reading and composing write nothing — the document survives byte for byte")
+
+// The seam's `absent` answer is the seeded empty state, not nil, so a device that never stored a catalog reaches
+// the composer through the full path. Only the real store can show that.
+let freshURL = composerRoot.appendingPathComponent("fresh.json")
+let freshStore = LiveCatalogStore(fileURL: freshURL)
+let freshLoad = freshStore.load()
+check(freshLoad.status == .absent, "a device with no live catalog reads as absent")
+check(freshLoad.state == LiveCatalogStore.seeded(LiveCatalogState.empty),
+      "and the seam hands back the canonical empty state, not nil")
+check(composeLiveRows(seamRows, freshLoad.state).rows == seamRows,
+      "I16: an absent catalog composes to today's list through the real seam")
+check(!composerFM.fileExists(atPath: freshURL.path), "and asking for it created no document")
+
+must("storing an empty catalog") { _ = freshStore.save(LiveCatalogState.empty) }
+let emptyLoad = freshStore.load()
+check(emptyLoad.status == .ok, "the empty catalog the seam just wrote reads back as ok")
+check(composeLiveRows(seamRows, emptyLoad.state).rows == seamRows,
+      "I16: an empty stored catalog composes to today's list through the real seam")
+check(composerFM.fileExists(atPath: freshURL.path), "the only document that exists is the one an explicit save wrote")
+
+try? composerFM.removeItem(at: composerRoot)
+
 // MARK: - Result
 
 print("live foundation fixtures: \(fixtureDirectory)")
