@@ -886,3 +886,31 @@ console, Windows shell or Mac GUI has executed any Phase B port; artifact digest
 the Windows byte-equality and third-party-notice packaging gaps and the unified-version decision
 (`2.1.0`+23) remain open.
 **Verdict unchanged: DEVELOPMENT BUILDS VERIFIED — RELEASE BLOCKED.** `Local runtime remains NOT VERIFIED`.
+
+## 20. Dated verification — 2026-11-28 (B3-J hosted-verified; B4 is the open slice)
+
+**20.1 The gate closed on the hosted run, not on the correction.** Head `98365c10a94d57918df2853839fabf949a7a8337`
+is green everywhere: `CI` `46123225680` (four executing jobs success, `Live API verification` skipped),
+`Quality` `46123225686` (six jobs), `Build all platforms` `46123225702` (eight jobs). The webOS job
+`140912035382` reports `# tests 131 / # pass 131 / # fail 0`, so the 61-test B3-J suite that failed twice at
+`0415769` now passes without any assertion removed; the Swift job `140912035377` reports
+`assertions: 420 (floor 420)`, the first run in which the ratchet raised by `0415769` actually binds and the
+harness lands exactly on it; `140912035400` still reports `192 tests passed, 1 skipped`, and
+`140912035153` reports `ok: CCloud 2.0.0 (build 22)`. Full quotations are in the `2026-11-28` B3-J section of
+`EXECUTION_LOG.md`.
+
+**20.2 Consequence for Phase B.** B1, B2 and B3 are now closed as hosted-verified *libraries* on all three
+ports (Dart, Swift, JavaScript). §19.4's B4 map is therefore the active plan: webOS needs five `<script>` tags
+plus a live-path swap at `api.js:308-323` / `screens/live.js:74-84`; Swift and Dart need the persistence of
+`LiveCatalogState` that does not exist today (`LiveCatalogMigration` has no caller and owns no path on either
+port); and all three need the first-merge seeding of `logicalIdByMemberId` described in §19.5. B4 is the slice
+that turns Phase B into behaviour, and it is the slice that can regress existing user-visible Live TV, so it
+must be gated by a behavioural test on the existing path as well as the new one.
+
+**20.3 Still open after this section.** §19.5's two new B4 requirements (registration assertion, seeded map);
+the §18.5 built-in-row fold asymmetry; the directive-§3 review of the *wider* Phase B range (B1/B2) beyond the
+B3-range review already recorded; Phase C failover; subtitle slices D/E/F; legal-notice packaging verification;
+Windows byte-equality; provenance hashes beyond runner self-reporting; the unified-version decision
+(`2.1.0`+23); and the fact that no device, emulator, TV console, Windows shell or Mac GUI has executed any
+Phase B port.
+**Verdict unchanged: DEVELOPMENT BUILDS VERIFIED — RELEASE BLOCKED.** `Local runtime remains NOT VERIFIED`.

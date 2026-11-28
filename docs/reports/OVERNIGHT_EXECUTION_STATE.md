@@ -302,6 +302,20 @@ The owner's Mac is not used for project execution workloads.
 
 ## Current task
 
+- **Checkpoint 2026-11-28 (B3-J hosted-verified; B4 is the open slice).** Head
+  `98365c10a94d57918df2853839fabf949a7a8337` is green on all three workflows: `CI` `46123225680`,
+  `Quality` `46123225686`, `Build all platforms` `46123225702`. The decisive lines are webOS job
+  `140912035382` → `# tests 131 / # pass 131 / # fail 0` (the two `0415769` failures were suite-side and are
+  fixed with one extra assertion rather than a relaxed one), Swift job `140912035377` →
+  `assertions: 420 (floor 420)` — the first run where the raised ratchet binds — Dart job `140912035400` →
+  `192 tests passed, 1 skipped`, and `140912035153` → `ok: CCloud 2.0.0 (build 22)`. **Task B3-J is therefore
+  hosted-verified for the webOS port, and B1/B2/B3 are now closed as hosted-verified libraries on all three
+  ports.** Nothing changed for a user: `index.html` still loads none of the five new modules, so there is no
+  webOS runtime consumer. Active work is now **B4** (plan §19.4–§19.5 and §20.2): five script tags plus a
+  live-path swap at `webos_app/app/js/api.js:308-323` / `screens/live.js:74-84` and a CI-checkable registration
+  assertion; `LiveCatalogState` persistence for Swift and Dart, which does not exist at all today; and the
+  first-merge seeding of `logicalIdByMemberId` that all three ports currently lack. The bullets below are
+  earlier checkpoints, kept for continuity and not corrected.
 - **Checkpoint 2026-11-28 (B3-J corrective pushed, hosted re-verification pending).** Task B3-J (webOS
   logical channel resolution) landed as `ac71bbe` with the `MIN_ASSERTIONS` 150 → 420 ratchet in `0415769`;
   the first hosted run of that head was red in exactly one job, `webOS static JS/JSON/service validation`

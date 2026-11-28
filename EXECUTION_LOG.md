@@ -1316,3 +1316,60 @@ webOS port) plus cross-port parity against `985dea1`/`34efcc7` (B3-S) and `136a5
 the hosted re-verification at head `98365c1` for the TESTED claim. This is **not** Phase B approval: gaps 2, 3
 and 4 are unresolved, no device or OS shell has executed any port, and the Phase B exit gate in §13.1/§18
 remains unfilled. Production release stays blocked.
+
+## 2026-11-28 (project manager) — Task B3-J is hosted-verified for the webOS port at `98365c1`
+
+**Branch state.** Dev branch `ci/github-first-foundation`, remote head
+`98365c10a94d57918df2853839fabf949a7a8337` (verified with `git ls-remote origin
+refs/heads/ci/github-first-foundation`), which is `0415769` + `522b49b` (the two suite-side corrections) +
+`98365c1` (the B3-S ledger section). `main` remains `6dfd925`, untouched. No pull request is open.
+
+**Hosted GREEN.** `CI` `46123225680` success with four executing jobs and `Live API verification`
+`140912036162` skipped:
+- `webOS static JS/JSON/service validation` `140912035382` → `# tests 131 / # pass 131 / # fail 0 /
+  # cancelled 0 / # skipped 0`. The B3-J suite contributed 61 tests over the `70`-test baseline at `3767d3b`,
+  and the two failures reported by the previous head (`0415769`, job `140907951796`,
+  `# tests 131 / # pass 129 / # fail 2`) are gone. The `node --check` sweep over `webos_app/app` and
+  `webos_app/service`, the JSON/appinfo/service-manifest asserts and the `server.js` absence check all ran in
+  the same job.
+- `macOS arm64 typecheck` `140912035377` → `typecheck OK (51 files)`, `assertions: 420`,
+  `==> live foundation assertions: 420 (floor 420)`, `live foundation OK`. This is the first hosted run in
+  which the raised floor actually bites, and the harness lands exactly on it rather than above it: 420
+  executed checks against a floor of 420.
+- `Flutter analyze and tests` `140912035400` → `No issues found! (ran in 11.5s)` and
+  `🎉 192 tests passed, 1 skipped.` — unchanged, correct for a JavaScript-and-docs-only change.
+- `Version and canonical metadata` `140912035153` → `ok: CCloud 2.0.0 (build 22)`.
+- `Quality` `46123225686` green on all six jobs (`140912035247` OSV scan, `140912035375` version,
+  `140912035388` actionlint, `140912035411` hygiene, `140912035412` required NOTICE files and provenance
+  digests, `140912035414` gitleaks). `Build all platforms` `46123225702` green on all eight jobs
+  (`140912036869`, `140912037069`, `140912037075`, `140912037077`, `140912037167`, `140913060985`,
+  `140913061019`, `140913061037`).
+
+**What the two corrections changed, and why neither is a relaxation.** The surface test now asserts that the
+five behavioural exports are callable and that `ambiguityFloor` is a *number*, which is a strictly stronger and
+more accurate expectation than the previous blanket loop. The timestamp anchor moved to the canonical
+`2026-11-25T00:00:00.000Z` spelling that `requireTimestamp` itself emits, and the same test gained a new
+assertion that a second-precision stamp is accepted and then canonicalized on read. Net effect: the suite has
+one more expectation than it did before, not one fewer, and the codec normalization is now pinned behaviour
+rather than a latent surprise for the slice that persists a legacy profile.
+
+**Scope actually verified by this run.** `channel_identity.js`, `unified_catalog.js` and
+`builtin_catalog_adapter.js` compile to ES2017-parseable JavaScript on the runner, export exactly the surface
+the Dart and Swift ports publish, and reproduce the ladder, the floor, the association validation order, the
+identity recipes, the projection ordering and the built-in registration rules under the shared fixtures — all
+under Chromium-era restrictions: no realm leakage, no forbidden host APIs, one sealed scope.
+
+**Review status.** The read-only project-manager review of the B3 range is recorded in the section above,
+under directive §3 and explicitly not by the unavailable team Code Reviewer (`team_delegate` still returns
+`COLLABORATION_MCP_TEAM_LEADER_REQUIRED`). Its ACCEPT WITH NOTES outcome plus the hosted `# fail 0` are what
+make B3-J *hosted-verified*; they do not make it independently reviewed by a separate reviewer, and they do
+not close Phase B.
+
+**What this does not mean.** Nothing in this slice runs in a real TV: `index.html` still loads none of the five
+new modules, so there is **no webOS runtime consumer** yet, no user-visible behaviour changed, and no device,
+console or emulator acceptance exists. The same is true of B3-D and B3-S: the libraries are hosted-verified on
+all three ports, and the Phase B exit still requires B4 (wiring, persistence and the unseeded
+`logicalIdByMemberId`), the built-in-row fold asymmetry, Phase C failover, subtitle slices, legal-notice
+packaging, Windows byte-equality, provenance-hash enforcement beyond runner self-reporting, and the
+unified-version decision (`2.1.0`+23). Production release remains blocked.
+`Local runtime remains NOT VERIFIED`.
