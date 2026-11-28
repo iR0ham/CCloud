@@ -148,7 +148,12 @@ enum LiveCatalogStateCodec {
     static func makeEncoder() -> JSONEncoder {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .custom { date, encoder in
-            try encoder.singleValueContainer().encode(LiveCatalogDate.text(for: date))
+            // `singleValueContainer()` is a *mutating* member of `Encoder`, so the container
+            // needs a mutable binding; chaining it onto the call is what the host compile
+            // rejected. The decoder's counterpart is non-mutating, which is why the read side
+            // above chains it directly.
+            var container = encoder.singleValueContainer()
+            try container.encode(LiveCatalogDate.text(for: date))
         }
         return encoder
     }
@@ -263,7 +268,7 @@ enum LiveCatalogStateCodec {
     /// because a policy that schedules no backoff and a policy that never said are
     /// different documents, and inventing a schedule would change when a source is
     /// retried.
-    private static func normalized(_ policy: [String: Any]) -> [String: Any] {
+    private static func paddedPolicy(_ policy: [String: Any]) -> [String: Any] {
         var copy = policy
         let standard = SourcePolicy.standard
         if isMissing(copy["maxAutomaticAttempts"]) { copy["maxAutomaticAttempts"] = standard.maxAutomaticAttempts }
