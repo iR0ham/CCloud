@@ -121,9 +121,11 @@ window.CC = window.CC || {};
   }
 
   // The parse layer's own issue shape (`playlist_contracts.js:690`), so a screen or a log that already prints a
-  // diagnostic needs no special case for one produced here.
+  // diagnostic needs no special case for one produced here. The line is left off rather than passed as null:
+  // that factory reads an omitted line as "no line" and rejects an explicit null, because its nullable field
+  // is absence, not the value null.
   function makeIssue(code, message) {
-    return contracts().issue(code, message, null);
+    return contracts().issue(code, message);
   }
 
   // One issue per built-in row whose raw name folds differently from its noise-stripped display name. This is the
