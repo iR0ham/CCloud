@@ -4,9 +4,12 @@
 #   Tests/live-foundation/run.sh
 #
 # Compiles the *production* `Sources/Core/` files the live foundation owns — `PersianNumber.swift`,
-# `LiveTVM3UText.swift`, `LiveTVContracts.swift`, `LiveTVCatalogCodec.swift` and
-# `LivePlaylistParser.swift` — together with `main.swift`, so the binary under test is the code the
-# app ships rather than a copy of it. Then it judges the run by exactly three things: the compiler
+# `Models.swift` and `LiveTVModels.swift` (the runtime row types the built-in adapter reads),
+# `LiveTVM3UText.swift`, `LiveTVContracts.swift`, `LiveTVCatalogCodec.swift`, `LivePlaylistParser.swift`,
+# `LiveTVChannelIdentity.swift`, `UnifiedLiveCatalog.swift` and `BuiltInLiveCatalogAdapter.swift` —
+# together with `main.swift`, so the binary under test is the code the
+# app ships rather than a copy of it. The list is explicit rather than a glob: a new production file that
+# nobody adds here is silently outside the harness, which is how a mirror port can drift unnoticed. Then it judges the run by exactly three things: the compiler
 # succeeded, the process exited zero, and the harness reported at least MIN_ASSERTIONS
 # checks. That last rule is what stops a harness that stops executing its groups (a
 # renamed helper, an early return) from passing quietly, which is how contract tests
@@ -31,7 +34,7 @@ trap 'rm -rf "$WORK"' EXIT
 BIN="$WORK/live_foundation"
 SDK="$(xcrun --show-sdk-path)"
 
-echo "==> Compiling live_foundation (swiftc, production LiveTVContracts + LiveTVCatalogCodec + LivePlaylistParser)"
+echo "==> Compiling live_foundation (swiftc, production LiveTVContracts + LiveTVCatalogCodec + LivePlaylistParser + channel identity)"
 xcrun swiftc \
   -O \
   -swift-version 5 \
@@ -40,10 +43,15 @@ xcrun swiftc \
   -target arm64-apple-macos15.0 \
   -sdk "$SDK" \
   "$ROOT/Sources/Core/PersianNumber.swift" \
+  "$ROOT/Sources/Core/Models.swift" \
+  "$ROOT/Sources/Core/LiveTVModels.swift" \
   "$ROOT/Sources/Core/LiveTVM3UText.swift" \
   "$ROOT/Sources/Core/LiveTVContracts.swift" \
   "$ROOT/Sources/Core/LiveTVCatalogCodec.swift" \
   "$ROOT/Sources/Core/LivePlaylistParser.swift" \
+  "$ROOT/Sources/Core/LiveTVChannelIdentity.swift" \
+  "$ROOT/Sources/Core/UnifiedLiveCatalog.swift" \
+  "$ROOT/Sources/Core/BuiltInLiveCatalogAdapter.swift" \
   "$HERE/main.swift" \
   -o "$BIN"
 

@@ -1429,6 +1429,601 @@ check(emptyRegistry.members.isEmpty && emptyRegistry.sources.isEmpty
     && emptyRegistry.issues.isEmpty,
     "a playlist with no usable row registers nothing at all")
 
+// MARK: - Task B3-S: logical channel identity, unified view, built-in adapter
+//
+// B3-D established that a logical channel, its candidate scoring and its unified view are wire-visible
+// behaviour, so the Swift port has to agree with `flutter_app/lib/core/` on *outcomes* rather than on
+// implementation shape. Every case below mirrors a case the Dart suite pins — the same ladder scores,
+// the same evidence tags, the same refusal order, the same projections — while the Swift-only
+// differences (a value copy instead of Dart's `copyWith`, plain arrays instead of
+// `List.unmodifiable`) are asserted through their observable consequence instead of their mechanism.
+
+/// The Dart suite distinguishes five refusal reasons; one shared catch-all would let a wrong validation
+/// order pass quietly, so this helper names the expected code the way `expectSchemaError` names the
+/// schema error above.
+func expectIdentityError(
+    _ label: String,
+    _ code: ChannelIdentityError,
+    line: Int = #line,
+    _ body: () throws -> Any?
+) {
+    assertionsRun += 1
+    do {
+        _ = try body()
+    } catch let error as ChannelIdentityError {
+        if error == code { return }
+        fail("\(label) threw \(error.message) instead of \(code.message)", line: line)
+    } catch {
+        fail("\(label) threw \(error) instead of ChannelIdentityError", line: line)
+    }
+    fail("\(label) did not throw", line: line)
+}
+
+let identityNow = Date(timeIntervalSince1970: 1_767_225_600)
+
+func identityPlaylist(_ id: String, enabled: Bool = true) -> PlaylistRecord {
+    PlaylistRecord(
+        playlistId: id,
+        name: id,
+        sourceType: .remoteUrl,
+        locationRef: "https://cdn.example/\(id).m3u",
+        enabled: enabled,
+        createdAt: identityNow,
+        lastUpdatedAt: nil,
+        lastSuccessfulRefresh: nil,
+        refreshStatus: .ready,
+        lastErrorCode: nil,
+        channelCount: 0,
+        parsingVersion: 1
+    )
+}
+
+/// Member rows are built with `normalizedName` from the same fold the production catalog uses, so these
+/// checks exercise the scoring rules rather than a hand-written guess at what the fold produces.
+func identityMember(
+    _ id: String,
+    name: String,
+    playlistId: String = "playlist:a",
+    namespace: String = "famelack",
+    providerId: String = "",
+    logo: String? = nil,
+    group: String? = nil,
+    country: String? = nil,
+    ordinal: Int = 0
+) -> ChannelMember {
+    ChannelMember(
+        memberId: id,
+        playlistId: playlistId,
+        providerNamespace: namespace,
+        providerChannelId: providerId,
+        displayName: name,
+        normalizedName: LiveMatchKey.key(name),
+        logoUrl: logo,
+        group: group,
+        countryCode: country,
+        languages: ["fas"],
+        tvgId: providerId.isEmpty ? nil : providerId,
+        ordinal: ordinal
+    )
+}
+
+func identitySource(
+    _ id: String,
+    channelId: String,
+    memberId: String,
+    playlistId: String = "playlist:a",
+    namespace: String = "famelack",
+    priority: Int = 0,
+    url: String? = nil,
+    enabled: Bool = true
+) -> ChannelSourceRecord {
+    ChannelSourceRecord(
+        sourceId: id,
+        channelId: channelId,
+        memberId: memberId,
+        playlistId: playlistId,
+        providerNamespace: namespace,
+        label: "منبع \(PersianNumber.string(priority + 1))",
+        streamUrl: url ?? "https://cdn.example/\(id).m3u8",
+        streamSecretRef: nil,
+        protocolHint: "m3u8",
+        rendererCapability: .notYetVerified,
+        origin: .playlist,
+        priority: priority,
+        enabled: enabled,
+        health: .unverified,
+        lastSuccessfulPlaybackAt: nil,
+        lastFailedPlaybackAt: nil,
+        lastErrorCode: nil
+    )
+}
+
+func identityMapping(_ members: [ChannelMember]) -> [String: String] {
+    var mapping: [String: String] = [:]
+    for member in members { mapping[member.memberId] = member.memberId }
+    return mapping
+}
+
+/// Every fixture state is unmixed by default: one member is its own logical channel until a case says
+/// otherwise, which is exactly the Phase B rule that nothing associates itself.
+func identityState(
+    playlists: [PlaylistRecord],
+    members: [ChannelMember],
+    sources: [ChannelSourceRecord] = [],
+    associations: [ChannelAssociation] = [],
+    preferences: [ChannelPreference] = [],
+    mapping: [String: String]? = nil
+) -> LiveCatalogState {
+    LiveCatalogState(
+        schemaVersion: 1,
+        playlists: playlists,
+        members: members,
+        sources: sources,
+        associations: associations,
+        preferences: preferences,
+        recentWatches: [],
+        logicalIdByMemberId: mapping ?? identityMapping(members)
+    )
+}
+
+let identityAllPlaylists = [identityPlaylist("playlist:a"), identityPlaylist("playlist:b"), identityPlaylist("playlist:c")]
+
+// --- The candidate ladder, tier by tier -------------------------------------------------------------
+
+let idnTop = findChannelCandidate(
+    identityMember("member:press-a", name: "Press TV", providerId: "PressTV", country: "IR", logo: "https://img.example/press.png"),
+    identityMember("member:press-b", name: "Press TV", playlistId: "playlist:b", providerId: "PressTV", country: "IR", logo: "https://img.example/press.png")
+)
+check(idnTop?.score == 95 && idnTop?.evidence == .exactProviderId && idnTop?.ambiguous == false,
+      "equal namespaced provider IDs plus a matching name and country score 95 and clear the ambiguity floor")
+
+let idnNoCountry = findChannelCandidate(
+    identityMember("member:gold-a", name: "Golden", namespace: "iptv-org", providerId: "GOLD"),
+    identityMember("member:gold-b", name: "Golden", playlistId: "playlist:b", namespace: "iptv-org", providerId: "GOLD")
+)
+check(idnNoCountry?.score == 90 && idnNoCountry?.evidence == .exactProviderId && idnNoCountry?.ambiguous == false,
+      "a provider match with no country on either side is still the top tier, because nothing contradicts it")
+
+let idnSoft = findChannelCandidate(
+    identityMember("member:soft-a", name: "Namayesh", country: "ir", logo: " https://img.example/n.png "),
+    identityMember("member:soft-b", name: "Namayesh", playlistId: "playlist:b", country: "IR", logo: "https://img.example/n.png")
+)
+check(idnSoft?.score == 85 && idnSoft?.evidence == .exactNameCountryLogo && idnSoft?.ambiguous == false,
+      "name, country and logo reach the floor exactly, and padded or lowercase values still compare")
+
+let idnCountryOnly = findChannelCandidate(
+    identityMember("member:c75-a", name: "Share", country: "IR"),
+    identityMember("member:c75-b", name: "Share", playlistId: "playlist:b", country: "IR")
+)
+check(idnCountryOnly?.score == 75 && idnCountryOnly?.evidence == .exactNameCountry && idnCountryOnly?.ambiguous == true,
+      "without a logo the same pair drops under the floor, so it is a suggestion the user must confirm")
+
+let idnLogoOnly = findChannelCandidate(
+    identityMember("member:l70-a", name: "Barsa", logo: "https://img.example/b.png"),
+    identityMember("member:l70-b", name: "Barsa", playlistId: "playlist:b", logo: "https://img.example/b.png")
+)
+check(idnLogoOnly?.score == 70 && idnLogoOnly?.evidence == .exactNameLogo && idnLogoOnly?.ambiguous == true,
+      "a shared logo never substitutes for a missing country")
+
+let idnNameOnly = findChannelCandidate(
+    identityMember("member:n50-a", name: "Generic"),
+    identityMember("member:n50-b", name: "Generic", playlistId: "playlist:b")
+)
+check(idnNameOnly?.score == 50 && idnNameOnly?.evidence == .exactNameOnly && idnNameOnly?.ambiguous == true,
+      "an identical name alone is the weakest evidence the ladder will still report")
+
+check(findChannelCandidate(identityMember("member:same", name: "Self"), identityMember("member:same", name: "Self")) == nil,
+      "a member is never a candidate for itself, so a list cannot propose merging a channel with itself")
+check(findChannelCandidate(identityMember("member:x1", name: "Alpha"), identityMember("member:x2", name: "Beta")) == nil,
+      "different names produce no candidate at all rather than a low score")
+check(findChannelCandidate(
+    identityMember("member:x3", name: "—"),
+    identityMember("member:x4", name: "—", playlistId: "playlist:b")
+) == nil, "a name that folds to nothing is not evidence, however many rows share it")
+
+let idnCrossNamespace = findChannelCandidate(
+    identityMember("member:xn-a", name: "Press TV", namespace: "famelack", providerId: "PressTV", country: "IR", logo: "https://img.example/p.png"),
+    identityMember("member:xn-b", name: "Press TV", playlistId: "playlist:b", namespace: "iptv-org", providerId: "PressTV", country: "IR", logo: "https://img.example/p.png")
+)
+check(idnCrossNamespace?.score == 85 && idnCrossNamespace?.ambiguous == false,
+      "equal raw provider IDs under different namespaces are two unrelated strings, so the name tiers decide")
+
+let idnIdConflict = findChannelCandidate(
+    identityMember("member:ic-a", name: "Press TV", namespace: "iptv-org", providerId: "PRESS-A", country: "IR", logo: "https://img.example/p.png"),
+    identityMember("member:ic-b", name: "Press TV", playlistId: "playlist:b", namespace: "iptv-org", providerId: "PRESS-B", country: "IR", logo: "https://img.example/p.png")
+)
+check(idnIdConflict?.score == 85 && idnIdConflict?.ambiguous == true,
+      "two different provider IDs in one namespace are a conflict that no amount of matching text can clear")
+
+let idnCountryConflict = findChannelCandidate(
+    identityMember("member:cc-a", name: "Press TV", namespace: "iptv-org", providerId: "PressTV", country: "IR"),
+    identityMember("member:cc-b", name: "Press TV", playlistId: "playlist:b", namespace: "iptv-org", providerId: "PressTV", country: "GB")
+)
+check(idnCountryConflict?.score == 90 && idnCountryConflict?.ambiguous == true,
+      "and the same contradiction on country demotes even the 90 tier, because one provider ID cannot be two countries")
+
+// --- The fold seam B3-D found ----------------------------------------------------------------------
+
+check(findChannelCandidate(
+    identityMember("member:raw-a", name: "Press TV (720p)"),
+    identityMember("member:raw-b", name: "Press TV", playlistId: "playlist:b")
+) == nil, "the identity layer invents no folding the parser did not perform, so a raw quality token breaks the match")
+let idnParsedPress = pureFirst.members.first { $0.displayName == "Press TV" }
+check(idnParsedPress != nil, "the production parser is what strips the quality token from the real fixture row")
+check(findChannelCandidate(identityMember("member:raw-b", name: "Press TV", playlistId: "playlist:b"), idnParsedPress!)?.score == 50
+    && findChannelCandidate(identityMember("member:raw-b", name: "Press TV", playlistId: "playlist:b"), idnParsedPress!)?.evidence == .exactNameOnly,
+    "through the parser the two rows are one station at the weakest tier, which is what makes candidate scoring a decision about stored `normalizedName` values")
+check(findChannelCandidate(
+    identityMember("member:fold-a", name: "كورد TV"),
+    identityMember("member:fold-b", name: "کورد TV", playlistId: "playlist:b")
+)?.score == 50, "the shared script fold makes the two spellings of one station comparable")
+
+// --- Association ----------------------------------------------------------------------------------
+
+let idnAssocMembers = [
+    identityMember("member:k1", name: "One"),
+    identityMember("member:k2", name: "Two", playlistId: "playlist:b"),
+    identityMember("member:k3", name: "Three", playlistId: "playlist:c"),
+]
+let idnAssocState = identityState(
+    playlists: identityAllPlaylists,
+    members: idnAssocMembers,
+    sources: [
+        identitySource("s1", channelId: "member:k1", memberId: "member:k1", priority: 0),
+        identitySource("s2", channelId: "member:k1", memberId: "member:k1", priority: 1),
+        identitySource("s3", channelId: "member:k2", memberId: "member:k2", playlistId: "playlist:b"),
+        identitySource("s4", channelId: "member:k3", memberId: "member:k3", playlistId: "playlist:c"),
+    ]
+)
+let idnMerged = must("associating three singleton members") {
+    try associateChannels(idnAssocState, memberIds: ["member:k2", "member:k3"], preferredLogicalId: "member:k1")
+}
+check(idnMerged.sources.map(\.sourceId) == ["s1", "s2", "s3", "s4"]
+    && idnMerged.sources.map(\.priority) == [0, 1, 0, 0],
+    "an association moves ownership only: source IDs, priorities and their stored order survive verbatim")
+check(Set(idnMerged.sources.map(\.channelId)) == ["member:k1"],
+      "every source of every joined member now names the preferred channel")
+check(idnMerged.associations.last?.memberIds == ["member:k1", "member:k2", "member:k3"],
+      "the preferred channel's own member comes first, then the newcomers in the order the user gave")
+check(idnMerged.associations.count == 1 && idnMerged.members == idnAssocState.members,
+      "one association records the merge, member rows are untouched, and nothing else is added")
+check(idnMerged.logicalIdByMemberId == [
+    "member:k1": "member:k1", "member:k2": "member:k1", "member:k3": "member:k1",
+], "the mapping covers every combined member, which is the only place the merge is recorded")
+
+let idnPreference = ChannelPreference(
+    channelId: "member:k2",
+    favorite: true,
+    hidden: false,
+    category: "Special",
+    userOrder: 7,
+    automaticFailoverEnabled: false,
+    sourcePolicy: .standard,
+    lastSuccessfulSourceId: "s3"
+)
+let idnPreferredState = identityState(
+    playlists: identityAllPlaylists,
+    members: idnAssocMembers,
+    sources: [
+        identitySource("s1", channelId: "member:k1", memberId: "member:k1"),
+        identitySource("s3", channelId: "member:k2", memberId: "member:k2", playlistId: "playlist:b"),
+        identitySource("s4", channelId: "member:k3", memberId: "member:k3", playlistId: "playlist:c"),
+    ],
+    preferences: [idnPreference]
+)
+let idnPreferredMerged = must("merging a channel that carries the user's settings") {
+    try associateChannels(idnPreferredState, memberIds: ["member:k2", "member:k3"], preferredLogicalId: "member:k1")
+}
+check(idnPreferredMerged.preferences == [idnPreference],
+      "a merge never rewrites the user's own rows, which is what makes the action reversible")
+let idnSplitBack = must("taking member:k2 out of that merge again") {
+    try separateChannel(idnPreferredMerged, memberId: "member:k2")
+}
+let idnRestoredChannel = buildUnifiedChannels(idnSplitBack).first { $0.channelId == "member:k2" }
+check(idnRestoredChannel?.favorite == true && idnRestoredChannel?.userOrder == 7
+    && idnRestoredChannel?.category == "Special" && idnRestoredChannel?.lastSuccessfulSourceId == "s3",
+    "a member that leaves a merge needs nothing rebuilt: its own settings were always keyed on its own ID")
+check(idnSplitBack.associations.last?.memberIds == ["member:k1", "member:k3"],
+      "the members that stayed are still one channel, so undoing one join is one action rather than a rebuild")
+
+let idnPairState = identityState(
+    playlists: [identityPlaylist("playlist:a"), identityPlaylist("playlist:b")],
+    members: [identityMember("member:p1", name: "One"), identityMember("member:p2", name: "Two", playlistId: "playlist:b")],
+    sources: [
+        identitySource("p1s", channelId: "member:p1", memberId: "member:p1"),
+        identitySource("p2s", channelId: "member:p1", memberId: "member:p2", playlistId: "playlist:b"),
+    ],
+    associations: [ChannelAssociation(memberIds: ["member:p1", "member:p2"])],
+    mapping: ["member:p1": "member:p1", "member:p2": "member:p1"]
+)
+let idnSplitPair = must("separating one member of a two-member channel") {
+    try separateChannel(idnPairState, memberId: "member:p2")
+}
+check(idnSplitPair.associations.isEmpty,
+      "two members merged only with each other leave no association behind once one of them goes")
+check(idnSplitPair.logicalIdByMemberId["member:p2"] == "member:p2",
+      "the leaving branch takes the canonical ID, which is its own member ID")
+check(idnSplitPair.sources.map(\.sourceId) == ["p1s", "p2s"]
+    && idnSplitPair.sources.map(\.channelId) == ["member:p1", "member:p2"],
+      "separation re-parents only the leaving member's rows and mints no new source ID")
+check(idnPairState.associations.count == 1 && idnPairState.sources.count == 2,
+      "and because every transformation returns a new value, the original state is still what it was")
+
+let idnEditText = "#EXTM3U\n#EXTINF:-1 tvg-id=\"EditTV.ir\",Edit TV\nhttps://cdn.example/old.m3u8\n"
+let idnMovedText = "#EXTM3U\n#EXTINF:-1 tvg-id=\"EditTV.ir\",Edit TV\nhttps://cdn.example/new.m3u8\n"
+let idnEdited = LiveSourceRegistry.register(
+    parsed: LivePlaylistParser.parse(playlistID: "playlist:edit", text: idnEditText, baseURL: nil),
+    playlistId: "playlist:edit",
+    providerNamespace: "iptv-org"
+)
+let idnMoved = LiveSourceRegistry.register(
+    parsed: LivePlaylistParser.parse(playlistID: "playlist:edit", text: idnMovedText, baseURL: nil),
+    playlistId: "playlist:edit",
+    providerNamespace: "iptv-org"
+)
+check(idnEdited.members.map(\.memberId) == idnMoved.members.map(\.memberId)
+    && idnEdited.sources.map(\.sourceId) != idnMoved.sources.map(\.sourceId)
+    && idnMoved.sources.first?.streamUrl == "https://cdn.example/new.m3u8",
+    "editing an address keeps the member and mints a new source, so per-source history stops applying on purpose")
+
+// --- Refusals and their order ---------------------------------------------------------------------
+
+let idnInvalidState = identityState(
+    playlists: identityAllPlaylists,
+    members: [
+        identityMember("member:v1", name: "One"),
+        identityMember("member:v2", name: "Two", playlistId: "playlist:b"),
+        identityMember("member:v3", name: "Three", playlistId: "playlist:c"),
+    ],
+    associations: [ChannelAssociation(memberIds: ["member:v2", "member:v3"])],
+    mapping: ["member:v1": "member:v1", "member:v2": "member:v2", "member:v3": "member:v2"]
+)
+expectIdentityError("one member is not an association", .fewerThanTwoMembers) {
+    try associateChannels(idnInvalidState, memberIds: ["member:v1"], preferredLogicalId: "member:v1")
+}
+expectIdentityError("an empty selection is not an association", .fewerThanTwoMembers) {
+    try associateChannels(idnInvalidState, memberIds: [], preferredLogicalId: "member:v1")
+}
+expectIdentityError("a repeated member is the caller's bug", .duplicateMember) {
+    try associateChannels(idnInvalidState, memberIds: ["member:v1", "member:v1"], preferredLogicalId: "member:v1")
+}
+expectIdentityError("an unknown member cannot be associated", .unknownMember) {
+    try associateChannels(idnInvalidState, memberIds: ["member:v1", "member:ghost"], preferredLogicalId: "member:v1")
+}
+expectIdentityError("a preferred channel that does not exist cannot own anything", .unknownPreferredLogicalChannel) {
+    try associateChannels(idnInvalidState, memberIds: ["member:v1", "member:v2"], preferredLogicalId: "member:nowhere")
+}
+expectIdentityError("a member already inside another channel is not free to join", .memberAssociatedElsewhere) {
+    try associateChannels(idnInvalidState, memberIds: ["member:v1", "member:v3"], preferredLogicalId: "member:v1")
+}
+expectIdentityError("the whole-map check runs before the per-member loop", .unknownPreferredLogicalChannel) {
+    try associateChannels(idnInvalidState, memberIds: ["member:v1", "member:v3"], preferredLogicalId: "member:nowhere")
+}
+expectIdentityError("separating an unknown member is refused", .unknownMember) {
+    try separateChannel(idnInvalidState, memberId: "member:ghost")
+}
+expectIdentityError("separating the last member of a channel is refused", .fewerThanTwoMembers) {
+    try separateChannel(idnInvalidState, memberId: "member:v1")
+}
+let idnRefusedText = encodedText(idnInvalidState, "state after five refusals")
+check(decoded(idnRefusedText, "refused state round-trips") == idnInvalidState
+    && idnInvalidState.associations == [ChannelAssociation(memberIds: ["member:v2", "member:v3"])]
+    && idnInvalidState.logicalIdByMemberId == [
+        "member:v1": "member:v1", "member:v2": "member:v2", "member:v3": "member:v2",
+    ],
+    "every refusal leaves the stored document untouched and re-encodable, because validation finishes before anything is built")
+do {
+    _ = try associateChannels(idnInvalidState, memberIds: ["member:v1", "member:v3"], preferredLogicalId: "member:v1")
+    fail("a member inside another channel must be refused")
+} catch let error as ChannelIdentityError {
+    check(error.message == "ChannelIdentityError.memberAssociatedElsewhere",
+          "the refusal carries the wire-visible code string the other two ports carry")
+} catch {
+    fail("unexpected error type from the association guard")
+}
+let idnScanBefore = encodedText(idnInvalidState, "state before scanning pairs")
+for idnLeft in idnInvalidState.members {
+    for idnRight in idnInvalidState.members {
+        _ = findChannelCandidate(idnLeft, idnRight)
+    }
+}
+check(encodedText(idnInvalidState, "state after scanning pairs") == idnScanBefore,
+      "scanning every pair for the suggestion screen cannot change stored state")
+
+// --- The unified view -----------------------------------------------------------------------------
+
+let idnViewMembers = [
+    identityMember("member:u1", name: "Alpha", providerId: "A1", country: "IR", logo: "https://img.example/a.png", group: "General"),
+    identityMember("member:u2", name: "Beta", playlistId: "playlist:b", providerId: "B1", group: "Kids"),
+    identityMember("member:u3", name: "Gamma", playlistId: "playlist:c", providerId: "C1"),
+    identityMember("member:u4", name: "Delta", playlistId: "playlist:c"),
+]
+let idnViewSources = [
+    identitySource("u2-zeta", channelId: "member:u2", memberId: "member:u2", playlistId: "playlist:b", priority: 0),
+    identitySource("u2-alpha", channelId: "member:u2", memberId: "member:u2", playlistId: "playlist:b", priority: 0),
+    identitySource("u2-first", channelId: "member:u2", memberId: "member:u2", playlistId: "playlist:b", priority: 1),
+    identitySource("u1-second", channelId: "member:u1", memberId: "member:u1", priority: 1),
+    identitySource("u1-first", channelId: "member:u1", memberId: "member:u1", priority: 0),
+    identitySource("u3-off", channelId: "member:u3", memberId: "member:u3", playlistId: "playlist:c", priority: 0, enabled: false),
+    identitySource("u3-stale", channelId: "member:u3", memberId: "member:u3", playlistId: "playlist:c", priority: 1),
+    identitySource("ghost-row", channelId: "member:u1", memberId: "member:gone"),
+]
+let idnViewState = identityState(
+    playlists: identityAllPlaylists,
+    members: idnViewMembers,
+    sources: idnViewSources,
+    preferences: [ChannelPreference(
+        channelId: "member:u1",
+        favorite: true,
+        hidden: true,
+        category: "News",
+        userOrder: 2,
+        automaticFailoverEnabled: false,
+        sourcePolicy: .standard,
+        lastSuccessfulSourceId: "u1-second"
+    )]
+)
+let idnChannels = buildUnifiedChannels(idnViewState)
+check(idnChannels.map(\.channelId) == ["member:u1", "member:u2", "member:u3", "member:u4"],
+      "the placed channel sorts first and the rest keep catalog appearance order, so editing one channel cannot reorder another")
+let idnPlaced = idnChannels.first { $0.channelId == "member:u1" }
+check(idnPlaced?.favorite == true && idnPlaced?.hidden == true && idnPlaced?.category == "News"
+    && idnPlaced?.userOrder == 2 && idnPlaced?.automaticFailoverEnabled == false
+    && idnPlaced?.lastSuccessfulSourceId == "u1-second",
+    "the view applies the user's own settings to the logical channel, including the hidden flag the list filters on")
+check(idnPlaced?.displayName == "Alpha" && idnPlaced?.normalizedName == LiveMatchKey.key("Alpha")
+    && idnPlaced?.logoUrl == "https://img.example/a.png" && idnPlaced?.countryCode == "IR",
+    "metadata comes from the channel's first member")
+check(idnPlaced?.sources.map(\.sourceId) == ["u1-first", "u1-second"],
+      "sources follow priority order")
+check(idnChannels.first { $0.channelId == "member:u2" }?.sources.map(\.sourceId) == ["u2-alpha", "u2-zeta", "u2-first"],
+      "equal priorities break on the source ID, so the order is total and stable across refreshes")
+check(idnChannels.count == 4 && idnChannels.allSatisfy { !$0.memberIds.isEmpty },
+      "every reported channel has at least one member")
+check(idnChannels.first { $0.channelId == "member:u2" }?.category == "Kids",
+      "where the user set no category, the provider's own group is what the channel carries")
+check(idnChannels.first { $0.channelId == "member:u4" }?.sources.isEmpty == true,
+      "a member with no source rows is still a channel, which is what an empty list must render as")
+check(idnChannels.allSatisfy { channel in !channel.sources.contains { $0.memberId == "member:gone" } },
+      "a source whose member row is gone is dropped rather than attached to a plausible channel")
+check(idnViewState.members.count == 4 && idnViewState.sources.count == idnViewSources.count,
+      "building the view mutates nothing, so the rows a disabled playlist hides are still there to restore")
+
+let idnDisabledState = identityState(
+    playlists: [identityPlaylist("playlist:a"), identityPlaylist("playlist:b", enabled: false), identityPlaylist("playlist:c")],
+    members: idnViewMembers,
+    sources: idnViewSources,
+    preferences: idnViewState.preferences
+)
+let idnDisabledChannels = buildUnifiedChannels(idnDisabledState)
+check(idnDisabledChannels.map(\.channelId) == ["member:u1", "member:u3", "member:u4"],
+      "a disabled playlist disappears from the view while every other channel stays in place")
+let idnGamma = idnDisabledChannels.first { $0.channelId == "member:u3" }
+check(idnGamma?.sources.map(\.sourceId) == ["u3-off", "u3-stale"]
+    && idnGamma?.sources.filter { !$0.enabled }.count == 1,
+      "a disabled source stays in its channel because the user manages it, while playback eligibility belongs to Phase C")
+check(buildUnifiedChannels(identityState(
+    playlists: identityAllPlaylists,
+    members: idnViewMembers,
+    sources: idnViewSources,
+    preferences: idnViewState.preferences
+)).count == 4, "re-enabling the playlist restores exactly the same four identities rather than new ones")
+
+let idnStaleChannelIdState = identityState(
+    playlists: identityAllPlaylists,
+    members: [identityMember("member:w1", name: "First"), identityMember("member:w2", name: "Second", playlistId: "playlist:b")],
+    sources: [identitySource("w2-row", channelId: "member:w2", memberId: "member:w2", playlistId: "playlist:b")],
+    associations: [ChannelAssociation(memberIds: ["member:w1", "member:w2"])],
+    mapping: ["member:w1": "member:w1", "member:w2": "member:w1"]
+)
+let idnJoined = buildUnifiedChannels(idnStaleChannelIdState)
+check(idnJoined.count == 1 && idnJoined.first?.sources.map(\.sourceId) == ["w2-row"]
+    && idnJoined.first?.memberIds == ["member:w1", "member:w2"],
+    "sources follow their member's logical channel, so a row whose stored channel ID is stale still lands correctly")
+
+let idnOrderedState = identityState(
+    playlists: [identityPlaylist("playlist:a"), identityPlaylist("playlist:b")],
+    members: [identityMember("member:o1", name: "One"), identityMember("member:o2", name: "Two", playlistId: "playlist:b")],
+    sources: [
+        identitySource("o2s", channelId: "member:o1", memberId: "member:o2", playlistId: "playlist:b"),
+        identitySource("o1s", channelId: "member:o1", memberId: "member:o1"),
+    ],
+    associations: [ChannelAssociation(memberIds: ["member:o2", "member:o1"])],
+    mapping: ["member:o1": "member:o1", "member:o2": "member:o1"]
+)
+let idnOrdered = buildUnifiedChannels(idnOrderedState)
+check(idnOrdered.first?.memberIds == ["member:o2", "member:o1"] && idnOrdered.first?.displayName == "Two",
+      "the association records the user's own member order and the first member is the one whose metadata the channel shows")
+
+let idnTwinState = identityState(
+    playlists: [identityPlaylist("playlist:a"), identityPlaylist("playlist:b")],
+    members: [
+        identityMember("member:t1", name: "Twin", providerId: "TWIN", namespace: "iptv-org", country: "IR"),
+        identityMember("member:t2", name: "Twin", playlistId: "playlist:b", providerId: "TWIN", namespace: "iptv-org", country: "IR"),
+    ],
+    sources: [
+        identitySource("t1s", channelId: "member:t1", memberId: "member:t1"),
+        identitySource("t2s", channelId: "member:t2", memberId: "member:t2", playlistId: "playlist:b"),
+    ]
+)
+check(findChannelCandidate(idnTwinState.members[0], idnTwinState.members[1])?.score == 95
+    && buildUnifiedChannels(idnTwinState).count == 2,
+      "a 95 candidate is still only a suggestion: nothing merges itself without the user, so the view keeps two channels")
+
+// --- The built-in adapter -------------------------------------------------------------------------
+
+let idnBuiltInRows = [
+    LiveTVChannel(nanoid: "fam1", name: "IRIB 1", sources: LiveTVStreams(streams: ["https://irib.example/1.m3u8", "https://backup.example/1.m3u8"]), languages: ["fas"], country: "IR", isGeoBlocked: false),
+    LiveTVChannel(nanoid: "fam2", name: "Press TV", sources: LiveTVStreams(streams: ["https://press.example/a.m3u8", "https://press.example/a.m3u8"]), languages: ["fas"], country: "IR", isGeoBlocked: false),
+    LiveTVChannel(nanoid: "  ", name: "بی بی سی فارسی", sources: LiveTVStreams(streams: []), languages: ["fas"], country: " gb ", isGeoBlocked: true),
+]
+let idnBuiltIn = registerBuiltInChannels(idnBuiltInRows, playlistId: "builtin:ccloud", providerNamespace: "famelack")
+check(idnBuiltIn.members.count == 3 && idnBuiltIn.members.map(\.ordinal) == [0, 1, 2],
+      "the adapter registers exactly the rows it was given, in provider order")
+check(idnBuiltIn.channels == idnBuiltInRows,
+      "the runtime row list comes back untouched, so the player keeps the list it already renders")
+check(idnBuiltIn.members.allSatisfy { $0.logoUrl == nil && $0.group == nil },
+      "the built-in dataset carries no logo or group, so none is invented")
+check(idnBuiltIn.members[0].memberId
+    == "member:" + StableKeyHash.hash("builtin:ccloud\nprovider\nfamelack\nfam1"),
+    "the member recipe is the parse path's recipe, so a station that later appears in a playlist can be recognised")
+check(idnBuiltIn.members[2].providerChannelId == "name:\(LiveMatchKey.key("بی بی سی فارسی"))"
+    && idnBuiltIn.members[2].tvgId == nil && idnBuiltIn.members[2].countryCode == "GB",
+    "a row the provider gave no ID for gets a name-fold instead, and its padded country is normalised")
+let idnFirstBuiltInMember = idnBuiltIn.members[0].memberId
+check(idnBuiltIn.sources.count == 3
+    && idnBuiltIn.sources[0].sourceId == "source:" + StableKeyHash.hash("\(idnFirstBuiltInMember)\nurl\nhttps://irib.example/1.m3u8")
+    && idnBuiltIn.sources[1].streamUrl == "https://backup.example/1.m3u8"
+    && idnBuiltIn.sources[0].priority == 0 && idnBuiltIn.sources[1].priority == 1,
+    "the source recipe and the gapless priority sequence are both the parse path's, and a duplicate URL registers one source")
+check(idnBuiltIn.sources[0].label == "منبع اصلی" && idnBuiltIn.sources[1].label == "منبع ۲",
+      "the labels use the shared Persian strings, including the Persian-Indic digit")
+check(idnBuiltIn.sources.allSatisfy { $0.rendererCapability == .notYetVerified && $0.health == .unverified
+        && $0.enabled && $0.origin == .playlist && $0.channelId == $0.memberId && $0.streamSecretRef == nil },
+      "nothing is claimed, proved, secret-backed or pre-associated by a built-in row")
+check(Set(idnBuiltIn.members.map(\.memberId)).count == idnBuiltIn.members.count
+    && Set(idnBuiltIn.sources.map(\.sourceId)).count == idnBuiltIn.sources.count,
+    "identity stays unique across the whole dataset, so two stations can never share one row")
+
+let idnDuplicateRows = [
+    LiveTVChannel(nanoid: "fam3", name: "Gem TV", sources: LiveTVStreams(streams: ["https://gem.example/a.m3u8"]), languages: ["fas"], country: "IR", isGeoBlocked: false),
+    LiveTVChannel(nanoid: "fam3", name: "Gem TV", sources: LiveTVStreams(streams: ["https://gem.example/b.m3u8"]), languages: ["fas"], country: "IR", isGeoBlocked: false),
+]
+let idnDuplicated = registerBuiltInChannels(idnDuplicateRows, playlistId: "builtin:ccloud", providerNamespace: "famelack")
+check(idnDuplicated.members.count == 1 && idnDuplicated.sources.map(\.priority) == [0, 1]
+    && idnDuplicated.sources.allSatisfy { $0.memberId == idnDuplicated.members[0].memberId },
+    "two provider rows for one station merge into one member with gapless priorities rather than doubling the list")
+
+let idnCredentialRows = [
+    LiveTVChannel(nanoid: "fam4", name: "Secret TV", sources: LiveTVStreams(streams: ["https://cdn.example/live.m3u8?token=supersecretvalue"]), languages: ["fas"], country: "IR", isGeoBlocked: false),
+    LiveTVChannel(nanoid: "fam5", name: "Plain TV", sources: LiveTVStreams(streams: ["https://cdn.example/plain.m3u8"]), languages: ["fas"], country: "IR", isGeoBlocked: false),
+]
+let idnCredential = registerBuiltInChannels(idnCredentialRows, playlistId: "builtin:ccloud", providerNamespace: "famelack")
+check(idnCredential.members.count == 2 && idnCredential.sources.count == 1
+    && idnCredential.sources[0].streamUrl == "https://cdn.example/plain.m3u8",
+    "a credential-bearing address is refused silently while the clean sibling survives")
+check(idnCredential.sources.allSatisfy { $0.streamSecretRef == nil },
+      "refusing a credential does not invent a secret reference to stand in for it")
+let idnCredentialState = identityState(
+    playlists: [identityPlaylist("builtin:ccloud")],
+    members: idnCredential.members + [idnBuiltIn.members[0]],
+    sources: idnCredential.sources + [idnBuiltIn.sources[0]]
+)
+check(!encodedText(idnCredentialState, "credential-bearing fixture state").contains("supersecretvalue"),
+      "the refused address never reaches the persisted document, which is the property the adapter exists to guarantee")
+check(findChannelCandidate(
+    identityMember("member:b1", name: "IRIB 1", providerId: "fam1", country: "IR"),
+    identityMember("member:b2", name: "IRIB 1", playlistId: "playlist:b", namespace: "iptv-org", providerId: "IRIB1.ir", country: "IR")
+)?.score == 75,
+      "with no logo to compare, a built-in row and a parsed twin meet at the name-and-country tier rather than 85")
+let idnBuiltInView = buildUnifiedChannels(identityState(
+    playlists: [identityPlaylist("builtin:ccloud")],
+    members: idnBuiltIn.members,
+    sources: idnBuiltIn.sources
+))
+check(idnBuiltInView.count == 3 && idnBuiltInView.allSatisfy { $0.automaticFailoverEnabled && $0.sourcePolicy == .standard },
+      "the built-in catalog projects into three independent channels with the standard recovery defaults")
+
 // MARK: - Result
 
 print("live foundation fixtures: \(fixtureDirectory)")
