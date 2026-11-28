@@ -9,7 +9,7 @@
  *
  * The suite loads the real modules into a sealed scope, exactly as the identity suite does, and gives them a
  * fake `localStorage` object rather than a stub `CC.store`. That distinction matters: `CC.store` is the only
- * code that touches storage (`util.js:42-56`), so testing through it pins the JSON round trip, the `ccloud.`
+ * code that touches storage (`util.js:42-63`), so testing through it pins the JSON round trip, the `ccloud.`
  * prefix, and the fact that a throwing `setItem` is swallowed by `CC.store` and has to be detected by the
  * store reading its own write back. This is also the first webOS suite to load `util.js` — the identity suite
  * stops at the library modules — so it is the first to need the browser's bare-`CC` alias, which `loadInto`
@@ -339,9 +339,9 @@ test('a stored object instead of codec text is corrupt, not empty', function () 
 });
 
 test('storage text that is not JSON at all is still corrupt, not an empty device', function () {
-  // The case `CC.store` cannot see: its `get` turns a parse failure into its fallback (`util.js:44-49`), so a
+  // The case `CC.store.get` cannot see: it turns a parse failure into its fallback (`util.js:43-49`), so a
   // seam that trusted only `get` would call this device empty and let the next save overwrite a document that
-  // a later build might still read. The raw key check in `live_catalog_store.js` exists for this one case.
+  // a later build might still read. The seam asks `CC.store.has` for this one distinction.
   const device = boot();
   device.storage.setItem(device.rawKey, '{"schemaVersion":1,"members":');
   const before = device.storage.getItem(device.rawKey);
@@ -356,9 +356,27 @@ test('storage text that is not JSON at all is still corrupt, not an empty device
   assert.equal(device.store.load().status, device.store.statusAbsent, 'and only then is the device empty');
 });
 
+test('CC.store.has answers the raw-presence question without decoding anything', function () {
+  // `live_catalog_store.js` is not allowed a `localStorage` handle of its own (see the host-API policy check
+  // below), so the absent-versus-unreadable distinction has to be something the storage layer answers. This
+  // pins that answer against the real slot, for bytes no parser accepts, and for a storage that throws.
+  const device = boot();
+  assert.equal(device.CC.store.has(device.store.key), false, 'nothing stored yet');
+  device.storage.setItem(device.rawKey, '{"schemaVersion":1,"members":');
+  assert.equal(device.CC.store.has(device.store.key), true, 'unparseable bytes still occupy the slot');
+  assert.equal(device.CC.store.get(device.store.key, null), null, 'which is exactly what get cannot report');
+  device.storage.removeItem(device.rawKey);
+  assert.equal(device.CC.store.has(device.store.key), false, 'and removing them is visible again');
+
+  const refused = boot();
+  refused.storage.getItem = function () { throw new Error('SecurityError'); };
+  assert.equal(refused.CC.store.has(refused.store.key), false, 'a storage that refuses reads counts as empty');
+  assert.equal(refused.store.load().status, refused.store.statusAbsent, 'so the seam reports a device, not a crash');
+});
+
 test('the seam and CC.store agree on one storage key, so a document cannot be written where it cannot be read', function () {
-  // `live_catalog_store.js` repeats the `ccloud.` prefix because `CC.store` keeps it private. That literal is
-  // only safe while both views name the same slot, which is what this pins from both directions.
+  // The seam asks `CC.store` for both reads and presence while `util.js` owns the `ccloud.` prefix. That is only
+  // safe while both views name the same slot, which is what this pins from both directions.
   const device = boot();
   const text = device.contracts.encodeState(catalog(device));
   device.CC.store.set(device.store.key, text);

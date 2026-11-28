@@ -37,25 +37,19 @@ window.CC = window.CC || {};
   // a favorites list on a build that predates it.
   var KEY = 'liveCatalog';
 
-  // The full storage key, repeated here as a literal because `CC.store` keeps its prefix private
-  // (`util.js:41`). This is the one place the seam has to look past `CC.store`: `get` turns a JSON parse
-  // failure into its fallback (`util.js:44-49`), so on its own it cannot tell "nothing is stored" apart from
-  // "storage holds text this build cannot read" — and answering the second case with `absent` is exactly how a
-  // catalog would be silently replaced by the next save. `Tests/webos/live_catalog_store.test.js` pins that the
-  // two views agree, by writing through `CC.store.set` and reading back through this key.
-  var STORAGE_KEY = 'ccloud.' + KEY;
-
-  // Raw existence check. A `localStorage` that throws (private mode, storage disabled) counts as empty, which
-  // is the same answer `CC.store` gives its callers and keeps this seam from inventing a failure.
+  // Raw existence, asked of `CC.store` rather than of `localStorage`: the prefix and the storage handle belong
+  // to `util.js`, and a second binding here would put the `ccloud.` convention in two files that can drift. The
+  // question still has to be asked, because `CC.store.get` turns a JSON parse failure into its fallback
+  // (`util.js:43-49`), so on its own it cannot tell "nothing is stored" apart from "storage holds text this
+  // build cannot read" — and answering the second case with `absent` is exactly how a catalog would be silently
+  // replaced by the next save. `Tests/webos/live_catalog_store.test.js` pins that the two views agree by
+  // writing through `CC.store.set` and reading the raw slot behind it.
   function storageHoldsText() {
-    try {
-      return localStorage.getItem(STORAGE_KEY) !== null;
-    } catch (error) {
-      return false;
-    }
+    return CC.store.has(KEY);
   }
 
-  // The four verdicts a caller branches on. They are strings rather than an enum because a screen renders
+  // The five verdicts a caller branches on: `absent` and `ok` both carry a usable state, while `corrupt` and
+  // `refused` deliberately carry none. They are strings rather than an enum because a screen renders
   // text from them and the suite compares them literally on all three ports.
   var STATUS_OK = 'ok';
   var STATUS_ABSENT = 'absent';

@@ -52,6 +52,13 @@ window.CC = window.CC || {};
     },
     remove: function (key) {
       try { localStorage.removeItem(PREFIX + key); } catch (e) {}
+    },
+    // Raw presence: does storage hold anything under the prefixed key, whatever the bytes are? `get` cannot
+    // answer this because a parse failure and an absent key both come back as the fallback, and a caller that
+    // has to protect a document it cannot read needs the difference. Keeping the question here means the
+    // `ccloud.` prefix and the storage handle still live in this one file.
+    has: function (key) {
+      try { return localStorage.getItem(PREFIX + key) !== null; } catch (e) { return false; }
     }
   };
 
