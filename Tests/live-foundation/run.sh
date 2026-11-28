@@ -44,7 +44,12 @@ ROOT="$(cd "$HERE/../.." && pwd)"
 # on the two hosted runs that verified it: job 140929256145 of run 46128813851 at 61fcf2b and job 140985937469 of
 # run 46147257898 at 9f3ad2c, each reporting `==> live foundation assertions: 471 (floor 432)`. Two independent
 # runs agree on the number, which is what makes it a floor rather than a snapshot of one lucky execution.
-MIN_ASSERTIONS=471
+# Raised 471 -> 705 after the task B4-3 S1 composers landed, because the harness counted exactly 705 checks on
+# the hosted macOS job 141028842569 (run 46161252310, log line 326): `==> live foundation assertions: 705
+# (floor 471)`. One run rather than two, but the same count was predicted from the new block's source geometry
+# before the push (the S1 additions are 219 loop-expanded checks over the 8 fixture cases plus 15 fixed checks, so
+# 471 + 234 = 705), and the runner agreed with the prediction instead of merely supplying a number.
+MIN_ASSERTIONS=705
 
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
