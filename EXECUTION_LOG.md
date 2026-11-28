@@ -112,3 +112,38 @@ This is an append-only execution record. New evidence is added as dated entries;
 - Local runtime/build/test status for this slice: **NOT VERIFIED** by mandate. The corrected Android
   assertion has not yet run on a runner; it is **PUSHED, NOT YET HOSTED VERIFIED** until the next
   `Build all platforms` run.
+
+## 2026-11-28 (final) — Android manifest gate green on a runner for the first time
+
+- Pushed head `8a1ef3fcd15a40df703024bcc394e37e6025fd50` (`88bc7ea` workflow fix + `8a1ef3f` docs)
+  confirmed by `git ls-remote`. `main` still `6dfd925`.
+- Hosted ledger at `8a1ef3f`: CI `46087125795` **success**, Quality `46087125801` **success**,
+  Build all platforms `46087125808` **success** with no skipped step in the Android job
+  (`140799202503`, 23 steps, 0 failed, 0 skipped).
+- Assertion evidence, quoted from the runner log:
+  `merged manifest artifact: build/app/intermediates/merged_manifest/release/outputReleaseAppLinkSettings/AndroidManifest.xml`,
+  then `ok:` for all eight decoded-APK tokens, `ok:` for all four merged-manifest literals
+  (`@drawable/tv_banner`, `android:launchMode="singleTop"`, the full `android:configChanges` list,
+  `android:windowSoftInputMode="adjustResize"`), `ok:` for the three badging tokens, and
+  `APK/AAB legal assertions passed: 14 files per package`. Identity printed
+  `applicationId=com.ccloud.ccloud versionName=2.0.0 versionCode=22`.
+  The artifact resolution therefore used the bounded `find` fallback, because this AGP layout puts
+  the merged manifest under `merged_manifest/release/outputReleaseAppLinkSettings/`; promoting that
+  path into the explicit candidate list is a known hardening, deferred so it does not spend an extra
+  Android cycle on its own.
+- Artifacts produced and checksummed on the runner:
+  `CCloud-Android-2.0.0-22-internal-debug-signed.apk` SHA-256
+  `df075103357a5e5eaf91b83bea0f46cc197cd9ecd143ef47442ab55d56e19609`,
+  `CCloud-Android-2.0.0-22-internal-debug-signed.aab` SHA-256
+  `9f911f0137da40e3de57c9bc4143ef9801604af413ee5f9a578a42b7cc4cb36c`,
+  `SIGNING-Android.txt` = `internal-debug-signed` (keystore secrets are absent from this repository,
+  so no release-signed claim is made) and `DISTRIBUTION-Android.txt` =
+  `INTERNAL-ONLY-BLOCKED-RELINKING`. The Android distribution blocker is untouched.
+- Scope boundary that still holds: this is **build-time** proof that the packaged APK/AAB declare the
+  TV launcher contract and carry the canonical legal payloads. It is not device or runtime acceptance
+  on Android phone, Android TV, macOS, Windows or webOS, and it does not approve any release gate.
+- Ledger sequencing note: this addendum is committed locally and deliberately not pushed while the
+  Full-stack Engineer is appending to the same files for the Windows/provenance/webOS evidence-gap
+  slice; it will be rebased onto their pushed head to avoid two competing appends.
+- Local runtime/build/test status: **NOT VERIFIED** by mandate; every statement above is hosted log
+  evidence.
