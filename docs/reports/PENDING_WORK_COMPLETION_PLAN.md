@@ -648,3 +648,52 @@ differences §13 lists) has not started. B4 (catalog store, migration trigger, U
 is why none of this code is reachable from a Live TV screen yet. Phase C failover, D/E/F subtitles, the G
 verification matrix, the `2.1.0`+`23` version decision and the release manifest remain as §13 stated them.
 `RELEASE_PRODUCTION_READY` stays unset.
+
+---
+
+## 16. Dated verification — 2026-11-28 (B2-S hosted-verified for Swift; B2-J becomes the open slice)
+
+§15.2 recorded task B2-S as "pushed, hosted outcome NOT YET READ". That snapshot stays as written; this section
+is the newer fact and supersedes only the uncertainty, not the history.
+
+**16.1 B2-S is now hosted-verified for the Swift port.** Remote head `e2400e3cdc58132e9cf139681ee210282b5ad540`
+(confirmed by `git ls-remote`, not by a cached ref). CI `46109951234`, job `140871026873`
+(`macOS arm64 typecheck`) prints, verbatim:
+
+```
+typecheck OK (48 files)
+golden stableKeyHash("") = 811c9dc59e3779b985ebca6bc2b2ae35
+golden stableKeyHash("playlist:valid") = 981a29df6c39c1531339e5c1aef7688f
+golden stableKeyHash("پرس") = e724bb8086a3208c85ff01962c8b8030
+assertions: 348
+==> live foundation assertions: 348 (floor 150)
+live foundation OK
+```
+
+`48` files is `46` plus `Sources/Core/LivePlaylistParser.swift` and `Sources/Core/LiveTVM3UText.swift`, picked
+up by the existing `Sources/**/*.swift` glob in `scripts/typecheck.sh`. `348` assertions is `227` plus `121`,
+with no prior check deleted; the `150` floor is left alone deliberately because a floor only has to catch a
+harness that stops executing groups, and raising it to 300 belongs with the next Swift slice so the increment is
+itself evidence.
+
+**16.2 Cross-language parity is now a read conclusion, not a guess.** The Dart and Swift implementations were
+compared clause by clause: the five ceilings and their split between `oversizedInput` (whole input rejected,
+`contentHash` empty, nothing parsed) and `limitExceeded` (permitted prefix retained, `truncated` set), BOM
+stripping, line splitting, UTF-16 code-unit counting for the per-URL ceiling, the mutual exclusion of
+`missingStream` and `invalidUrl` through the per-row `sawAddressLine` flag, the merge/write-back semantics that
+let a later address line attach to an earlier `#EXTINF`, the four-field fallback identity tuple,
+path-versus-query sensitivity, and the refusal of userinfo and fragments in canonical stream URLs. No fixture
+pins a URL containing a space, so the one place where Foundation would percent-encode differently from Dart
+never becomes a live divergence.
+
+**16.3 What remains unverified after 16.1.** `android / Android/TV universal APK + AAB` and
+`windows / Windows release build` were still `in_progress` when the logs were read, so their status at this
+head is unknown rather than green. `Live API verification` is `skipped` by design. No phone, TV, console,
+Windows shell or Mac GUI has ever executed this parser — `assertions: 348` is contract evidence, not runtime
+evidence, and local execution stays forbidden by repository policy. `streamSecretRef` still has no verified
+secret store behind it, and no Live TV screen consumes the Phase B library yet (that is B4).
+
+**16.4 Open slice, restated.** B2-J: `webos_app/app/js/playlist_parser.js` and
+`Tests/webos/playlist_parser.test.js`, plain ES2017 (`var` and function expressions only), no `new URL()`
+normalization, manual authority splitting with the userinfo boundary at the last `@`, the same ceilings and
+issue codes, and golden literals pinned to the three values in 16.1 so all three ports demonstrably agree.
