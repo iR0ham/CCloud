@@ -1611,3 +1611,107 @@ B4-2 range was delivered, the B4-3 research assignment returned "The delegated A
 task", and everything labelled an assessment in this section is the project manager's own read-only review.
 The `MIN_ASSERTIONS` 432 → 471 ratchet rides in this same batch, so the run following it must print
 `(floor 471)` — that line is the evidence the tightening landed rather than merely being written.
+
+## 2026-11-28 (project manager) — the B4 member review landed, the ratchet is proven green, B4-3 has an accepted sequence
+
+**What this section adds.** The paragraph above said no member review of the B4-2 range existed. That is now
+superseded: the Code Reviewer delivered a scoped review of `df8aa20..0baf9bf` — twelve commits, twenty files,
+`+2612/−8`, remote head confirmed by `ls-remote`, every judgement read from committed blobs rather than the
+shared worktree. Verdict: **ACCEPT WITH NOTES**, no blocking finding, and the explicit conclusion that B4-3 may
+start. The reviewer independently confirmed all five claims that section made, including the append-only property
+of the three ledgers in that range (`EXECUTION_LOG.md` 238/0, `OVERNIGHT_EXECUTION_STATE.md` 86/0,
+`docs/reports/PENDING_WORK_COMPLETION_PLAN.md` 97/0 — zero deleted lines) and the claim citation
+`==> live foundation assertions: 471 (floor 432)` in two separate jobs.
+
+**Hosted closure, re-read by the project manager rather than inherited from the report.** At `0baf9bf72d2be6295c0ccd3233f1d2a73795d22e`
+(worktree clean, remote equal, `main` untouched at `6dfd925095b0090b623443f396388fd4d552db63`):
+
+- CI `46149018277` **completed success**, attempt 1. Job `140991256556` prints `typecheck OK (52 files)`, then
+  `==> live foundation assertions: 471 (floor 471)`, then `live foundation OK` — that single line is the proof the
+  floor tightening executed rather than merely being written. Job `140991257085` prints `node: v20.20.2` with
+  `# tests 154`, `# pass 154`, `# fail 0`, `# cancelled 0`, `# skipped 0`, `# todo 0`. Job `140991256835` prints
+  `🎉 216 tests passed, 1 skipped.` `Version and canonical metadata` `140991256780` success; `Live API
+  verification` `140991258166` skipped by the standing `if: inputs.live_api`.
+- Quality `46149018257` **completed success**.
+- Build all platforms `46149018242` (head `0baf9bf`) **completed success**, all eight jobs green: macOS
+  `140991508419`, Android/TV `140991508662`, webOS IPK `140991508704`, Windows Dart analyze `140991508638`,
+  Windows release `140991508766`, installer install+smoke `140993156251`, compatibility (Skia) `140993156262`,
+  runtime smoke `140993156267`.
+- Build all platforms `46148035317` (head `0ab9e44`) **completed success**, the same eight jobs green.
+
+**Two corrections to evidence references, recorded rather than silently absorbed.** (1) The section above said
+`46148035317` was still in progress and declined to claim anything about it; it is now finished and green, so the
+four-port packages really were built with the new Dart seam file present. (2) The review described that run as
+having nine jobs; the workflow defines eight, which is what `GET /actions/runs/<id>/jobs` returns for both
+`46148035317` and `46149018242`. The job count used in future reports is eight.
+
+**Review findings and where each one goes.** F1 (Low/Medium, must be fixed inside B4-3): `clear()` in
+`flutter_app/lib/core/live_catalog_store.dart:156` consults the plugin's in-memory cache (`:72`
+`_prefs.containsKey`) where the other two ports consult the backing store (`Sources/Core/LiveCatalogStore.swift:81`
+`fileExists`, `webos_app/app/js/live_catalog_store.js:152` `CC.store.has`), so a document this process never saw in
+cache can report `true` while nothing was deleted — contradicting the docstring at `:148-150`. Smallest fix is to
+drop the early return. F2 (Low, one root cause, two holes): `live_catalog_store.dart:141`
+`landed = resynced ? get == text : true` plus `_resync()` swallowing errors (`:175-182`) means the
+"platform said yes but wrote nothing" and "reload threw" paths are untested, and the degraded `saved` response
+carries `message: null`, so a log cannot distinguish proven from unprovable. Planned as a new Dart double each.
+F3 (Low, honesty constraint): `Sources/Core/LiveCatalogStore.swift:129` `written == data` is reachable only in the
+throw direction under the harness, so it stays labelled an uncovered defensive branch, never "covered". F4 (Low):
+the five-status vocabulary matches across ports but the cause sets differ — Swift adds `corrupt` for an
+unreadable-but-present file (`:94-100`) and Dart cannot express "not readable as text" — so remote diagnosis must
+use `status`, not `message`. F5 (Low): the parity line is `live_catalog_store.dart:145`, not `:144` as this
+ledger's B4-2D citation and the review request both said, and the test title at
+`Tests/webos/live_catalog_store.test.js:220` still reads "one key, four verdicts" while `:242` pins five statuses.
+F6 (Low, wording): "single storage-key truth" is true for the logical name only. Dart's physical key is
+`flutter.ccloud.liveCatalog` because the plugin prefixes `flutter.`
+(`shared_preferences-2.5.6/lib/src/shared_preferences_legacy.dart:197,204`), the macOS port stores a file with no
+key at all, and no test compares the literals — so **B4-3 must not assume one port can read another's stored
+document**. F7 (Informational): the ceiling list at `Tests/webos/live_catalog_store.test.js:481-497` is shorter
+than `Tests/webos/channel_identity.test.js:1600-1616` (no `Object.assign`, `BigInt`, `Number.isInteger`,
+`trimStart`, private fields), so a seam that grows should inherit the wider list.
+The reviewer also refuted the self-confirmation worry in the Dart seam from plugin source: the cache is written
+before the platform reply returns (`:202-212`) and `remove` does the same (`:196-200`), so a raw read-back would
+have been circular and `reload()` at `:138` is the correct escape — the seam's design stands.
+
+**B4-3 inventory, delivered read-only by the Full-stack Engineer** after the Researcher scope failed. It maps all
+three live paths with line references (`webos_app/app/js/api.js:266-344` plus `screens/live.js:7-95`;
+`Sources/UI/Live/LiveTVView.swift:57-127` via `LiveTVCatalog.swift:37-136`, `LiveTVClient.swift:15-137`,
+`LiveTVM3UClient.swift:14-236`, `LiveTVModels.swift:31-105`; `flutter_app/lib/screens/live_screen.dart:48-301` via
+`live_catalog.dart:220-390`, `live_tv_client.dart:10-40`), names the only three legal store-read points, lists
+seventeen behavioural invariants with the line that creates each, enumerates eight ways a user could see something
+different after a merge, and proposes slices S0 fixtures/decisions → S1 pure composer → S2 read-through wiring →
+S3 first mutation and persistence. Two of its corrections matter: `flutter_app/lib/core/startup_bootstrap.dart`
+(110 lines) wires `PlatformInfo.detect`, `PlatformIdentity.load`, `SharedPreferences.getInstance` and
+`DownloadsStore.open` behind an eight-second guard and **touches no live singleton**, so the earlier report's claim
+that the bootstrap wires the live catalog was wrong; and `git grep` shows zero production callers of the three
+seams across `flutter_app/lib`, `webos_app/app/js` and `Sources`, which is why no user-visible Live TV behaviour
+has changed yet.
+
+**Errors found in that inventory before planning on it.** It cites `Tests/webos/run.sh:18` as a webOS assertion
+floor of 154 — no such file exists; `Tests/webos/` holds five `*.test.js` files and the gate is
+`node --test Tests/webos/` at `.github/workflows/ci.yml:178`, with the printed TAP summary as the evidence and no
+numeric ratchet. It also cites `Tests/live-foundation/run.sh:59` with "floor = 432", which is stale: at this head
+the value is `MIN_ASSERTIONS=471` at line 46. So B4-3 inherits one ratchet (Swift) plus one printed-count standard
+(webOS), not two floors. Finally the delivered message ends mid-sentence at "the three unit jobs plus
+`build-platfo`", so slice S3's evidence list, the promised §6 that separates source-derivable claims from
+inference, and the "gating switch (§ below)" section referenced in S0 never arrived; anything resting on those
+three is treated as unconfirmed and will be re-derived when S3 is actually planned.
+
+**Owner decisions required, and they gate S0 rather than S1.** (1) Whether the unified/user-playlist path is
+default-off behind a setting or default-on, since macOS carries two persistence conventions and an enable flag
+belongs to the settings one. (2) Whether any in-app attribution or notices surface is added at all: none exists on
+any port today, `LiveTVChannel` carries no `attribution`/`license`/`providerName` field, and inventing one touches
+the distribution gates. (3) Whether `flutter_secure_storage` and `file_picker` may be added, which is also what
+decides whether `streamSecretRef` can ever point at real storage — until then the parsers keep refusing sensitive
+URLs, which is the safe asymmetry.
+
+**Delegation outcome recorded honestly.** Both assignments to the Researcher member returned
+"The delegated Agent could not complete this task." — no inventory came from that member. The B4-2/B4 review and
+the B4-3 inventory both came from the Code Reviewer and the Full-stack Engineer respectively.
+
+**Exact next action.** Implement B4-3 S1 as three pure composer files with no call site, each asserting that an
+empty or absent stored state returns the input rows byte-identically, while closing F1 and adding the F2 doubles in
+the same batch, registering any new webOS file in `app/index.html` and widening the ceiling scan to all
+`app/js/*.js`, then raising both counts rather than lowering them; then run the hosted verification, read the logs,
+and obtain a scoped review before S2 touches a live path. **Verdict unchanged: DEVELOPMENT BUILDS VERIFIED —
+RELEASE BLOCKED.** Every green above is build-time CI evidence; no device, emulator, TV console, Windows shell or
+Mac GUI executed any of this, and `Local runtime remains NOT VERIFIED`.

@@ -696,6 +696,62 @@ user-visible behaviour; step (4) is the first place in the plan where Live TV ca
 TV console, Windows shell or Mac GUI acceptance exists for any Phase B or B4 code; the three persistence seams
 still have no production caller; release remains **BLOCKED** and no gate has been weakened to obtain green.
 
+## 2026-11-28 (project manager) — checkpoint refresh at `0baf9bf`: B4 reviewed by the member reviewer, all six runs green
+
+**This section replaces the "current" state lines of every section above it.** The historical text above is left as
+written, per the append-only rule; only the pointers move.
+
+**State.** Branch `ci/github-first-foundation`, local `HEAD` = remote = `0baf9bf72d2be6295c0ccd3233f1d2a73795d22e`,
+worktree clean (`git status --porcelain` empty), `main` untouched at `6dfd925095b0090b623443f396388fd4d552db63`.
+Canonical identity still `2.0.0` / global build `22`.
+
+**Hosted evidence at this head, re-read from runner logs in this turn.** CI `46149018277` completed success at
+attempt 1: `typecheck OK (52 files)` then `==> live foundation assertions: 471 (floor 471)` then
+`live foundation OK` (job `140991256556`); `# tests 154 / # pass 154 / # fail 0 / # cancelled 0 / # skipped 0 /
+# todo 0` on `node: v20.20.2` (job `140991257085`); `🎉 216 tests passed, 1 skipped.` (job `140991256835`);
+`Live API verification` skipped by design. Quality `46149018257` completed success. Build all platforms
+`46149018242` completed success with all **eight** jobs green (macOS `140991508419`, Android/TV `140991508662`,
+webOS IPK `140991508704`, Windows Dart analyze `140991508638`, Windows release `140991508766`, Windows installer
+install+smoke `140993156251`, Windows compatibility Skia `140993156262`, Windows runtime smoke `140993156267`).
+Build all platforms `46148035317` at `0ab9e44` also completed success on the same eight jobs, which closes the
+"still in progress" caveat the previous section left open. The `MIN_ASSERTIONS` ratchet is therefore proven
+executed, not merely written.
+
+**Review state.** The Code Reviewer delivered the missing independent verdict for `df8aa20..0baf9bf`:
+**ACCEPT WITH NOTES**, twelve commits / twenty files / `+2612/−8`, five claims confirmed from committed blobs, no
+blocking finding, B4-3 explicitly cleared to start. Notes F1–F7 are recorded in `EXECUTION_LOG.md`; F1 (Dart
+`clear()` asking the plugin cache instead of the store, `live_catalog_store.dart:156`) and F2 (the untested and
+unreported "platform said yes but wrote nothing" path at `:141`) are mandatory inside B4-3, F3 constrains wording
+(a non-falsifiable defensive branch is uncovered, not covered), and F6 constrains design (no port may assume
+another port's stored document is readable — Dart's physical key is `flutter.ccloud.liveCatalog`).
+
+**Inventory state.** The B4-3 read-only inventory now exists, produced by the Full-stack Engineer because both
+Researcher assignments returned "The delegated Agent could not complete this task." It maps the three live paths,
+names the only three legal store-read points, states seventeen invariants with their creating lines, and proposes
+S0 → S1 → S2 → S3. Two of its own references are wrong and were corrected before planning on them: there is no
+`Tests/webos/run.sh` (the webOS gate is `node --test Tests/webos/` at `.github/workflows/ci.yml:178` with a printed
+TAP summary and no numeric floor) and the live-foundation floor at this head is 471 at line 46, not 432 at line 59.
+The delivered message is truncated mid-sentence, so S3's evidence list, its §6 inference labels and its gating
+switch section do not exist yet.
+
+**Three decisions now belong to the owner** and gate S0, not S1: default-off versus default-on for the
+user-playlist path; whether any in-app attribution/notices surface is created at all (none exists on any port, and
+adding one touches the distribution gates); whether `flutter_secure_storage` and `file_picker` may be added, which
+is also what decides whether `streamSecretRef` can ever resolve.
+
+**Exact next action, in order.** (1) Implement B4-3 S1: three pure composer files, no call site, each proving an
+empty or absent stored state leaves the row list unchanged, with F1 closed and the two F2 doubles added, the new
+webOS file registered in `app/index.html`, and the ceiling scan widened to every `app/js/*.js`. (2) Run the hosted
+verification, read the logs, and get a scoped review. (3) Only then S2 read-through wiring at
+`api.js:314`, `LiveTVCatalog.swift:59-61`, `live_catalog.dart:320`. (4) §18.5's built-in-row fold asymmetry stays
+open and must be measured diagnostically, not silently normalised, because folding in the composer would invent
+identity evidence.
+
+**Still binding:** GitHub-hosted runners only, so local runtime is NOT VERIFIED by design; no device, emulator,
+TV console, Windows shell or Mac GUI acceptance exists for any Phase B or B4 code; the three persistence seams
+still have no production caller, so no user-visible Live TV behaviour has changed; release remains **BLOCKED** and
+no gate has been weakened to obtain green.
+
 ## How to resume after an interruption
 
 - `cd /Users/roham/Documents/CCloudMac && git status --short && git log --oneline -8`

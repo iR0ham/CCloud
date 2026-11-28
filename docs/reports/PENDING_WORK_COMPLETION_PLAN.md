@@ -1011,3 +1011,59 @@ byte-equality beyond runner self-reporting, provenance-hash enforcement beyond i
 `2.1.0`+23 version decision. No device, emulator, TV console, Windows shell or Mac GUI has executed any Phase B
 or B4 code; every green in this section is build-time CI evidence read from GitHub-hosted logs.
 **Verdict unchanged: DEVELOPMENT BUILDS VERIFIED — RELEASE BLOCKED.** `Local runtime remains NOT VERIFIED`.
+
+## 23. Dated verification — 2026-11-28 (B4 reviewed by the member reviewer at `0baf9bf`; the B4-3 sequence is accepted)
+
+**23.1 What closed here.** Two open items from §22.4. First, the directive-§3 independent review of the B4-1/B4-2
+range now exists as a member verdict, not as the project manager's own read: the Code Reviewer examined
+`df8aa20..0baf9bf` (twelve commits, twenty files, `+2612/−8`, remote head verified by `ls-remote`, all judgements
+from committed blobs) and returned **ACCEPT WITH NOTES** with no blocking finding, confirming the five-status
+persistence contract on all three ports, the "load never writes" rule, the byte-for-byte identical
+`Unsupported live catalog schema` refusal text, the `app/index.html` registration gate as a real disk read, and the
+two-hosted-run basis of the 471 count. Second, the hosted evidence finished: CI `46149018277`, Quality
+`46149018257` and Build all platforms `46149018242` are all `completed success` at `0baf9bf`, and Build
+`46148035317` at `0ab9e44` completed success as well. The ratchet is proven by the runner line itself — job
+`140991256556` prints `==> live foundation assertions: 471 (floor 471)` beside `typecheck OK (52 files)`, job
+`140991257085` prints `# tests 154 / # pass 154 / # fail 0` on `node: v20.20.2`, job `140991256835` prints
+`🎉 216 tests passed, 1 skipped`.
+
+**23.2 Corrections to earlier evidence references in these ledgers.** The Build workflow has **eight** jobs, not
+nine as one review restatement said. §22.3's Dart parity citation is one line off: the saved-state proof is
+`flutter_app/lib/core/live_catalog_store.dart:145`, not `:144`. "Single storage-key truth" holds for the logical
+name only: the macOS port persists a file rather than a key, and Flutter's physical key is
+`flutter.ccloud.liveCatalog` because the shared_preferences plugin prefixes `flutter.`
+(`shared_preferences-2.5.6/lib/src/shared_preferences_legacy.dart:197,204`), while no test compares the literals
+across ports. Therefore B4-3 must not assume a document saved by one port is readable by another. The title of
+`Tests/webos/live_catalog_store.test.js:220` also still says "four verdicts" where `:242` pins five.
+
+**23.3 Findings that B4-3 must carry.** F1: `live_catalog_store.dart:156` asks the plugin cache for presence where
+`LiveCatalogStore.swift:81` and `live_catalog_store.js:152` ask the store, so `clear()` can report success without
+deleting a document this process never saw cached — fix by removing the early return. F2: `:141`'s
+`landed = resynced ? get == text : true` plus `_resync()` swallowing its error leaves the "platform said yes but
+wrote nothing" and "reload threw" paths untested, and the degraded `saved` response has `message: null`, so proof
+and unprovability are indistinguishable in a log — fix with two new Dart doubles and a distinct message, without
+changing the status vocabulary. F3: `LiveCatalogStore.swift:129`'s `written == data` comparison is reachable only
+in the throwing direction under the harness, so it is an uncovered defensive branch and must be reported that way.
+F4: statuses match across ports but cause sets differ, so remote diagnosis uses `status` not `message`. F7: the
+webOS ceiling list at `Tests/webos/live_catalog_store.test.js:481-497` is narrower than
+`Tests/webos/channel_identity.test.js:1600-1616`; widening it and making the scan iterate every `app/js/*.js`
+instead of one hard-coded file is the stronger gate that matches the registration test.
+
+**23.4 The accepted B4-3 sequence, and what is not yet decided.** The inventory now on file orders the work as
+S0 shared `composer_cases.json` plus owner decisions → S1 three pure composers with no call site → S2 read-through
+wiring at `api.js:314`, `LiveTVCatalog.swift:59-61`, `live_catalog.dart:320` → S3 first mutation and persistence.
+The invariant that governs every step is that B4-3's first commit is provably behaviour-neutral: an absent or empty
+document leaves the visible list identical to today's. Read points are restricted to the three listed places; the
+in-memory TTL and pending-dedup layer must not become persistent, the country list must not be substituted, and no
+fold normalisation belongs in the composer. Three decisions are the owner's and gate S0: the on/off default for the
+user-playlist path, whether an in-app attribution surface is created at all (none exists on any port; creating one
+touches distribution gates), and whether `flutter_secure_storage` / `file_picker` may be added, which also decides
+whether `streamSecretRef` can ever resolve. The inventory message arrived truncated, so S3's evidence list, its
+inference labels and its gating-switch section do not exist yet and must be re-derived rather than assumed.
+
+**23.5 Still open after this section.** Everything §22.4 listed, minus the B4-2 member review and minus the
+`0baf9bf` hosted conclusions, plus: B4-3 slices S0–S3, F1/F2 remediation, §18.5's built-in-row fold measurement,
+the playlist-manager UI, the two Flutter package licence gates, `streamSecretRef`'s missing secret store, Phase C
+failover, subtitle slices D/E/F, and the `2.1.0`+23 version decision. No device, emulator, TV console, Windows
+shell or Mac GUI has executed any Phase B code; every green in this section is build-time CI evidence read from
+GitHub-hosted logs. **Verdict unchanged: DEVELOPMENT BUILDS VERIFIED — RELEASE BLOCKED.**
