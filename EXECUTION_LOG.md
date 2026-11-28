@@ -1818,3 +1818,68 @@ above. No `node --test`, no `node --check`, no `swiftc`, no `flutter analyze`, n
 package, no sign, no emulator. **Nothing here has device or runtime evidence of any kind.** The proof this slice is
 correct is the hosted run that follows the single push for the batch; until that log exists, S1 is implemented and
 static-verified, not green.
+
+## 2026-11-28 (full-stack engineer) — S1's first hosted run went RED for three syntax causes; repair batch and the 471 → 705 ratchet
+
+**What the runner said at `bb2606a75006d46734444837345c83ecc02aad5c`.** Two of the four jobs failed and one
+confirmed the forecast. `141028842631` failed in `Run webOS regressions`, the step-7 `node --test Tests/webos/`
+of the webOS job; `141028842633` failed in `Analyze`, so `flutter test` never started. The macOS job
+`141028842569` of run `46161252310` printed `typecheck OK (53 files)` at line 293 and `==> live foundation
+assertions: 705 (floor 471)` at line 326, exactly the two numbers the entry above derives from source geometry —
+the Swift and typecheck halves of S1 were right the first time. Quality run `46161252313` succeeded.
+`Build all platforms 46161252351` was still `in_progress` when this repair was written, so it is not treated as
+evidence here and was not re-run.
+
+**Cause 1 — `Tests/webos/live_source_composer.test.js`, a reserved word used as an identifier.** Line 308 binds
+`for (const caseJson of cases)`, but the loop body still addressed `case.id`, `case.rows`, `case.expect` and
+friends. `case` is reserved, so `node --test` never parsed the file at all: the reported error is
+`SyntaxError: Unexpected token 'case'` at `:309`, not a failed assertion. The consequence is the reason the count
+mattered — a file that cannot be parsed contributes exactly one synthetic failure and zero passes, so the run
+printed `# tests 155 / # pass 154 / # fail 1` instead of executing the eighteen cases that file was written to
+run. Repair: `case.` → `caseJson.` across the whole file, 39 lines, nothing else. Proven to be a rename rather
+than an edit: `git diff -U0` on that file yields 39 removals and 39 additions, and after applying
+`s/case\./caseJson./g` to the removals, `diff` against the additions reports no difference (exit 0, byte-for-byte
+identity, same order). No assertion, fixture case, or ceiling scan was deleted, skipped, simplified or weakened —
+the removals all contain `assert.`/`test(` and each is matched one-for-one by an identical addition.
+
+**Cause 2 — `flutter_app/lib/core/live_source_composer.dart:173`, a wrong named-argument label.** The call read
+`_insertMinted(minted: _sortByHostName(minted), into: rows)` while the declaration at `:430` takes
+`required List<LiveTvChannel> rows`. The analyzer reported both halves of the mismatch
+(`The named parameter 'rows' is required, but there's no corresponding argument` and
+`The named parameter 'into' isn't defined`). Repair: the label `into:` → `rows:`. One token, no semantic change:
+the argument expression was already the correct `rows`, and every other named-parameter call site in this file was
+re-checked against its declaration while the file was open.
+
+**Cause 3 — `flutter_app/test/live_catalog_store_test.dart:558`, a `group` opened without its closure.** The line
+read `group('storage that answers yes without meaning it') {`; Dart has no trailing-closure call syntax, so the
+parser held `group(` open and treated `{` as the start of an argument. All eleven errors the analyzer reported in
+this file are one cascade from those two missing tokens (`, ()`). Repair: `group('…', () {`. The seven legitimate
+`group(` call sites at `:269`, `:318`, `:344`, `:424`, `:489`, `:647`, `:704` were left alone, and both new Dart
+suites were scanned for the same malformed shape — none.
+
+**Behaviour-neutrality survived the repair.** `git grep` for `composeLiveRows`, `LiveSourceComposer`,
+`liveSourceComposer` and `live_source_composer`, excluding the three modules, `Tests/`, `docs/`, `EXECUTION_LOG.md`
+and the Dart tests, returns nothing. The only hits under shipping paths are the module sources, an
+`webos_app/app/index.html:34` script tag (a load, not a call site) and a comment at `webos_app/app/js/api.js:369`;
+under `flutter_app/lib` the only file referencing the composer is the composer itself. S1 remains zero-call-site
+code, so no user-visible Live TV behaviour can change from this batch.
+
+**`MIN_ASSERTIONS` 471 → 705, its own commit, one runner line as the source.** Raised in
+`Tests/live-foundation/run.sh:52` from the hosted count the runner actually printed — job `141028842569`, log line
+326, `==> live foundation assertions: 705 (floor 471)` — using the same method as 432 → 471: the number comes off
+the runner, never from a local probe. One run rather than two agreeing runs this time, which is why the
+independent source-geometry prediction (219 loop-expanded checks over the fixture cases plus 15 outside the loop,
+471 + 234 = 705) is recorded alongside it; the two derivations agree, and the ratchet stays a floor on Swift
+assertion count rather than a snapshot of one lucky execution.
+
+**What this batch does not prove.** Per the GitHub-runners-only rule, no `node --test`, `node --check`,
+`flutter analyze`, `flutter test`, `swiftc`, build, render, package, sign or emulator work ran on this Mac; the
+repairs were established by reading the committed blobs, the runner logs and cross-checking declarations, so the
+local runtime stays **NOT VERIFIED**. The four lines below are expectations for the run this single push starts,
+stated as predictions and readable only once the runner prints them: `# tests 172 / # pass 172 / # fail 0`
+(webOS), `🎉 235 tests passed, 1 skipped.` (Flutter), `typecheck OK (53 files)`, `==> live foundation assertions:
+705 (floor 705)`. Exactly one push carries this batch because `ci.yml:41` and `quality.yml:23` set
+`cancel-in-progress: true`; a second push would cancel the runs that produce this evidence. Each fix is falsifiable
+by mutation: re-introducing `case.` reddens the whole file again; changing `rows: rows` back to `into: rows` is an
+analyzer error; restoring `group('…') {` at `:558` reopens the eleven-error cascade; lowering the label in
+`_insertMinted`'s declaration while leaving `:173` alone breaks the same call from the other side.
