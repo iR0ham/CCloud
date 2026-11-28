@@ -62,10 +62,14 @@
   }
 
   function proxyFetch(url) {
+    // The localhost dev proxy is a development convenience, not a smaller trust
+    // boundary: a hung or oversized upstream reply would still land in this page.
+    // It therefore reads through the same bounded, byte-counting reader as the
+    // direct path and surfaces the same `response-too-large` policy error.
     return fetch('/devproxy?u=' + encodeURIComponent(url), { cache: 'no-cache' })
       .then(function (r) {
         if (!r.ok) throw new Error('خطای سرور (کد ' + r.status + ')');
-        return r.text();
+        return readBoundedText(r);
       });
   }
 

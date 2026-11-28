@@ -459,3 +459,48 @@ test('genuine luna service failure still falls back to bounded direct fetch', as
   );
   assert.equal(directCalls, 1);
 });
+
+// The remaining cases cover the browser-dev branch of CC.net.getText: on a
+// localhost origin the app reads through /devproxy, which used to finish with an
+// unbounded response.text() and so was the one transport path with no size cap.
+test('dev proxy oversized streamed body cancels at the cap and never calls text', async function () {
+  const streamed = streamedBytesResponse([
+    Buffer.alloc(MAX_RESPONSE_BYTES, 0x61),
+    Buffer.from([0x62])
+  ]);
+  const requested = [];
+  const net = loadNet({
+    hostname: 'localhost',
+    fetchImpl: function (url) {
+      requested.push(url);
+      return Promise.resolve(streamed.response);
+    }
+  });
+
+  await assert.rejects(
+    net.getText('https://example.test/large'),
+    function (error) {
+      return error && error.code === 'response-too-large';
+    }
+  );
+  assert.deepEqual(requested, [
+    '/devproxy?u=' + encodeURIComponent('https://example.test/large')
+  ]);
+  assert.deepEqual(streamed.metrics, { reads: 2, cancels: 1, textCalls: 0 });
+});
+
+test('dev proxy response under the cap is read without calling text', async function () {
+  const streamed = streamedBytesResponse([Buffer.from('{"ok":true}', 'utf8')]);
+  let fetchCalls = 0;
+  const net = loadNet({
+    hostname: '127.0.0.1',
+    fetchImpl: function () {
+      fetchCalls += 1;
+      return Promise.resolve(streamed.response);
+    }
+  });
+
+  assert.equal(await net.getText('https://example.test/data'), '{"ok":true}');
+  assert.equal(fetchCalls, 1);
+  assert.deepEqual(streamed.metrics, { reads: 2, cancels: 0, textCalls: 0 });
+});
