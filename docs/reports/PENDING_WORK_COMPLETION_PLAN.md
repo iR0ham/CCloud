@@ -596,3 +596,55 @@ Section 13.1's gate is satisfied, so **B2-D** is open: the Dart M3U parser, `sta
 registry over `Tests/fixtures/multi-source/*.m3u*`, consuming `LiveCatalogState`, `ChannelMember`,
 `ChannelSourceRecord`, `SourceHealth`, `SourceOrigin`, `rendererSupportValues` and `CatalogIssue` from B1-D.
 The Dart date-reading tightening stays where section 13 put it — B3, not B2.
+
+---
+
+## 15. Dated verification — 2026-11-28 (B2-D hosted-verified for Dart; B2-S pushed, outcome unread)
+
+### 15.1 B2-D is closed for the Dart port
+
+`flutter_app/lib/core/identity_hash.dart`, `playlist_parser.dart` and `source_registry.dart` are on
+`ci/github-first-foundation` through `e7bbe8d` (RED) → `0186c62` (implementation) → `09f826c7dd3ee75b63d5de4f68f201e6a8f75b7e`
+(GREEN). Hosted evidence, quoted in `EXECUTION_LOG.md`: CI `46108921477` job `140867853277` prints
+`No issues found! (ran in 16.4s)` and `🎉 159 tests passed, 1 skipped.`; Quality `46108921454` keeps all six
+jobs green; `Build all platforms` `46108921457` shows all eight jobs `success`, which closes the missing-build
+note in §14.2.
+
+What was learned and is now a standing constraint for this repository: **`flutter analyze` fails the CI job on
+info-severity lints**, because `package:flutter_lints/flutter.yaml` enables
+`prefer_interpolation_to_compose_strings` and the workflow runs plain `flutter analyze`. Any future push that
+uses `'literal' + expr` in `flutter_app/lib` or `flutter_app/test` stops the job *before* `flutter test`, so it
+destroys all test evidence for that head rather than merely cosmetics. Fix the source; do not add
+`--no-fatal-infos` or an `analysis_options` exclusion.
+
+### 15.2 B2-S is implemented, NOT VERIFIED
+
+`Sources/Core/LivePlaylistParser.swift` (limits, `StableKeyHash`, `LiveMatchKey`,
+`LivePlaylistParser`, `LiveSourceRegistry`) plus ~110 new assertions in `Tests/live-foundation/main.swift` and
+an extended compile list in `Tests/live-foundation/run.sh` are pushed as
+`e2400e3cdc58132e9cf139681ee210282b5ad540`. Two structural choices need to be visible to a reviewer:
+
+* The display-name rule was **moved, not copied**: `LiveTVM3U.displayName`/`isNoise` now live in the
+  dependency-free `Sources/Core/LiveTVM3UText.swift`, and the shipping client calls
+  `LiveTVM3UText.displayName`. One recipe, so a refresh cannot mint a second member for a station the built-in
+  list already knows. `LiveTVNameKey.key` stays in place for the existing Iran list; the new path uses
+  `LiveMatchKey`, because Foundation `folding(options:)` is ICU-sensitive and leaves `۱` unmapped. Changing the
+  shipping key would change matching for current users and is therefore an owner decision, not a side effect.
+* `scripts/typecheck.sh` and `build.sh` both glob `Sources/**/*.swift`, and the harness lists its inputs
+  explicitly, so the new files need no project registration — but a missing entry in
+  `Tests/live-foundation/run.sh` would compile the harness against an older file set, which is why that script
+  is part of this slice rather than a later cleanup.
+
+The gate for this section is the macOS job log at `e2400e3`: `typecheck OK (46 files)` must grow by the two new
+sources, the harness must print `assertions:` above the `227` baseline it had at `09f826c`, and the golden
+`stableKeyHash` lines must be readable so B2-J/B3 can pin identical literals. Until that log is read, B2-S is
+`implemented, hosted NOT VERIFIED`.
+
+### 15.3 Still open in Phase B
+
+B2-J (webOS `playlist_parser.js` + Node suite, ES2017 ceiling) has not started. B3 (channel identity, unified
+catalog, built-in adapter — including the Dart `DateTime.parse` strictness divergence and the codec-header
+differences §13 lists) has not started. B4 (catalog store, migration trigger, UI wiring) has not started, which
+is why none of this code is reachable from a Live TV screen yet. Phase C failover, D/E/F subtitles, the G
+verification matrix, the `2.1.0`+`23` version decision and the release manifest remain as §13 stated them.
+`RELEASE_PRODUCTION_READY` stays unset.
