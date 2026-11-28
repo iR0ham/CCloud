@@ -503,5 +503,5 @@ class LiveCatalogStateCodec {
   static String _dateText(DateTime value) => value.toUtc().toIso8601String();
 
   static String? _optDateText(DateTime? value) =>
-      value == null ? null : value.toUtc().toIso8601String();
+      value?.toUtc().toIso8601String();
 }

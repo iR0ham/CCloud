@@ -1,10 +1,11 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:ccloud/core/live_catalog_codec.dart';
 import 'package:ccloud/core/live_contracts.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+// The codec is reached through LiveCatalogMigration, which delegates every read
+// and write to it, so no direct live_catalog_codec.dart import is needed here.
 void main() {
   test('absent state migrates to an empty v1 state', () {
     final state = LiveCatalogMigration.migrate(null);
