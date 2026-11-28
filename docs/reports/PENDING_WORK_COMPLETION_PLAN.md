@@ -519,3 +519,80 @@ The critical path becomes: push and read the corrective run at the new head (tha
 → B2 cross-language agreement fixtures over the same `Tests/fixtures/migration/catalog-v1.json`, with the
 Dart date-reading tightening folded into B3 → B4 wiring. Section 11's owner-side blockers are unchanged, and
 one green runner at the new head would still not change them.
+
+## 13. Dated correction — 2026-11-28 (what B2 and B3 are, and the real Phase B gate)
+
+Section 12.3 named the follow-on work "B2 cross-language agreement fixtures" and "B3 cross-port agreement".
+That is wrong, and section 12.3 stands unedited as the record of what was believed at the time; this section
+is the correction. Per `docs/superpowers/plans/2026-11-25-multi-source-subtitles.md:1161-2066`:
+
+| Task | Actual subject | Fixtures / files |
+| --- | --- | --- |
+| B2-D / B2-S / B2-J | M3U parser, `stableKeyHash`, source registry | `flutter_app/lib/core/{identity_hash,playlist_parser,source_registry}.dart` and the Swift/JavaScript mirrors, fixtures `Tests/fixtures/multi-source/*.m3u*` |
+| B3-D / B3-S / B3-J | channel identity, unified catalog, built-in adapter | `LiveTVChannelIdentity.swift`, `UnifiedLiveCatalog.swift`, `BuiltInLiveCatalogAdapter.swift`, `channel_identity.js`, `unified_catalog.js`, `builtin_catalog_adapter.js` |
+| B4-D / B4-S / B4-J | playlist repository, migration trigger, live-TV integration | the first production consumers of B1 |
+
+The phrase "agreement test" comes from the header of `Sources/Core/LiveTVCatalogCodec.swift`, which defers
+its two documented cross-port encoding differences (null-key omission, `ChannelMember.ordinal` position) to
+B3's agreement test; the Dart `DateTime.parse` date-reading divergence recorded in the plan addendum's item
+14 belongs to the same place and to the Phase B exit gate's cross-platform parity requirement — **not** to
+B2, whose deliverable is parsing and registration.
+
+### 13.1 Sequencing after the correction
+
+`4c98e97`'s CI run (webOS `# fail 0`, Swift `live foundation OK` retained, provenance and Flutter jobs green
+after the recursive license sweep) → **B2-D** → B2-S → B2-J → **B3-D** → B3-S → B3-J (where the three ports
+must read the same fixtures and where the Dart reader's date leniency is closed) → B4 wiring → Phase C
+failover. The Phase B exit gate at plan `2051-2066` additionally requires the fixed Iran composition tests
+(Famelack rows preserved, iptv-org-only rows absent), additive-migration behaviour on fresh install and
+corrupt/future documents, secret-store handling that rejects credential-bearing URLs explicitly on platforms
+without one, and **no playback behaviour change anywhere in Phase B**. `Local runtime remains NOT VERIFIED`
+is part of that gate, not an aside.
+
+## 14. Dated verification — 2026-11-28 (the `4c98e97` runners are green; B1-J closes, B2 opens)
+
+Section 13.1 named one run as the gate. That run exists, and every assertion below is copied from the
+runner's own log text, not from an expectation.
+
+### 14.1 Hosted evidence at `4c98e97d5d7a2dbfd32592a3cf0748bf377922ee`
+
+| Workflow / job | Runner output |
+| --- | --- |
+| CI `46106921574` — overall | `completed` / `success`; `Live API verification` `skipped` (still `if: inputs.live_api`, unchanged) |
+| CI job `140861641671` — webOS static JS/JSON/service validation | `# tests 30` `# pass 30` `# fail 0` `# cancelled 0` |
+| CI job `140861641921` — macOS arm64 typecheck | `typecheck OK (46 files)`, `live foundation fixtures: /Users/runner/work/CCloud/CCloud/Tests/fixtures/migration`, `assertions: 227`, `==> live foundation assertions: 227 (floor 150)`, `live foundation OK` |
+| CI job `140861641881` — Flutter analyze and tests | `No issues found! (ran in 11.6s)`, `🎉 135 tests passed, 1 skipped.`, with `live_contracts_test.dart: the codec publishes the schema-version interface the other ports mirror` among the named passing tests |
+| CI job `140861641843` — Version and canonical metadata | `success` |
+| Quality `46106921571` — six jobs | all `success`; job `140861641706` (Required NOTICE files) prints `provenance: 10 retained files verified against SOURCES.md (offline, recomputed SHA-256, no network fetch)` and `Ran 15 tests in 0.019s` / `OK` |
+
+### 14.2 Item outcomes changed by that evidence
+
+* **B1-J is now hosted-verified as a contract.** `playlist_contracts.js` has executed green on a GitHub
+  runner for the first time; before this head the loader itself threw, so the module's assertions had never
+  run at all. The failure count across the three attempts is the honest record: 12 at `aab31be`, **19** at
+  `5b7df6a` (a regression caused by my own `new Function.apply(…)` precedence fix), 0 at `4c98e97`. Nothing
+  was deleted or downgraded to get from 19 to 0 — the suite grew to 30 tests, and all 30 pass.
+* **B1-S stays hosted-verified** with the same `assertions: 227` and `live foundation OK` at the new head, so
+  the provenance and Dart-test changes did not disturb it.
+* **The provenance hardening slice is hosted-verified**: 15 Python tests (up from 14, the nested-license sweep
+  being the addition) and the 10-file recomputation both pass on a Linux runner, which is what the recursive
+  `Legal/licenses` sweep needed to be believed rather than assumed.
+* **Build `46106416765` at `5b7df6a`** carries `webOS IPK`, `Dart analyze`, `macOS arm64 build`,
+  `Android/TV universal APK + AAB`, `Windows release build`, `Windows installer install + smoke test` and
+  `Windows runtime smoke test` all `success`, with `Windows compatibility package (Skia)` still running;
+  `build-*.yml` sets `cancel-in-progress: false`, so that run survived the push. Build `46106921591` at
+  `4c98e97` was `pending` when this section was written and is not claimed here.
+
+### 14.3 What this does not verify
+
+Green Node, Dart and Swift suites are not device acceptance. There is still no verified run of the webOS
+codec on a Chromium-68 TV, no verified macOS/Android/Windows application launch against these ports, no
+secret store behind `streamSecretRef` on any platform, and the artifact hashes remain runner-self-reported.
+`Local runtime remains NOT VERIFIED` and the production release stays blocked.
+
+### 14.4 Next action
+
+Section 13.1's gate is satisfied, so **B2-D** is open: the Dart M3U parser, `stableKeyHash` and source
+registry over `Tests/fixtures/multi-source/*.m3u*`, consuming `LiveCatalogState`, `ChannelMember`,
+`ChannelSourceRecord`, `SourceHealth`, `SourceOrigin`, `rendererSupportValues` and `CatalogIssue` from B1-D.
+The Dart date-reading tightening stays where section 13 put it — B3, not B2.

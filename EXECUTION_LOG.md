@@ -831,3 +831,73 @@ Exact next action: push the loader fix together with the deferred hardening slic
 `LiveCatalogStateCodec.supportedSchemaVersion` reference in the Dart test), then read the CI run at that head
 for `# fail 0`. Only after that may `PENDING_WORK_COMPLETION_PLAN.md` section 12 move B1-J off
 "NOT VERIFIED", and only then does B2 (parsers and `Tests/fixtures/multi-source/*`) open.
+
+---
+
+## 2026-11-28 (project manager) — Correction: what B2 and B3 actually are
+
+Found while opening the next slice, and it matters because a wrong task name in a ledger becomes a wrong
+assignment later. Sections above (and `PENDING_WORK_COMPLETION_PLAN.md` §12.3, `docs/reports/
+OVERNIGHT_EXECUTION_STATE.md` item 7) describe the follow-on work as "B2 cross-language agreement fixtures"
+and "B3 cross-port agreement". Reading `docs/superpowers/plans/2026-11-25-multi-source-subtitles.md`
+`1161-2050` corrects that:
+
+* **B2-D / B2-S / B2-J are the M3U parser, `identity_hash`, and the source registry**, with
+  `Tests/fixtures/multi-source/*.m3u*` as their fixtures — not an agreement test. `B2-D` consumes
+  `LiveCatalogState`, `ChannelMember`, `ChannelSourceRecord`, `SourceHealth`, `SourceOrigin`,
+  `rendererSupportValues` and `CatalogIssue` from B1-D.
+* **B3-D / B3-S / B3-J are channel identity and the unified catalog** (`LiveTVChannelIdentity.swift`,
+  `UnifiedLiveCatalog.swift`, `BuiltInLiveCatalogAdapter.swift`, `channel_identity.js`,
+  `unified_catalog.js`, `builtin_catalog_adapter.js`). The "agreement test" phrase in the sections above is
+  inherited from the header of `Sources/Core/LiveTVCatalogCodec.swift`, which defers its own documented
+  cross-port differences (null-key omission, field order) to "B3's agreement test"; the date-reading
+  divergence belongs there and to the Phase B exit gate's cross-platform parity bullet, not to B2.
+* Correct sequencing: **B2-D → B2-S → B2-J → B3-D → B3-S → B3-J → B4**, gated by the Phase B exit gate at
+  plan `2051-2066`, which requires the hosted Dart, Swift and Node foundation suites green, the Iran
+  composition tests, additive-migration behaviour, secret-store handling, and **no playback behaviour change
+  in Phase B**.
+
+Nothing about the evidence above changes: B1-S is hosted green (`assertions: 227`, `live foundation OK`),
+B1-J awaits the run at `4c98e97`, and the Dart `DateTime.parse` tightening remains open work recorded in the
+plan addendum's item 14.
+
+## 2026-11-28 (project manager) — the `4c98e97` runners are green; B1-J becomes hosted-verified
+
+The gate that `PENDING_WORK_COMPLETION_PLAN.md` §13.1 set for the corrective slice has been read, and every
+number below is copied from the runner's own log text:
+
+* CI `46106921574` at `4c98e97d5d7a2dbfd32592a3cf0748bf377922ee`: `completed` / `success`.
+* Job `140861641671` (webOS static JS/JSON/service validation): `# tests 30`, `# pass 30`, `# fail 0`,
+  `# cancelled 0`. This is the first time `webos_app/app/js/playlist_contracts.js` has executed its contract
+  on a runner at all — at `aab31be` twelve tests failed on a cross-realm loader, and at `5b7df6a` nineteen
+  failed on `TypeError: Function.apply is not a constructor`, which was my own operator-precedence bug in
+  that loader fix. The repair was the one-line `Function.apply(null, args)` call form, not a removed test;
+  the suite is 30 tests and 30 pass.
+* Job `140861641921` (macOS arm64 typecheck): `typecheck OK (46 files)`, `assertions: 227`,
+  `==> live foundation assertions: 227 (floor 150)`, `live foundation OK` — so B1-S stayed green while the
+  provenance and Dart-test changes landed underneath it.
+* Job `140861641881` (Flutter analyze and tests): `No issues found! (ran in 11.6s)` and
+  `🎉 135 tests passed, 1 skipped.`, with
+  `live_contracts_test.dart: the codec publishes the schema-version interface the other ports mirror` named
+  among the passing tests — the direct-symbol assertion that replaced the facade-only coverage.
+* Quality `46106921571`: six jobs `success`. Job `140861641706` (Required NOTICE files) prints
+  `provenance: 10 retained files verified against SOURCES.md (offline, recomputed SHA-256, no network fetch)`
+  and `Ran 15 tests in 0.019s` / `OK`, which is the hosted proof for the recursive `Legal/licenses` sweep and
+  the containment-ordering fix; the count moved 14 → 15 because `test_license_text_nested_one_level_is_still_swept`
+  was added, not because anything was relaxed.
+* Build `46106416765` at `5b7df6a` survived the push (`cancel-in-progress: false` on `build-*.yml`) and shows
+  `webOS IPK`, `Dart analyze`, `macOS arm64 build`, `Android/TV universal APK + AAB`, `Windows release build`,
+  `Windows installer install + smoke test` and `Windows runtime smoke test` as `success`, with
+  `Windows compatibility package (Skia)` still in progress. Build `46106921591` at `4c98e97` was `pending` at
+  the time of writing and is deliberately not claimed.
+
+What changed in status: **B1-S and B1-J move from "implemented, hosted GREEN NOT VERIFIED" to
+hosted-verified contract**, and the deferred hardening items (license sweep, containment ordering, direct
+Dart interface assertion) are closed with evidence. What did not change: no device, OS or runtime acceptance
+exists for any port, `streamSecretRef` still has no verified secret store, artifact hashes remain
+runner-self-reported, `RELEASE_PRODUCTION_READY` is unset, the four macOS release steps and
+`Live API verification` remain skipped, and production release stays blocked.
+
+The next actionable slice is therefore **B2-D** as corrected by §13 of the completion plan: the Dart M3U
+parser, `stableKeyHash` and source registry over `Tests/fixtures/multi-source/*.m3u*`. The Dart
+`DateTime.parse` date-reading tightening remains B3 work and must not be folded into B2.

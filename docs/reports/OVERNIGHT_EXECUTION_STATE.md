@@ -433,6 +433,18 @@ None of these may be cleared by changing a label, a flag, or a document claim.
    at that head for `live foundation OK` and `# fail 0` and record the numbers here. Only after that: B2,
    then the deferred provenance/test hardening residuals, then B3 cross-port agreement — where the Dart
    `DateTime.parse` leniency documented in plan item 11 is closed against the same frozen fixture.
+8. **Item 7's gate is satisfied; this supersedes it.** The head `4c98e97` is hosted green: CI `46106921574`
+   all jobs `success`, webOS job `140861641671` prints `# tests 30 / # pass 30 / # fail 0`, macOS job
+   `140861641921` retains `typecheck OK (46 files)` + `assertions: 227 (floor 150)` + `live foundation OK`,
+   Flutter job `140861641881` prints `No issues found!` and `🎉 135 tests passed, 1 skipped.`, Quality
+   `46106921571` passes six jobs including `Ran 15 tests … OK` / `10 retained files verified` in the
+   Required NOTICE files job. **B1-J is therefore hosted-verified as a contract** (first time the module's
+   assertions ever executed on a runner) and the provenance hardening slice is hosted-verified. Device and OS
+   acceptance remain NOT VERIFIED, so nothing about release protection changed. **Current exact next action:
+   Task B2-D** — the Dart M3U parser, `stableKeyHash` and source registry over
+   `Tests/fixtures/multi-source/*.m3u*`, following the corrected task map in
+   `docs/reports/PENDING_WORK_COMPLETION_PLAN.md` §13; B2 must not carry the Dart date-reading tightening,
+   which belongs to B3.
 
 ## How to resume after an interruption
 
