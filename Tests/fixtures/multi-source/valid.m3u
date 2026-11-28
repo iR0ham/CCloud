@@ -1,0 +1,8 @@
+#EXTM3U
+#EXTINF:-1 tvg-id="PressTV.ir" tvg-logo="https://img.example/press.png" group-title="News" tvg-language="English",Press TV (720p)
+https://press.example/720.m3u8
+https://press.example/1080.m3u8
+#EXTINF:-1 tvg-id="IRIB1.ir" tvg-logo="https://img.example/irib1.png" group-title="General" tvg-language="Persian",IRIB 1 [SD]
+https://irib.example/1.m3u8
+#EXTINF:-1 tvg-id="MusicTV.ir" tvg-logo="https://img.example/music.png" group-title="Music",Music TV
+https://music.example/live.m3u8

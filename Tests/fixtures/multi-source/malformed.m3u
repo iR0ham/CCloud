@@ -1,0 +1,9 @@
+#EXTM3U
+#EXTINF:-1 tvg-id="Good.ir" tvg-logo="https://img.example/good.png" group-title="General",Good TV
+https://good.example/live.m3u8
+#EXTINF:-1 tvg-id="NoStream.ir",No Stream TV
+#EXTINF tvg-id="Broken.ir"
+#EXTINF:-1 tvg-id="BrokenUrl.ir",Broken URL TV
+ftp://cdn.example/broken.m3u8
+#EXTINF:-1 tvg-id="Nameless.ir",
+https://nameless.example/live.m3u8

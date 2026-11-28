@@ -1,0 +1,6 @@
+#EXTM3U
+#EXTINF:-1 tvg-id="Dup.ir" group-title="News",Dup TV
+https://dup.example/a.m3u8
+https://dup.example/b.m3u8
+#EXTINF:-1 tvg-id="Solo.ir" group-title="News",Solo TV
+https://solo.example/live.m3u8
