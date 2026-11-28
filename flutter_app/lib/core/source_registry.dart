@@ -47,10 +47,9 @@ SourceRegistryResult registerParsedPlaylist({
   final issues = <CatalogIssue>[];
 
   for (final channel in parsed.channels) {
-    final memberId = 'member:' +
-        stableKeyHash(
-          '$playlistId\nprovider\n$providerNamespace\n${channel.providerChannelId}',
-        );
+    final memberId = 'member:${stableKeyHash(
+      '$playlistId\nprovider\n$providerNamespace\n${channel.providerChannelId}',
+    )}';
     final ordinal = members.length;
     members.add(
       ChannelMember(
@@ -104,8 +103,7 @@ SourceRegistryResult registerParsedPlaylist({
 
       sources.add(
         ChannelSourceRecord(
-          sourceId: 'source:' +
-              stableKeyHash('$memberId\nurl\n$canonical'),
+          sourceId: 'source:${stableKeyHash('$memberId\nurl\n$canonical')}',
           // Rule 4: a new logical channel uses its member ID until the user associates it.
           channelId: memberId,
           memberId: memberId,

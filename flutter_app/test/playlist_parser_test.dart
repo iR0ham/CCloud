@@ -158,12 +158,12 @@ void main() {
     });
 
     test('the 50,000-member ceiling truncates instead of failing the playlist', () {
-      final oversized = '#EXTM3U\n' +
-          List.generate(
-            50001,
-            (i) => '#EXTINF:-1 tvg-id="C$i.ir",Channel $i\n'
-                'https://cdn.example/$i.m3u8\n',
-          ).join();
+      final rows = List.generate(
+        50001,
+        (i) => '#EXTINF:-1 tvg-id="C$i.ir",Channel $i\n'
+            'https://cdn.example/$i.m3u8\n',
+      ).join();
+      final oversized = '#EXTM3U\n$rows';
       final limited = parsePlaylist(playlistId: 'playlist:large', text: oversized);
       expect(limited.channels.length, 50000);
       expect(limited.truncated, isTrue);
@@ -171,9 +171,10 @@ void main() {
     });
 
     test('the per-member URL ceiling keeps the first hundred addresses', () {
-      final text = '#EXTM3U\n#EXTINF:-1 tvg-id="Many.ir",Many TV\n' +
-          List.generate(101, (i) => 'https://cdn.example/$i.m3u8').join('\n') +
-          '\n';
+      final urls =
+          List.generate(101, (i) => 'https://cdn.example/$i.m3u8').join('\n');
+      final text =
+          '#EXTM3U\n#EXTINF:-1 tvg-id="Many.ir",Many TV\n$urls\n';
       final parsed = parsePlaylist(playlistId: 'playlist:many', text: text);
       expect(parsed.channels.single.streamUrls.length, 100);
       expect(parsed.truncated, isTrue);
@@ -181,9 +182,11 @@ void main() {
     });
 
     test('the physical line ceiling truncates a comment-heavy payload', () {
-      final text = '#EXTM3U\n' +
-          List.generate(200001, (i) => '# pad $i').join('\n') +
-          '\n#EXTINF:-1 tvg-id="Late.ir",Late TV\nhttps://cdn.example/late.m3u8\n';
+      final padding =
+          List.generate(200001, (i) => '# pad $i').join('\n');
+      final text =
+          '#EXTM3U\n$padding\n#EXTINF:-1 tvg-id="Late.ir",Late TV\n'
+          'https://cdn.example/late.m3u8\n';
       final parsed = parsePlaylist(playlistId: 'playlist:lines', text: text);
       expect(parsed.truncated, isTrue);
       expect(parsed.issues.map((i) => i.code), contains('limitExceeded'));
@@ -191,7 +194,8 @@ void main() {
     });
 
     test('a payload over ten mebibytes is refused rather than parsed', () {
-      final text = '#EXTM3U\n' + ('x' * (10 * 1024 * 1024 + 16));
+      final filler = 'x' * (10 * 1024 * 1024 + 16);
+      final text = '#EXTM3U\n$filler';
       final parsed = parsePlaylist(playlistId: 'playlist:huge', text: text);
       expect(parsed.channels, isEmpty);
       expect(parsed.issues.map((i) => i.code), contains('oversizedInput'));
