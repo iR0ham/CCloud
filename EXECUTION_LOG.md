@@ -338,3 +338,139 @@ claim.
 
 Exact next action: land N1 + N2 + N3 as one focused gate-hardening slice with a mutation-shaped
 regression each, hosted RED then GREEN at that SHA, then start Phase B1-D.
+
+## 2026-11-28 (hardening slice + B1-D) — H1–H3 landed, Dart contracts hosted green
+
+This section is appended after the reviewer's `1382a93` entry and records the slice that entry asked
+for ("land N1 + N2 + N3 as one focused gate-hardening slice with a mutation-shaped regression each,
+hosted RED then GREEN at that SHA, then start Phase B1-D"), plus Task B1-D of
+`docs/superpowers/plans/2026-11-25-multi-source-subtitles.md`. Nothing above this line is restated or
+corrected; the earlier entries remain the record of their own heads.
+
+### Commits, one logical concern each
+
+| SHA | Concern | Files |
+| --- | --- | --- |
+| `4c80ad3` | H1 — bind the merged-manifest assertions to the APK under test | `.github/workflows/build-android.yml` |
+| `e1eb4db` | H2 — assert the optional touchscreen instead of describing it | `.github/workflows/build-android.yml` |
+| `5a9ad4a` | H3 — canonicalize provenance paths before trusting containment | `scripts/verify_provenance.py`, `Tests/test_verify_provenance.py` |
+| `4570277` | B1-D Step 1 — fixtures and the failing test (hosted RED) | `Tests/fixtures/migration/catalog-v1.json`, `Tests/fixtures/migration/flutter-legacy-prefs.json`, `flutter_app/test/live_contracts_test.dart` |
+| `ea28b29` | B1-D Step 3 — contracts and codec | `flutter_app/lib/core/live_contracts.dart`, `flutter_app/lib/core/live_catalog_codec.dart` |
+| `eb052b2` | B1-D analyzer cleanup (branch head) | `flutter_app/test/live_contracts_test.dart`, `flutter_app/lib/core/live_catalog_codec.dart` |
+
+H1 changed the candidate list, the fallback and the identity assertions; H2 added the
+`android:required="false"` token and its feature pairing; neither removed an assertion. Across `4c80ad3`
+and `e1eb4db`, `build-android.yml` gains 55 lines and loses 4: the old candidate-loop terminator, the old
+`find … -path '*release*' … | sort | head -1 || true` fallback, and the two comment lines the new pairing
+comment replaced. The required-assertion count in that workflow goes from fifteen `require_token` call
+sites to eighteen (`:273`, `:274`, `:288`), plus the non-`require_token` touchscreen pairing block.
+`set -euo pipefail` is intact in all four script blocks, and the
+only `continue-on-error: true` in the repository is still the pre-existing Inno Setup step at
+`.github/workflows/build-windows.yml:167`, untouched by instruction.
+
+### Hosted evidence, all of it on GitHub runners
+
+No local build, test, analyze, format or package command was run at any point in this slice. Local
+runtime is NOT VERIFIED by design, so every claim below is a runner log line.
+
+| Head | Quality | CI | Build all platforms |
+| --- | --- | --- | --- |
+| `5a9ad4a` (H1+H2+H3) | `46093092478` success | `46093092487` success | `46093092524` success, 8/8 jobs |
+| `4570277` (B1-D RED) | `46093489916` success | `46093489869` **failure**, job `140819528805`, step `Analyze` | `46093489864` cancelled while still queued, no job started |
+| `ea28b29` (B1-D impl) | `46093928872` success | `46093928877` **failure**, job `140820881485`, step `Analyze` | `46093928922` **failure** at `Analyze` in jobs `140821258518` (windows/Dart analyze) and `140821258527` (android), same root cause |
+| `eb052b2` (head) | `46094277018` success | `46094276971` success, job `140821955659` | `46094276974` success, 8/8 jobs, android job `140824185335` |
+
+`Live API verification` is `skipped` in every CI run because `inputs.live_api` is false; that is the
+documented policy state, not a suppression added here. The RED commit therefore has its failing evidence
+in CI (`ci.yml` runs the `flutter` job), and the cancellation of its Build run is a concurrency-group
+replacement of a queued run under `build-platforms.yml:39-41`, not a suppressed test.
+
+### Runner lines that prove the new assertions executed
+
+| Assertion | Quoted runner line |
+| --- | --- |
+| H1 explicit-candidate selection | `merged manifest artifact: build/app/intermediates/merged_manifest/release/outputReleaseAppLinkSettings/AndroidManifest.xml` (run `46093092524`, job `140818355917`; repeated at the head in run `46094276974`, job `140824185335`) |
+| H1 identity token, merged manifest | `ok: merged manifest contains com.ccloud.ccloud` |
+| H1 identity token, shipped package | `ok: APK manifest contains package="com.ccloud.ccloud"` |
+| H2 optional-touchscreen value | `ok: APK manifest contains android:required="false"` |
+| H2 feature/value pairing | `ok: APK manifest pairs android.hardware.touchscreen with android:required="false"` |
+| H3 provenance gate | `provenance: 10 retained files verified against SOURCES.md (offline, recomputed SHA-256, no network fetch)` |
+| H3 regression suite | `Ran 14 tests in 0.007s` / `OK` (was 13 tests before the symlink vector) |
+| B1-D RED cause | `error • Target of URI doesn't exist: 'package:ccloud/core/live_catalog_codec.dart' • test/live_contracts_test.dart:4:8 • uri_does_not_exist` and the same for `live_contracts.dart:5:8`, plus `Undefined name 'LiveCatalogMigration'` — exactly the Step 2 prediction |
+| B1-D GREEN analyze | `No issues found! (ran in 15.3s)` (run `46094276971`, job `140821955659`) |
+| B1-D GREEN tests | `🎉 133 tests passed, 1 skipped.`, with all five `live_contracts_test.dart` cases marked ✅ |
+
+The skipped test is the pre-existing macOS-host-only `platform_identity_test.dart` case, not anything
+added here.
+
+### Deliberate deviations, recorded so the plan and the log cannot drift
+
+- **H1 identity token is derived, not hardcoded.** The review asked for "a package-identity token such
+  as `com.ccloud.ccloud`" asserted inside the selected manifest. The step asserts `$APP_ID`, which
+  `apkanalyzer manifest application-id "$APK"` reads from the APK under test and which the same script
+  already pins with `test "$APP_ID" = "com.ccloud.ccloud"`. That is strictly stronger than a literal in
+  `$MERGED`: the token comes from the artifact, so a foreign release manifest that merely happens to sit
+  under `build/app/intermediates` cannot satisfy the pairing `require_token "APK manifest" "$MANIFEST"
+  package="$APP_ID"` plus `require_token "merged manifest" "$MERGED" "$APP_ID"`.
+- **B1-D's test file drops one import.** The plan's Step 1 text imports `package:ccloud/core/live_catalog_codec.dart`
+  while every assertion reaches the codec through `LiveCatalogMigration`, so at `ea28b29` the hosted
+  `flutter analyze` failed with `warning • Unused import: 'package:ccloud/core/live_catalog_codec.dart'
+  • test/live_contracts_test.dart:4:8 • unused_import`. The gate was not weakened; the dead import was
+  removed at `eb052b2`, all five tests and every assertion stay byte-for-byte as the plan writes them,
+  and a comment records why the import is absent. `_optDateText` also changed from an explicit `null`
+  comparison to `value?.toUtc().toIso8601String()` for the one `prefer_null_aware_operators` info in the
+  same report.
+- **The `ea28b29` CI failure is not gate noise.** `flutter analyze` runs before `flutter test`, so the
+  warning aborted the job and `Test` was `skipped`; the first run where the five new tests actually
+  executed is `46094276971`.
+
+### Falsifiability by controlled mutation — NOT EXECUTED
+
+No broken commit was pushed and no mutation was run on a runner; the whole repository stayed green at
+every pushed head except the two documented RED states above. Each row names the edit that would make
+the assertion fail and the `::error::` text the runner would then print.
+
+| New assertion | Controlled mutation (NOT EXECUTED) | Expected runner output (NOT EXECUTED) |
+| --- | --- | --- |
+| H1 candidate list | delete the `outputReleaseAppLinkSettings/AndroidManifest.xml` entry and make the four explicit paths absent | `::error::the release merged AndroidManifest.xml was not found; the literal manifest contract cannot be checked` only if the narrowed `*/merged_manifest/release/*` glob also misses; with the glob present the same artifact is still selected, which is why the fallback is retained |
+| H1 fallback ambiguity | make AGP emit two `*/merged_manifest/release/*` manifests (e.g. an extra variant directory) | `::error::the merged-manifest fallback is ambiguous (2 candidates); refusing to assert the literal manifest contract against a guessed artifact` plus one `fallback candidate:` line each |
+| H1 identity binding | point `$MERGED` at a manifest whose `package=` differs from the APK's application id | `::error::merged manifest is missing the expected token: com.ccloud.ccloud` |
+| H2 optional touchscreen | set `android:required="true"` for `android.hardware.touchscreen` in `android/app/src/main/AndroidManifest.xml` | `::error::APK manifest is missing the expected token: android:required="false"` |
+| H2 pairing | move `android:required="false"` onto another `uses-feature` so the touchscreen entry loses it | `::error::the shipped package does not pair android.hardware.touchscreen with android:required="false"; a D-pad-only TV cannot install it` |
+| H3 containment | revert `base = root.resolve(...)` / `target = (base / …).resolve(...)` to `target = root / Path(*pure.parts)` | `retained path must stay inside the checkout: Legal/licenses/MIT-one.txt`, and the new `test_documented_symlink_cannot_leave_the_checkout` goes RED while the same fixture verifies `1 / []` once the bytes are inside the checkout |
+| B1-D schema gate | drop the `schemaVersion` preflight in `LiveCatalogStateCodec.decode` | `future and corrupt states fail closed` fails: `FormatException` is not thrown for `{"schemaVersion":2}` |
+| B1-D omission rule | write `'streamUrl'` unconditionally in `_sourceJson` | `v1 fixture round-trips and secret URLs are not serialized` fails on `isNot(contains('streamUrl'))` |
+| B1-D capability ceiling | let `_optCapability` return any string | the same test fails at the `'maybe'` case with `throwsFormatException` |
+| B1-D additive defaults | require `recentWatches` / `sourcePolicy` instead of defaulting them | `additive v1 preference defaults to the standard source policy` fails with `live catalog preference.sourcePolicy must be a JSON object` |
+
+The RED half of H3 was therefore stated, not executed, by instruction; the RED half of B1-D was
+executed and is run `46093489869`.
+
+### Interfaces B1-D now produces for B1-S and B1-J
+
+`flutter_app/lib/core/live_contracts.dart` owns `PlaylistSourceType`, `PlaylistRefreshStatus`,
+`SourceHealth`, `SourceOrigin`, `rendererSupportValues`, and the records `PlaylistRecord`,
+`ChannelMember`, `ChannelSourceRecord`, `SourcePolicy`, `LivePlaybackContext`,
+`PlaybackAttemptContext`, `LogicalChannel`, `ChannelAssociation`, `ChannelPreference`,
+`ChannelWatchRecord`, `LiveCatalogState`, `CatalogIssue`, `UnifiedCatalogSnapshot`,
+`LiveCatalogMigration.migrate(String?)` / `.encode(LiveCatalogState)`.
+`flutter_app/lib/core/live_catalog_codec.dart` owns `LiveCatalogStateCodec.supportedSchemaVersion`,
+`.decode(String)` and `.encode(LiveCatalogState)`. Shared fixtures produced:
+`Tests/fixtures/migration/catalog-v1.json` and `Tests/fixtures/migration/flutter-legacy-prefs.json`,
+both byte-identical to the plan's Shared Fixtures block (verified by `diff` against the plan lines, not
+by eye). `Tests/fixtures/multi-source/*` stays unauthored here because B2 owns it, and no Swift or
+JavaScript file was touched.
+
+### Uncovered by all of this
+
+Device and runtime acceptance remains absent for Android phone/TV, macOS, webOS and Windows media
+playback; the Dart contracts are data and a codec, so nothing about playback, failover timing, the
+`SourcePolicy` ceilings under load, or a real `SharedPreferences` round-trip is proven by a green
+runner. `flutter_secure_storage` and `file_picker` are still absent by gate, so `streamSecretRef` has no
+verified store behind it on any platform. Local runtime is NOT VERIFIED by mandate. Signing,
+notarization, production distribution, EPG programme data and upstream authenticity of the retained
+license texts are unchanged by this slice.
+
+Exact next action: B1-S mirrors these contracts in Swift against the same
+`Tests/fixtures/migration/catalog-v1.json`, then B1-J mirrors them in the webOS JavaScript, then B2
+freezes the cross-language agreement fixtures.
