@@ -7,35 +7,58 @@ dated evidence below is a ledger and must not be restated as history that did no
 
 - Repository: `/Users/roham/Documents/CCloudMac`, remote `iR0ham/CCloud` (public).
 - Working branch: `ci/github-first-foundation`.
-- HEAD: `6fb03bff7f6c1feffa02cb2a840285d5cbcec263`.
-- Remote branch head: identical (`git ls-remote` confirmed) → **synchronized, nothing unpushed**
-  except this checkpoint file while it is staged-but-unpushed.
+- HEAD: `18dec96` locally; pushed remote branch head is `2a244aad359444bd80bbeb50468362d006aab396`
+  (`git ls-remote` confirmed) → local is one ledger commit ahead, held on purpose (see Current task).
+- Commit order on the branch: `88bc7ea` (Android assertion target fix) → `8a1ef3f` (ledger +
+  checkpoint) → `221ce95` (Windows byte-equality) → `9b55536` (provenance digests) → `2a244aa`
+  (webOS dev-proxy bound).
 - `main`: `6dfd925095b0090b623443f396388fd4d552db63` — untouched, never developed on.
-- Worktree: clean apart from this file.
+- Worktree: clean apart from the checkpoint edits in this commit.
 - Open pull requests: none. Release tags: none (`v2.0.0` was never tagged).
 - Canonical identity: version `2.0.0`, global build `22` (Android `versionCode 22`).
   The next release identity (expected `2.1.0` + build `23`) is still an undecided task.
 
 ## Hosted ledger (GitHub Actions is the only execution evidence permitted)
 
-At `6fb03bf`:
+### At `8a1ef3f` (Android assertion fix)
 
 | Workflow | Run | Result |
 | --- | --- | --- |
-| Quality | `46085379874` | **success** — Repository hygiene, Required NOTICE files, Version consistency, Workflow lint, Dependency vulnerability scan, Secret scan |
-| CI | `46085379959` | **success** — Flutter analyze and tests, macOS arm64 typecheck, Version and canonical metadata, webOS static JS/JSON/service validation (8/8 transport regressions green on the Node 20 runner); Live API verification skipped by design (`live_api=false`) |
-| Build all platforms | `46085379924` | webOS IPK **success**, macOS arm64 **success**, Windows Dart analyze / release build / compatibility package (Skia) / runtime smoke / installer install + smoke **success**. Android job (`140793625386`) **failure** at step 15 "Assert APK identity, version, TV launcher/banner, and activity configuration"; Analyze ✓, Test ✓, universal release APK ✓, release App Bundle ✓, artifact naming/upload skipped |
+| Quality | `46087125801` | **success** |
+| CI | `46087125795` | **success** |
+| Build all platforms | `46087125808` | **success** — Android job `140799202503`, 23 steps, 0 failed, **0 skipped**, so the assertion gate passed and the artifacts were named, checksummed and uploaded |
 
-Android failure, as reported by the new diagnostics:
-`::error::APK manifest is missing the expected token: @drawable/tv_banner`. Root cause is the
-assertion target, not the app: `apkanalyzer manifest print` renders resource references and flag
-enumerations as opaque values (`@ref/0x7f070077`, `launchMode="1"`, `configChanges="0x40003fb4"`,
-`windowSoftInputMode="0x10"`), so those four literal tokens could never match. Fixed in the working
-tree by asserting the literals against the merged release manifest aapt2 compiled into the APK,
-while the decoded APK manifest keeps presence checks and the now-real orientation-lock prohibition.
-No token was removed and no check was optionalised. Status: **PUSHED, NOT YET HOSTED VERIFIED**.
+Runner log proof: `merged manifest artifact:
+build/app/intermediates/merged_manifest/release/outputReleaseAppLinkSettings/AndroidManifest.xml`
+(resolved through the bounded `find` fallback — promoting that path into the explicit candidate list
+is a known hardening, not worth a lone Android cycle), `ok:` for all eight decoded-APK tokens, `ok:`
+for all four merged-manifest literals, `ok:` for the three badging tokens, and
+`APK/AAB legal assertions passed: 14 files per package`. Artifacts:
+`CCloud-Android-2.0.0-22-internal-debug-signed.apk` SHA-256
+`df075103357a5e5eaf91b83bea0f46cc197cd9ecd143ef47442ab55d56e19609`, AAB SHA-256
+`9f911f0137da40e3de57c9bc4143ef9801604af413ee5f9a578a42b7cc4cb36c`, `SIGNING-Android.txt` =
+`internal-debug-signed`, `DISTRIBUTION-Android.txt` = `INTERNAL-ONLY-BLOCKED-RELINKING`. The earlier
+Android failure (`46085379924` step 15,
+`::error::APK manifest is missing the expected token: @drawable/tv_banner`) was an assertion-target
+defect: `apkanalyzer manifest print` renders references and flag enums opaquely
+(`@ref/0x7f070077`, `launchMode="1"`, `configChanges="0x40003fb4"`, `windowSoftInputMode="0x10"`).
 
-Prior heads, for continuity:
+### At `2a244aa` (evidence-gap slice: Windows byte-equality, provenance digests, webOS dev proxy)
+
+| Workflow | Run | Result and specific proof |
+| --- | --- | --- |
+| Quality | `46087990020` | **success**; `Required NOTICE files` ran `scripts/verify_provenance.py` and printed `provenance: 10 retained files verified against SOURCES.md (offline, recomputed SHA-256, no network fetch)` |
+| CI | `46087990047` | **success**; webOS job printed `# tests 10 / # pass 10 / # fail 0`, including the two new dev-proxy cap regressions, with the eight earlier tests unchanged |
+| Build all platforms | `46087990039` | **success** on all eight jobs; both Windows packages printed `Legal files are SHA-256 byte-equal to the canonical repository copies (14 compared)` |
+
+`18dec96` carries the Android addendum to `EXECUTION_LOG.md` and is **committed locally, not yet
+pushed**: members share this checkout and append to the same ledger tail, so appends are serialized
+to avoid two competing sections.
+
+### Earlier heads, for continuity
+
+- `6fb03bf`: Quality `46085379874` success, CI `46085379959` success (first hosted proof of the
+  `node:url` harness fix), Build Platforms `46085379924` failed only the Android assertion step.
 
 - `7b2db7b`: Quality success; CI failed only `webOS static` (3 of 8, harness `url` mock defect);
   Build Platforms failed only the Android identity-assertion step.
@@ -72,31 +95,34 @@ The owner's Mac is not used for project execution workloads.
 
 ## Current task
 
-- Re-verify the corrected Android assertion on a runner (next `Build all platforms` run) and
-  confirm the APK/AAB artifacts, signing label and checksums get produced end to end.
-- An independent read-only re-review of `7b2db7b..6fb03bf` was requested through the Team;
-  it was accepted this turn (earlier attempts returned `COLLABORATION_MCP_TEAM_LEADER_REQUIRED`).
-  The Android assertion commit added after that delegation must be folded into the verdict.
+- Android assertion gate: **hosted verified green** at `8a1ef3f` (run `46087125808`), first time it
+  has ever passed.
+- Evidence-gap slice: **hosted verified green** at `2a244aa` (Windows byte-equality, provenance
+  digests, webOS dev-proxy bound).
+- Waiting on: the Full-stack Engineer's final report for that slice, and the Code Reviewer's verdict.
+- Local, unpushed: `18dec96` (Android addendum) plus this checkpoint update — pushed after the
+  engineer's ledger appends land so both tails of `EXECUTION_LOG.md` stay ordered.
 
 ## Remaining tasks (ordered, with the real gate for each)
 
-1. **Android hosted re-verification** — the corrected assertion must go green on a runner, and the
-   job must then reach artifact naming, checksum and upload. If a literal token still fails against
-   the merged manifest, that is a genuine source-manifest defect and must be fixed in
-   `flutter_app/android/app/src/main/AndroidManifest.xml`, not by relaxing the gate.
-2. **Independent re-review** — verdict must be ACCEPT (or ACCEPT WITH NOTES with the notes
-   triaged) before Phase B starts.
-3. **Phase B1 — cross-language contracts, then B2 parsers/registries** (Dart first, then Swift,
+1. **Independent re-review** — the verdict must be ACCEPT (or ACCEPT WITH NOTES with the notes
+   triaged) before Phase B starts. It was requested for `7b2db7b..6fb03bf`; the Android assertion
+   commit `88bc7ea` and the evidence-gap slice `221ce95`/`9b55536`/`2a244aa` must be folded into it.
+2. **Phase B1 — cross-language contracts, then B2 parsers/registries** (Dart first, then Swift,
    then JavaScript, sharing the frozen fixtures). No B1/B2 file exists yet; verified by search.
-4. **Windows package byte-equality evidence gap** — `bundle-msvc-runtime.ps1` /
-   `assert-windows-package.ps1` stage and assert canonical legal files, but byte-equality against
-   the repository copies should be asserted the way Android and webOS do (`cmp`-equivalent).
-5. **Provenance hash enforcement** — nothing currently proves the hashes quoted in `SOURCES.md`
-   were recomputed in CI; consider a hosted Quality job that re-verifies retained license text
-   digests against GNU/upstream URLs.
-6. **Remaining security and packaging review** — `proxyFetch` in `webos_app/app/js/net.js`
-   (localhost dev-only) still reads `r.text()` unbounded; decide whether to bound it or keep the
-   documented dev-only exception.
+3. ~~Windows package byte-equality evidence gap~~ — **closed and hosted verified**: both Windows
+   packages print `Legal files are SHA-256 byte-equal to the canonical repository copies
+   (14 compared)` at run `46087990039`.
+4. ~~Provenance hash enforcement~~ — **closed and hosted verified**: `scripts/verify_provenance.py`
+   recomputes every retained-text digest recorded in `SOURCES.md` offline as a blocking Quality step
+   (`provenance: 10 retained files verified…`). Deliberately no network re-fetch comparison; that
+   would make the gate depend on upstream availability.
+5. ~~webOS dev-proxy unbounded read~~ — **closed and hosted verified**: `proxyFetch` now uses the
+   same bounded byte-counting reader and the `response-too-large` policy code, covered by two new
+   deterministic regressions (10/10 green in CI `46087990047`).
+6. **Remaining security and packaging review** — re-scan the new scripts (`verify_provenance.py`,
+   the Windows digest loop, `net.js`) for path-escaping and error-swallowing patterns, and decide
+   whether `bundle-msvc-runtime.ps1` should also be digest-checked rather than copy-verified.
 7. **Phase C failover, Phase D/E/F subtitles, Phase G full matrix** — after B is hosted-green.
 8. **Unified versioning decision + release manifest** — canonical `2.0.0+22` today; the release
    bump and manifest generation are not implemented.
@@ -118,21 +144,28 @@ None of these may be cleared by changing a label, a flag, or a document claim.
 
 ## Exact next action
 
-1. Read the Android job outcome of run `46085379924` (job `140793625386`). If it failed, fetch
-   `gh run view 46085379924 --repo iR0ham/CCloud --log-failed` and locate the `::error::` line
-   naming the missing token, then fix the smallest appropriate scope.
-2. Integrate the Team reviewer's verdict; triage notes into work items or accept.
-3. Push this checkpoint together with the next corrective/implementation slice, so no docs-only
-   commit spends a full hosted Android cycle.
-4. Then start Phase B1-D (Dart contracts + shared fixtures) with hosted RED → GREEN, per
-   `docs/superpowers/plans/2026-11-25-multi-source-subtitles.md`.
+1. Collect the Full-stack Engineer's final report for `221ce95`/`9b55536`/`2a244aa` and the Code
+   Reviewer's verdict; triage notes into work items or accept.
+2. Rebase and push the held ledger commits (`18dec96` plus this checkpoint update) once the
+   engineer's `EXECUTION_LOG.md` appends are on the remote, so the file keeps one ordered tail.
+3. Fold the reviewer's findings, if any, into a focused corrective slice, and extend the independent
+   review to `88bc7ea..2a244aa` rather than re-reviewing `7b2db7b..6fb03bf`.
+4. Start Phase B1-D (Dart contracts + shared fixtures) with hosted RED → GREEN, per
+   `docs/superpowers/plans/2026-11-25-multi-source-subtitles.md`, only after step 1 accepts.
+5. Known hardening queued for the next workflow-touching slice: promote
+   `build/app/intermediates/merged_manifest/release/outputReleaseAppLinkSettings/AndroidManifest.xml`
+   into the explicit candidate list in `.github/workflows/build-android.yml`.
 
 ## How to resume after an interruption
 
-- `cd /Users/roham/Documents/CCloudMac && git status --short && git log --oneline -6`
+- `cd /Users/roham/Documents/CCloudMac && git status --short && git log --oneline -8`
 - `git ls-remote origin ci/github-first-foundation`
-- `gh run list --repo iR0ham/CCloud --commit <HEAD> --json databaseId,workflowName,status,conclusion`
+- `gh api "repos/iR0ham/CCloud/actions/runs?head_sha=<SHA>&per_page=10" --jq '.workflow_runs[] | "\(.id)|\(.name)|\(.status)|\(.conclusion // "-")"'`
+  (use `.id`; `.databaseId` returns null on this API version)
+- Job logs need `--allow-escape-sequences` plus ANSI stripping:
+  `gh api repos/iR0ham/CCloud/actions/jobs/<job>/logs --allow-escape-sequences | sed -r 's/\x1b\[[0-9;]*[A-Za-z]//g'`
 - Constraints that still apply: GitHub-hosted execution only; never weaken a quality, legal or
   distribution gate to obtain green; never invent legal documents, source archives, signing
   evidence, device acceptance, or EPG data; never force-push; never develop on `main`; keep
-  `EXECUTION_LOG.md` append-only; replies to the owner are in Persian.
+  `EXECUTION_LOG.md` append-only; serialize ledger appends because members share this checkout;
+  replies to the owner are in Persian.
