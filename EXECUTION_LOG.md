@@ -1715,3 +1715,106 @@ the same batch, registering any new webOS file in `app/index.html` and widening 
 and obtain a scoped review before S2 touches a live path. **Verdict unchanged: DEVELOPMENT BUILDS VERIFIED —
 RELEASE BLOCKED.** Every green above is build-time CI evidence; no device, emulator, TV console, Windows shell or
 Mac GUI executed any of this, and `Local runtime remains NOT VERIFIED`.
+
+## 2026-11-28 (full-stack engineer) — B4-3 slice S1 implemented: three pure composers, zero call sites, with review findings F1 and F2 closed
+
+This is a new dated addition; the entry above is left exactly as written.
+
+**What landed, file by file.** Three new composer modules join today's built-in live row list with whatever a
+stored `LiveCatalogState` would contribute, and nothing else:
+`webos_app/app/js/live_source_composer.js` (529 lines, `CC.liveSourceComposer.compose({channels, state})` →
+`{rows, issues}`), `Sources/Core/LiveSourceComposer.swift` (392 lines,
+`composeLiveRows(_ built: [LiveTVChannel], _ state: LiveCatalogState?) -> (rows: [LiveTVChannel], issues:
+[CatalogIssue])`), `flutter_app/lib/core/live_source_composer.dart` (447 lines, `composeLiveRows` plus
+`composeLiveRowsWithIssues` returning `ComposedLiveRows`). Row in, row out — each port speaks its own host display
+type (`normChannel` output, `LiveTVChannel`, `LiveTvChannel`) and no UI file or contract type crosses the
+boundary. **No production call site was added**: `git grep` over `Sources`, `webos_app/app/js` and
+`flutter_app/lib` still shows zero consumers, which is the definition of S1 being behaviour-neutral by
+construction rather than by argument.
+
+Registration and test-side edits: `webos_app/app/index.html` loads the composer after `live_catalog_store.js` and
+before `js/app.js`, which is the order `Tests/webos/live_catalog_store.test.js` requires; `'live_source_composer.js'`
+is appended to that suite's `MODULES` list; `webos_app/app/js/api.js` gains one additive line,
+`CC.liveLanguageName = persianLanguage;`, because a minted row needs the same Persian label table the live screen
+already reads and the composer must not duplicate it; `Tests/live-foundation/run.sh` adds
+`Sources/Core/LiveSourceComposer.swift` to the explicit `swiftc` list (its doc comment names the new file, and
+`MIN_ASSERTIONS=471` is untouched). New tests: `Tests/webos/live_source_composer.test.js` (668 lines, 11 `test(`
+declarations of which one runs over the fixture's eight cases ⇒ 18),
+`flutter_app/test/live_source_composer_test.dart` (397 lines, 16), and a `+277`-line block in
+`Tests/live-foundation/main.swift`. One shared source of truth pins all three:
+`Tests/fixtures/live-composer/composer_cases.json` (695 lines, eight cases) plus its `README.md`. The fixture is
+new and additive; no existing fixture and no record borrowed by another suite was edited.
+
+**Corrections to the B4-3 inventory this member delivered earlier.** Read against the tree at this head, five of
+its citations named paths that do not exist: `tests/fixtures/live_catalog/`, `Tests/fixtures/live_tv/*`,
+`build_b4.py`, `Tests/webos/run.sh` and any `cases.json`. The real fixture directories are `Tests/fixtures/`
+`migration` and `multi-source`, and the webOS gate is `node --test Tests/webos/` at `.github/workflows/ci.yml:178`
+with a printed TAP summary and no numeric floor — the project manager's entry above already recorded the
+`MIN_ASSERTIONS=154` error and the stale `432`. Two interface claims also need correcting, and both changed this
+slice's design: `registerBuiltInChannels` returns a `RegisteredBuiltInCatalog` carrying `members`, `sources` and
+the caller's own `channels` verbatim (not a `{members, sources, channels}` map), and `buildUnifiedChannels`
+**drops** built-in members unless an enabled `builtin:live` `PlaylistRecord` exists for their `playlistId`. The
+second fact is why each composer injects that record into the merged state it hands the unified layer instead of
+calling it on the caller's document: without it, the "one playlist duplicating a built-in name" case would have
+composed to a shorter list than today's, which is the opposite of neutral.
+
+**Interface rules applied rather than re-litigated.** Ordering uses the host comparator of each port (Swift
+`localizedCaseInsensitiveCompare`, Dart `toLowerCase().compareTo`, webOS lowercased `<`), never the unified layer's
+`userOrder`-then-appearance order, so a stored `userOrder` cannot reorder today's list in S1. Collation stays
+unified — one fold function per port, no new normalisation. Identity is never inferred from similarity: an added
+address joins a built-in row only through `logicalIdByMemberId`/`associations` or the adapter's own provider key,
+so the anchor row keeps its `nanoid`, which is what favorites and the player's `stringId` key on. Per §18.5 the
+composer does **not** fold a built-in name; it emits a `builtinFoldGap` diagnostic comparing the match key of
+`name` with that of `m3uDisplayName(name)` through the existing `CatalogIssue` vocabulary, and the fixture pins it
+as a measured known-gap count, not a failure. Sensitive addresses are refused with the existing
+`secretStorageUnavailable` code and a constant message on every port (no interpolated label, so a credential
+cannot ride out through a diagnostic). Player handoff stays asymmetric by design: an anchored row keeps the
+provider's original stream text, and the `extraStreams ≤ 5` cap versus the parser's `maxURLsPerEntry = 100`
+difference is untouched here.
+
+**Review findings F1 and F2, both closed in `flutter_app/lib/core/live_catalog_store.dart`.** F1: `clear()` no
+longer returns early on `!hasStoredDocument`; the plugin cache (`_prefs.containsKey`) is not evidence about
+storage the way `fileExists` is for Swift and `CC.store.has` for webOS, so `remove` + `_resync()` + a re-checked
+`hasStoredDocument` now decides, and the new Dart test `clear deletes a document the plugin cache never saw`
+covers a document present in storage but absent from cache. F2: the two read-back paths that `landed = resynced ?
+get == text : true` left unproven now have doubles in `_OptimisticStore` — `a write the platform accepts but does
+not keep is refused, not saved` (setValue answers `true` while the stored value is untouched ⇒ `refused`) and
+`a save whose read-back cannot run is saved, and says it was unverified` (`getAll` throws ⇒ `saved` with
+`unverifiedSaveMessage`, since `saved` genuinely means "the plugin said yes and this build could not check"). The
+five-status vocabulary is unchanged; only the message gained information. Each of the three is falsifiable by
+deleting the corresponding guard, and the webOS suite's own seam tests carry the equivalent I16 proofs on the
+JavaScript side.
+
+**One deliberate departure from the recorded plan, with evidence.** The plan above says S1 should widen the
+ceiling scan to all `app/js/*.js`. This slice does not: `Tests/webos/live_catalog_store.test.js:482-514` is left
+byte-for-byte intact, and instead `Tests/webos/live_source_composer.test.js` carries its own 20-entry ceiling and
+host-API scan of the new module, extended with `CC.store` (S1 must not touch storage) and a check that the module
+does not rebind `window.CC`. The reason is the local-execution ban: widening a text scan to files this build cannot
+run means shipping a gate whose RED could not be predicted, and `util.js` is the only file that legitimately owns
+a storage handle. The residual hole is real and recorded: eight of the eleven files in `webos_app/app/js` are
+still outside any ceiling scan, so a Chromium-68 violation introduced there would not fail CI. Widening is worth
+doing, but as its own slice with the scan first proven green on each file.
+
+**Counts: forecast, not measurement.** Local build, test, analyze, format and package workloads are banned on this
+Mac, so every number below is derived from source geometry and must be read back from the runner log. webOS
+`node --test Tests/webos/`: 154 recorded at `0baf9bf` + 18 new ⇒ expect `# tests 172 / # pass 172 / # fail 0`.
+Flutter: 216 recorded + 16 composer + 3 store ⇒ expect `🎉 235 tests passed, 1 skipped.`. Swift: the harness's
+`check`/`expectThrows` sites in the new block expand to 219 runtime assertions over the eight fixture cases
+(per-case 23/26/25/27/27/31/31/29, from each case's `names`, built-row, `issueCounts` and document-form geometry)
+plus 15 outside the loop (3 identity/count, 12 seam) ⇒ expect `==> live foundation assertions: 705 (floor 471)`.
+Typecheck: 52 files recorded + `LiveSourceComposer.swift` ⇒ expect `typecheck OK (53 files)`. Per the standing
+rule, `MIN_ASSERTIONS` stays at 471 in this batch; raising it to a value read from these runs belongs to a
+follow-up commit that cites the runner lines, the way 432 → 471 cited two independent runs.
+
+**Not done, and why.** No call-site wiring — that is S2, and it needs the owner's enable-flag decision. No
+`file_picker` / `flutter_secure_storage` / `streamSecretRef` store, no attribution or notices surface, no version
+change (`2.0.0` / build `22` untouched), no new dependency. No `MIN_ASSERTIONS` raise, no push of a tag, no release
+work. The composer does not itself cap contributed addresses at `extraStreams ≤ 5` for minted rows, because a minted
+row has no today-analogue to preserve and that cap's host semantics belong to S2's handoff.
+
+**Verification actually performed on this Mac.** Read-only only: file reads, `git status`/`log`/`diff`, and
+`node -e` JSON parsing of the fixture this slice created, used solely to enumerate case geometry for the forecast
+above. No `node --test`, no `node --check`, no `swiftc`, no `flutter analyze`, no build, no test, no render, no
+package, no sign, no emulator. **Nothing here has device or runtime evidence of any kind.** The proof this slice is
+correct is the hosted run that follows the single push for the batch; until that log exists, S1 is implemented and
+static-verified, not green.
