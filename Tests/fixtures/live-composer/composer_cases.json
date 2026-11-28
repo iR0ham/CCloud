@@ -1,0 +1,695 @@
+{
+  "comment": [
+    "Shared composer contract for task B4-3 slice S1. One file, three consumers:",
+    "`flutter_app/test/live_source_composer_test.dart`, `Tests/live-foundation/main.swift` and",
+    "`Tests/webos/live_source_composer.test.js`. Each reads these bytes and asserts the same outcomes, so a",
+    "value pinned on one port is pinned on all three.",
+    "",
+    "This directory is deliberately new instead of `tests/fixtures/live_catalog/`: only `Tests/` is tracked in",
+    "git (`git ls-files` shows no lowercase `tests/` path), and the owner's APFS volume and the macOS runners",
+    "are case-insensitive, so creating `tests/` next to `Tests/` would name one directory twice. It is also not",
+    "inside `Tests/fixtures/multi-source/`, whose README freezes that group as the five-file M3U parse contract",
+    "that three suites read as one set.",
+    "",
+    "Placeholder hosts only (`cdn.example`, `stream.example`, `img.example`). No real stream address,",
+    "credential, or authorized-source list belongs here. The one token-bearing address is a synthetic refusal",
+    "probe: `SECRETVALUE` is not a secret and must never reach a composed row."
+  ],
+
+  "builtInPlaylistId": "builtin:live",
+  "builtInProviderNamespace": "famelack",
+
+  "rows": {
+    "comment": [
+      "Built-in rows use the flat runtime row shape (`nanoid`, `name`, `streams`, `languages`, `country`,",
+      "`isGeoBlocked`), which is what each port's host type holds: Swift wraps `streams` in `LiveTVStreams`,",
+      "Dart passes it to `LiveTvChannel`, and on webOS these are already `normChannel` outputs.",
+      "",
+      "Names are ASCII on purpose. The three ports sort with three different host comparators (I3: Swift",
+      "`localizedCaseInsensitiveCompare`, Dart `toLowerCase().compareTo`, webOS lowercased `<`) and the brief",
+      "forbids unifying collation, so an order-sensitive fixture with Persian names would pin one port's",
+      "collation rather than the composer. The `languages` and `label` fields still carry non-ASCII text."
+    ],
+    "builtIn": [
+      {
+        "nanoid": "irib1",
+        "name": "IRIB 1",
+        "streams": ["https://cdn.example/irib1.m3u8"],
+        "languages": ["fas"],
+        "country": "IR",
+        "isGeoBlocked": false
+      },
+      {
+        "nanoid": "jamtv",
+        "name": "Jam TV",
+        "streams": ["https://cdn.example/jamtv.m3u8", "https://cdn.example/jamtv.mp4"],
+        "languages": ["fas"],
+        "country": "IR",
+        "isGeoBlocked": false
+      },
+      {
+        "nanoid": "manoto",
+        "name": "Manoto",
+        "streams": ["https://cdn.example/manoto.m3u8"],
+        "languages": ["fas"],
+        "country": "IR",
+        "isGeoBlocked": true
+      }
+    ],
+    "foldGap": [
+      {
+        "nanoid": "presstv",
+        "name": "Press TV (720p)",
+        "streams": ["https://cdn.example/presstv.m3u8"],
+        "languages": ["fas", "eng"],
+        "country": "IR",
+        "isGeoBlocked": false
+      }
+    ]
+  },
+
+  "expectationKeys": {
+    "rowCount": "how many rows the composer returns",
+    "names": "the returned rows' `name` values, in returned order",
+    "rowStreams": "per row name, the exact stream list the composer must return for that row",
+    "rowCountry": "per row name, the `country` the returned row must carry",
+    "rowLanguages": "per row name, the `languages` the returned row must carry",
+    "rowGeoBlocked": "per row name, the `isGeoBlocked` the returned row must carry",
+    "mintedNanoid": "per row name, the exact `nanoid` a composer-minted row must carry",
+    "issueCounts": "per issue code, how many issues carry it; an absent code means zero",
+    "neutral": "true when the composed rows must be element-for-element the input rows, not merely equivalent; a case without this key asserts the opposite, that its rows must differ from its input, so a document that silently stopped meaning anything fails its own suite instead of passing it"
+  },
+
+  "cases": [
+    {
+      "id": "absent-document",
+      "comment": [
+        "No stored catalog at all: the state argument is null. The output must be the input rows, same order,",
+        "same names, same stream lists, no issues. This is the whole behaviour-neutrality claim for a device",
+        "that has never written a catalog."
+      ],
+      "rows": ["builtIn"],
+      "document": null,
+      "expect": {
+        "rowCount": 3,
+        "names": ["IRIB 1", "Jam TV", "Manoto"],
+        "rowStreams": {
+          "IRIB 1": ["https://cdn.example/irib1.m3u8"],
+          "Jam TV": ["https://cdn.example/jamtv.m3u8", "https://cdn.example/jamtv.mp4"],
+          "Manoto": ["https://cdn.example/manoto.m3u8"]
+        },
+        "rowCountry": { "IRIB 1": "IR", "Jam TV": "IR", "Manoto": "IR" },
+        "rowLanguages": { "IRIB 1": ["fas"], "Jam TV": ["fas"], "Manoto": ["fas"] },
+        "rowGeoBlocked": { "IRIB 1": false, "Jam TV": false, "Manoto": true },
+        "issueCounts": {},
+        "neutral": true
+      }
+    },
+    {
+      "id": "empty-document",
+      "comment": [
+        "A stored, valid, empty schema-v1 document. It has no playlist rows, which is why the composer must",
+        "inject an enabled record for `builtin:live` before building the view: `buildUnifiedChannels` hides",
+        "every member whose playlist record is missing or disabled, so without the injection this case returns",
+        "zero rows instead of the three the user sees today. `absent-document` proves the same thing through",
+        "the null path; this one proves it through a real document with nothing in it."
+      ],
+      "rows": ["builtIn"],
+      "document": {
+        "schemaVersion": 1,
+        "playlists": [],
+        "members": [],
+        "sources": [],
+        "associations": [],
+        "preferences": [],
+        "recentWatches": [],
+        "logicalIdByMemberId": {}
+      },
+      "expect": {
+        "rowCount": 3,
+        "names": ["IRIB 1", "Jam TV", "Manoto"],
+        "rowStreams": {
+          "IRIB 1": ["https://cdn.example/irib1.m3u8"],
+          "Jam TV": ["https://cdn.example/jamtv.m3u8", "https://cdn.example/jamtv.mp4"],
+          "Manoto": ["https://cdn.example/manoto.m3u8"]
+        },
+        "rowCountry": { "IRIB 1": "IR", "Jam TV": "IR", "Manoto": "IR" },
+        "rowLanguages": { "IRIB 1": ["fas"], "Jam TV": ["fas"], "Manoto": ["fas"] },
+        "rowGeoBlocked": { "IRIB 1": false, "Jam TV": false, "Manoto": true },
+        "issueCounts": {},
+        "neutral": true
+      }
+    },
+    {
+      "id": "corrupt-document",
+      "comment": [
+        "Storage holds bytes this build cannot decode. The persistence seam reports `corrupt` and hands back no",
+        "state, so the caller composes with null and the list is exactly today's. The seam-level half of this",
+        "case (the stored text survives untouched and nothing is written) is asserted through each port's real",
+        "store, because that is where the refusal happens; `rawDocument` is stored verbatim and never parsed."
+      ],
+      "rows": ["builtIn"],
+      "rawDocument": "{oops",
+      "expect": {
+        "rowCount": 3,
+        "names": ["IRIB 1", "Jam TV", "Manoto"],
+        "rowStreams": {
+          "IRIB 1": ["https://cdn.example/irib1.m3u8"],
+          "Jam TV": ["https://cdn.example/jamtv.m3u8", "https://cdn.example/jamtv.mp4"],
+          "Manoto": ["https://cdn.example/manoto.m3u8"]
+        },
+        "rowCountry": { "IRIB 1": "IR", "Jam TV": "IR", "Manoto": "IR" },
+        "rowLanguages": { "IRIB 1": ["fas"], "Jam TV": ["fas"], "Manoto": ["fas"] },
+        "rowGeoBlocked": { "IRIB 1": false, "Jam TV": false, "Manoto": true },
+        "issueCounts": {},
+        "neutral": true
+      }
+    },
+    {
+      "id": "duplicate-name-merged",
+      "comment": [
+        "The user's own playlist re-lists IRIB 1 under a different provider id. Similarity alone never merges",
+        "— that is the identity module's load-bearing rule — so the document carries what the user actually",
+        "wrote: `associateChannels` records the pair in `logicalIdByMemberId` (the authoritative mapping the",
+        "view follows) and an `associations` row that states the member order inside the merged channel.",
+        "",
+        "Both the built-in half and the mapping are written out literally rather than as a placeholder for a",
+        "hash, because the composer anchors a row to its built-in member by provider identity",
+        "(`playlistId` + `providerNamespace` + `providerChannelId`) and dedups the members it registers the same",
+        "way. So a document that already states the built-in member keeps its own id untouched, and no port has",
+        "to duplicate `stableKeyHash` output inside this file.",
+        "",
+        "Expected outcome: still three rows, not four, and the IRIB 1 row carries both addresses, built-in first",
+        "because that is the order the association records. `unifiedMemberCount` states what the unified layer",
+        "holds for that channel — assertable on the document by itself here, because both members and the",
+        "mapping are already in it."
+      ],
+      "rows": ["builtIn"],
+      "document": {
+        "schemaVersion": 1,
+        "playlists": [
+          {
+            "playlistId": "builtin:live",
+            "name": "CCloud",
+            "sourceType": "builtIn",
+            "locationRef": "builtin:live",
+            "enabled": true,
+            "createdAt": "2026-01-01T00:00:00Z",
+            "lastUpdatedAt": null,
+            "lastSuccessfulRefresh": null,
+            "refreshStatus": "ready",
+            "lastErrorCode": null,
+            "channelCount": 3,
+            "parsingVersion": 1
+          },
+          {
+            "playlistId": "playlist:user-a",
+            "name": "My playlist",
+            "sourceType": "remoteUrl",
+            "locationRef": "https://cdn.example/user-a.m3u",
+            "enabled": true,
+            "createdAt": "2026-01-02T00:00:00Z",
+            "lastUpdatedAt": null,
+            "lastSuccessfulRefresh": null,
+            "refreshStatus": "ready",
+            "lastErrorCode": null,
+            "channelCount": 1,
+            "parsingVersion": 1
+          }
+        ],
+        "members": [
+          {
+            "memberId": "member:built-irib1",
+            "playlistId": "builtin:live",
+            "providerNamespace": "famelack",
+            "providerChannelId": "irib1",
+            "displayName": "IRIB 1",
+            "normalizedName": "irib 1",
+            "logoUrl": null,
+            "group": null,
+            "countryCode": "IR",
+            "languages": ["fas"],
+            "tvgId": "irib1",
+            "ordinal": 0
+          },
+          {
+            "memberId": "member:user-irib1",
+            "playlistId": "playlist:user-a",
+            "providerNamespace": "iptv-org",
+            "providerChannelId": "IRIB1.IR",
+            "displayName": "IRIB 1",
+            "normalizedName": "irib 1",
+            "logoUrl": null,
+            "group": null,
+            "countryCode": null,
+            "languages": [],
+            "tvgId": null,
+            "ordinal": 0
+          }
+        ],
+        "sources": [
+          {
+            "sourceId": "source:built-irib1",
+            "channelId": "member:built-irib1",
+            "memberId": "member:built-irib1",
+            "playlistId": "builtin:live",
+            "providerNamespace": "famelack",
+            "label": "منبع اصلی",
+            "streamUrl": "https://cdn.example/irib1.m3u8",
+            "streamSecretRef": null,
+            "protocolHint": "hls",
+            "rendererCapability": "Not Yet Verified",
+            "origin": "playlist",
+            "priority": 0,
+            "enabled": true,
+            "health": "unverified",
+            "lastSuccessfulPlaybackAt": null,
+            "lastFailedPlaybackAt": null,
+            "lastErrorCode": null
+          },
+          {
+            "sourceId": "source:user-irib1",
+            "channelId": "member:user-irib1",
+            "memberId": "member:user-irib1",
+            "playlistId": "playlist:user-a",
+            "providerNamespace": "iptv-org",
+            "label": "منبع اصلی",
+            "streamUrl": "https://cdn.example/user-irib1.m3u8",
+            "streamSecretRef": null,
+            "protocolHint": "hls",
+            "rendererCapability": "Not Yet Verified",
+            "origin": "playlist",
+            "priority": 0,
+            "enabled": true,
+            "health": "unverified",
+            "lastSuccessfulPlaybackAt": null,
+            "lastFailedPlaybackAt": null,
+            "lastErrorCode": null
+          }
+        ],
+        "associations": [
+          { "memberIds": ["member:built-irib1", "member:user-irib1"] }
+        ],
+        "preferences": [],
+        "recentWatches": [],
+        "logicalIdByMemberId": {
+          "member:built-irib1": "member:built-irib1",
+          "member:user-irib1": "member:built-irib1"
+        }
+      },
+      "unifiedMemberCount": { "channelOfMember": "member:built-irib1", "count": 2 },
+      "expect": {
+        "rowCount": 3,
+        "names": ["IRIB 1", "Jam TV", "Manoto"],
+        "rowStreams": {
+          "IRIB 1": ["https://cdn.example/irib1.m3u8", "https://cdn.example/user-irib1.m3u8"],
+          "Jam TV": ["https://cdn.example/jamtv.m3u8", "https://cdn.example/jamtv.mp4"],
+          "Manoto": ["https://cdn.example/manoto.m3u8"]
+        },
+        "rowCountry": { "IRIB 1": "IR", "Jam TV": "IR", "Manoto": "IR" },
+        "rowLanguages": { "IRIB 1": ["fas"], "Jam TV": ["fas"], "Manoto": ["fas"] },
+        "rowGeoBlocked": { "IRIB 1": false, "Jam TV": false, "Manoto": true },
+        "issueCounts": {}
+      }
+    },
+    {
+      "id": "sensitive-merged-url",
+      "comment": [
+        "The same merge, but the user's address carries a credential in its query. The composer must not put it",
+        "in a row: the host row type is a plain URL list that reaches `PlaybackRequest`/`source.url`, is shown",
+        "in the copy-address action, and would then be handed to the player. One `secretStorageUnavailable`",
+        "issue — the parser's existing refusal word for exactly this case — records that an address was",
+        "withheld, and the row keeps its own clean address.",
+        "",
+        "The built-in row's own addresses are never filtered here. Today's list shows them, so filtering them",
+        "would be the behaviour change S2 has to decide on rather than something S1 may slip in."
+      ],
+      "rows": ["builtIn"],
+      "document": {
+        "schemaVersion": 1,
+        "playlists": [
+          {
+            "playlistId": "builtin:live",
+            "name": "CCloud",
+            "sourceType": "builtIn",
+            "locationRef": "builtin:live",
+            "enabled": true,
+            "createdAt": "2026-01-01T00:00:00Z",
+            "lastUpdatedAt": null,
+            "lastSuccessfulRefresh": null,
+            "refreshStatus": "ready",
+            "lastErrorCode": null,
+            "channelCount": 3,
+            "parsingVersion": 1
+          },
+          {
+            "playlistId": "playlist:user-a",
+            "name": "My playlist",
+            "sourceType": "remoteUrl",
+            "locationRef": "https://cdn.example/user-a.m3u",
+            "enabled": true,
+            "createdAt": "2026-01-02T00:00:00Z",
+            "lastUpdatedAt": null,
+            "lastSuccessfulRefresh": null,
+            "refreshStatus": "ready",
+            "lastErrorCode": null,
+            "channelCount": 1,
+            "parsingVersion": 1
+          }
+        ],
+        "members": [
+          {
+            "memberId": "member:built-irib1",
+            "playlistId": "builtin:live",
+            "providerNamespace": "famelack",
+            "providerChannelId": "irib1",
+            "displayName": "IRIB 1",
+            "normalizedName": "irib 1",
+            "logoUrl": null,
+            "group": null,
+            "countryCode": "IR",
+            "languages": ["fas"],
+            "tvgId": "irib1",
+            "ordinal": 0
+          },
+          {
+            "memberId": "member:user-irib1",
+            "playlistId": "playlist:user-a",
+            "providerNamespace": "iptv-org",
+            "providerChannelId": "IRIB1.IR",
+            "displayName": "IRIB 1",
+            "normalizedName": "irib 1",
+            "logoUrl": null,
+            "group": null,
+            "countryCode": null,
+            "languages": [],
+            "tvgId": null,
+            "ordinal": 0
+          }
+        ],
+        "sources": [
+          {
+            "sourceId": "source:built-irib1",
+            "channelId": "member:built-irib1",
+            "memberId": "member:built-irib1",
+            "playlistId": "builtin:live",
+            "providerNamespace": "famelack",
+            "label": "منبع اصلی",
+            "streamUrl": "https://cdn.example/irib1.m3u8",
+            "streamSecretRef": null,
+            "protocolHint": "hls",
+            "rendererCapability": "Not Yet Verified",
+            "origin": "playlist",
+            "priority": 0,
+            "enabled": true,
+            "health": "unverified",
+            "lastSuccessfulPlaybackAt": null,
+            "lastFailedPlaybackAt": null,
+            "lastErrorCode": null
+          },
+          {
+            "sourceId": "source:user-irib1",
+            "channelId": "member:user-irib1",
+            "memberId": "member:user-irib1",
+            "playlistId": "playlist:user-a",
+            "providerNamespace": "iptv-org",
+            "label": "منبع اصلی",
+            "streamUrl": "https://cdn.example/user-irib1.m3u8?token=SECRETVALUE",
+            "streamSecretRef": null,
+            "protocolHint": "hls",
+            "rendererCapability": "Not Yet Verified",
+            "origin": "playlist",
+            "priority": 0,
+            "enabled": true,
+            "health": "unverified",
+            "lastSuccessfulPlaybackAt": null,
+            "lastFailedPlaybackAt": null,
+            "lastErrorCode": null
+          }
+        ],
+        "associations": [
+          { "memberIds": ["member:built-irib1", "member:user-irib1"] }
+        ],
+        "preferences": [],
+        "recentWatches": [],
+        "logicalIdByMemberId": {
+          "member:built-irib1": "member:built-irib1",
+          "member:user-irib1": "member:built-irib1"
+        }
+      },
+      "expect": {
+        "rowCount": 3,
+        "names": ["IRIB 1", "Jam TV", "Manoto"],
+        "rowStreams": {
+          "IRIB 1": ["https://cdn.example/irib1.m3u8"],
+          "Jam TV": ["https://cdn.example/jamtv.m3u8", "https://cdn.example/jamtv.mp4"],
+          "Manoto": ["https://cdn.example/manoto.m3u8"]
+        },
+        "rowCountry": { "IRIB 1": "IR", "Jam TV": "IR", "Manoto": "IR" },
+        "rowLanguages": { "IRIB 1": ["fas"], "Jam TV": ["fas"], "Manoto": ["fas"] },
+        "rowGeoBlocked": { "IRIB 1": false, "Jam TV": false, "Manoto": true },
+        "issueCounts": { "secretStorageUnavailable": 1 },
+        "neutral": true
+      }
+    },
+    {
+      "id": "user-only-row",
+      "comment": [
+        "A member the user added that belongs to no built-in row and to no association. It contributes a new",
+        "row, and the row must sort where the host comparator puts it — first, here — rather than being",
+        "appended, which is what makes the result agree with a list the user would recognize.",
+        "",
+        "A minted row has no host-side evidence to inherit, so it takes exactly what the catalog states:",
+        "`displayName`, `countryCode`, `languages`, the logical channel id as its row identity (never empty, so",
+        "`stringId` keeps working), and `isGeoBlocked` false, because nothing here has proven a geo-block.",
+        "Nothing invents a logo or a capability.",
+        "",
+        "`mintedNanoid` pins that identity to `member:user-bbc`: `logicalIdOf` gives an unassociated member its",
+        "own id, and the document states the mapping literally, so the expectation is a key this file already",
+        "carries rather than a hash a port would have to reproduce."
+      ],
+      "rows": ["builtIn"],
+      "document": {
+        "schemaVersion": 1,
+        "playlists": [
+          {
+            "playlistId": "playlist:user-a",
+            "name": "My playlist",
+            "sourceType": "remoteUrl",
+            "locationRef": "https://cdn.example/user-a.m3u",
+            "enabled": true,
+            "createdAt": "2026-01-02T00:00:00Z",
+            "lastUpdatedAt": null,
+            "lastSuccessfulRefresh": null,
+            "refreshStatus": "ready",
+            "lastErrorCode": null,
+            "channelCount": 1,
+            "parsingVersion": 1
+          }
+        ],
+        "members": [
+          {
+            "memberId": "member:user-bbc",
+            "playlistId": "playlist:user-a",
+            "providerNamespace": "iptv-org",
+            "providerChannelId": "BBCPersian.IR",
+            "displayName": "BBC Persian",
+            "normalizedName": "bbc persian",
+            "logoUrl": null,
+            "group": null,
+            "countryCode": "GB",
+            "languages": ["fas"],
+            "tvgId": null,
+            "ordinal": 0
+          }
+        ],
+        "sources": [
+          {
+            "sourceId": "source:user-bbc",
+            "channelId": "member:user-bbc",
+            "memberId": "member:user-bbc",
+            "playlistId": "playlist:user-a",
+            "providerNamespace": "iptv-org",
+            "label": "منبع اصلی",
+            "streamUrl": "https://stream.example/bbc-persian.m3u8",
+            "streamSecretRef": null,
+            "protocolHint": "hls",
+            "rendererCapability": "Not Yet Verified",
+            "origin": "playlist",
+            "priority": 0,
+            "enabled": true,
+            "health": "unverified",
+            "lastSuccessfulPlaybackAt": null,
+            "lastFailedPlaybackAt": null,
+            "lastErrorCode": null
+          }
+        ],
+        "associations": [],
+        "preferences": [],
+        "recentWatches": [],
+        "logicalIdByMemberId": { "member:user-bbc": "member:user-bbc" }
+      },
+      "expect": {
+        "mintedNanoid": { "BBC Persian": "member:user-bbc" },
+        "rowCount": 4,
+        "names": ["BBC Persian", "IRIB 1", "Jam TV", "Manoto"],
+        "rowStreams": {
+          "BBC Persian": ["https://stream.example/bbc-persian.m3u8"],
+          "IRIB 1": ["https://cdn.example/irib1.m3u8"],
+          "Jam TV": ["https://cdn.example/jamtv.m3u8", "https://cdn.example/jamtv.mp4"],
+          "Manoto": ["https://cdn.example/manoto.m3u8"]
+        },
+        "rowCountry": { "BBC Persian": "GB", "IRIB 1": "IR", "Jam TV": "IR", "Manoto": "IR" },
+        "rowLanguages": {
+          "BBC Persian": ["fas"],
+          "IRIB 1": ["fas"],
+          "Jam TV": ["fas"],
+          "Manoto": ["fas"]
+        },
+        "rowGeoBlocked": { "BBC Persian": false, "IRIB 1": false, "Jam TV": false, "Manoto": true },
+        "issueCounts": {}
+      }
+    },
+    {
+      "id": "user-only-row-mid-list",
+      "comment": [
+        "`user-only-row`, except the minted row's name sorts between two built-in names instead of before all",
+        "of them. The pair matters together: a composer that prepends minted rows passes the first and fails",
+        "this one, and a composer that appends them is the other way round. Only placing the row where the host",
+        "comparator puts it satisfies both.",
+        "",
+        "The built-in rows keep their own input order, because the composer inserts rather than re-sorting: an",
+        "unstable host sort applied to two same-named rows could swap their stream lists between refreshes, and",
+        "that would be a behaviour change S1 is not allowed to introduce."
+      ],
+      "rows": ["builtIn"],
+      "document": {
+        "schemaVersion": 1,
+        "playlists": [
+          {
+            "playlistId": "playlist:user-a",
+            "name": "My playlist",
+            "sourceType": "remoteUrl",
+            "locationRef": "https://cdn.example/user-a.m3u",
+            "enabled": true,
+            "createdAt": "2026-01-02T00:00:00Z",
+            "lastUpdatedAt": null,
+            "lastSuccessfulRefresh": null,
+            "refreshStatus": "ready",
+            "lastErrorCode": null,
+            "channelCount": 1,
+            "parsingVersion": 1
+          }
+        ],
+        "members": [
+          {
+            "memberId": "member:user-kayan",
+            "playlistId": "playlist:user-a",
+            "providerNamespace": "iptv-org",
+            "providerChannelId": "KayanTV.IR",
+            "displayName": "Kayan TV",
+            "normalizedName": "kayan tv",
+            "logoUrl": null,
+            "group": null,
+            "countryCode": null,
+            "languages": ["fas"],
+            "tvgId": null,
+            "ordinal": 0
+          }
+        ],
+        "sources": [
+          {
+            "sourceId": "source:user-kayan",
+            "channelId": "member:user-kayan",
+            "memberId": "member:user-kayan",
+            "playlistId": "playlist:user-a",
+            "providerNamespace": "iptv-org",
+            "label": "منبع اصلی",
+            "streamUrl": "https://stream.example/kayan.m3u8",
+            "streamSecretRef": null,
+            "protocolHint": "hls",
+            "rendererCapability": "Not Yet Verified",
+            "origin": "playlist",
+            "priority": 0,
+            "enabled": true,
+            "health": "unverified",
+            "lastSuccessfulPlaybackAt": null,
+            "lastFailedPlaybackAt": null,
+            "lastErrorCode": null
+          }
+        ],
+        "associations": [],
+        "preferences": [],
+        "recentWatches": [],
+        "logicalIdByMemberId": { "member:user-kayan": "member:user-kayan" }
+      },
+      "expect": {
+        "mintedNanoid": { "Kayan TV": "member:user-kayan" },
+        "rowCount": 4,
+        "names": ["IRIB 1", "Jam TV", "Kayan TV", "Manoto"],
+        "rowStreams": {
+          "IRIB 1": ["https://cdn.example/irib1.m3u8"],
+          "Jam TV": ["https://cdn.example/jamtv.m3u8", "https://cdn.example/jamtv.mp4"],
+          "Kayan TV": ["https://stream.example/kayan.m3u8"],
+          "Manoto": ["https://cdn.example/manoto.m3u8"]
+        },
+        "rowCountry": { "IRIB 1": "IR", "Jam TV": "IR", "Kayan TV": "", "Manoto": "IR" },
+        "rowLanguages": {
+          "IRIB 1": ["fas"],
+          "Jam TV": ["fas"],
+          "Kayan TV": ["fas"],
+          "Manoto": ["fas"]
+        },
+        "rowGeoBlocked": { "IRIB 1": false, "Jam TV": false, "Kayan TV": false, "Manoto": true },
+        "issueCounts": {}
+      }
+    },
+    {
+      "id": "fold-gap-diagnostic",
+      "comment": [
+        "A built-in row whose own name carries a `(720p)`-style token. The built-in path keeps provider text",
+        "verbatim, while the playlist path strips that noise before folding, so this row's `normalizedName` can",
+        "never equal a clean-named parsed sibling's and candidate detection misses the pair. §18.5 asks for that",
+        "gap to be measured rather than papered over: one `builtinFoldGap` issue per affected row, and the row",
+        "still shown with the name the provider stated.",
+        "",
+        "The count is pinned against this synthetic row group rather than a real Famelack sample because the",
+        "repository holds no built-in row fixture at all: the Iran list is fetched at runtime and",
+        "`Tests/fixtures/live_tv/` does not exist at this head. A measured count over the shipped list is a",
+        "hosted follow-up, not something S1 can claim from these bytes."
+      ],
+      "rows": ["builtIn", "foldGap"],
+      "document": null,
+      "expect": {
+        "rowCount": 4,
+        "names": ["IRIB 1", "Jam TV", "Manoto", "Press TV (720p)"],
+        "rowStreams": {
+          "IRIB 1": ["https://cdn.example/irib1.m3u8"],
+          "Jam TV": ["https://cdn.example/jamtv.m3u8", "https://cdn.example/jamtv.mp4"],
+          "Manoto": ["https://cdn.example/manoto.m3u8"],
+          "Press TV (720p)": ["https://cdn.example/presstv.m3u8"]
+        },
+        "rowCountry": {
+          "IRIB 1": "IR",
+          "Jam TV": "IR",
+          "Manoto": "IR",
+          "Press TV (720p)": "IR"
+        },
+        "rowLanguages": {
+          "IRIB 1": ["fas"],
+          "Jam TV": ["fas"],
+          "Manoto": ["fas"],
+          "Press TV (720p)": ["fas", "eng"]
+        },
+        "rowGeoBlocked": {
+          "IRIB 1": false,
+          "Jam TV": false,
+          "Manoto": true,
+          "Press TV (720p)": false
+        },
+        "issueCounts": { "builtinFoldGap": 1 },
+        "neutral": true
+      }
+    }
+  ]
+}
