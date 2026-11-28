@@ -6,7 +6,8 @@
 # Compiles the *production* `Sources/Core/` files the live foundation owns — `PersianNumber.swift`,
 # `Models.swift` and `LiveTVModels.swift` (the runtime row types the built-in adapter reads),
 # `LiveTVM3UText.swift`, `LiveTVContracts.swift`, `LiveTVCatalogCodec.swift`, `LivePlaylistParser.swift`,
-# `LiveTVChannelIdentity.swift`, `UnifiedLiveCatalog.swift`, `BuiltInLiveCatalogAdapter.swift` and
+# `LiveTVChannelIdentity.swift`, `UnifiedLiveCatalog.swift`, `BuiltInLiveCatalogAdapter.swift`,
+# `LiveSourceComposer.swift` (the task B4-3 S1 display join) and
 # `LiveCatalogStore.swift` (the task B4-2 persistence seam, which is why the harness now writes to a temporary
 # directory) —
 # together with `main.swift`, so the binary under test is the code the
@@ -68,6 +69,7 @@ xcrun swiftc \
   "$ROOT/Sources/Core/LiveTVChannelIdentity.swift" \
   "$ROOT/Sources/Core/UnifiedLiveCatalog.swift" \
   "$ROOT/Sources/Core/BuiltInLiveCatalogAdapter.swift" \
+  "$ROOT/Sources/Core/LiveSourceComposer.swift" \
   "$ROOT/Sources/Core/LiveCatalogStore.swift" \
   "$HERE/main.swift" \
   -o "$BIN"
