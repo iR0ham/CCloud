@@ -56,3 +56,59 @@ This is an append-only execution record. New evidence is added as dated entries;
 - Legal-document integrity correction: the 40-hex value `652a1dd90711839acdccc08004056d25514ef2d8` was mislabeled "mpv archive SHA-256" in `SOURCES.md` and `THIRD_PARTY_NOTICES.md`. Read-only inspection of the pinned package `~/.pub-cache/hosted/pub.dev/media_kit_libs_windows_video-1.0.11` shows it is the **mpv git commit SHA-1** (`CHANGELOG.md` links `mpv-player/mpv@652a1dd`), encoded in the archive name `mpv-dev-x86_64-20230924-git-652a1dd.7z`, and the only archive integrity field the wrapper publishes is MD5 `a832ef24b3a6ff97cd2560b5b9d04cd8` (`windows/CMakeLists.txt:67-71`). The wrapper's real pub.dev archive SHA-256 is `dff76da2778729ab650229e6b4ec6ec111eb5151431002cbd7ea304ff1f112ab`. Both documents now state the identifiers with their correct algorithms and keep the Windows provenance blocker intact; no license, written offer, source archive or relinking procedure was invented.
 - Local runtime/build/test status for this slice: **NOT VERIFIED** by mandate. All evidence above is GitHub-hosted.
 
+
+## 2026-11-28 (later still) — Hosted ledger at `6fb03bf`, Android assertion root cause
+
+- Pushed head confirmed by `git ls-remote`: `6fb03bff7f6c1feffa02cb2a840285d5cbcec263` on
+  `ci/github-first-foundation`. `main` untouched at `6dfd925`. Three previously reported
+  corrections were verified present in that HEAD by read-only `git show` inspection: the
+  `node:url` module injection plus legacy-API guard in `Tests/webos/transport.test.js`, the
+  attributable `require_token` assertions in `.github/workflows/build-android.yml`, and the
+  commit-vs-checksum wording in `SOURCES.md`.
+- Hosted ledger at `6fb03bf`:
+  - Quality `46085379874`: **success** (Repository hygiene, Required NOTICE files, Version
+    consistency, Workflow lint, Dependency vulnerability scan, Secret scan). The legal-document
+    rewording kept the notice gate green.
+  - CI `46085379959`: **success**, including `webOS static JS/JSON/service validation`. This is
+    the first hosted proof that the `9979ea9` test-harness fix exercises the production transport
+    policy on the pinned Node `20` runner; the three previously failing `loadService` cases pass.
+  - Build all platforms `46085379924`: webOS IPK, macOS arm64, Windows analyze / release build /
+    Skia compatibility package / runtime smoke / installer install+startup smoke all **success**.
+    `android` (job `140793625386`) **failed** at step 15, the same assertion step as `7b2db7b`.
+- The new diagnostics did their job and named the condition instead of aborting silently:
+  `::error::APK manifest is missing the expected token: @drawable/tv_banner`, followed by the
+  decoded manifest. Faithfully rendered tokens all reported `ok:` first (`android.software.leanback`,
+  `android.intent.category.LEANBACK_LAUNCHER`, `android:banner=`, `android:taskAffinity=""`,
+  `android.hardware.touchscreen`), and identity printed `applicationId=com.ccloud.ccloud
+  versionName=2.0.0 versionCode=22`.
+- Root cause (evidence, not inference): `apkanalyzer manifest print` decodes binary resources and
+  renders references and flag enumerations as opaque values, never as source literals —
+  `android:banner="@ref/0x7f070077"`, `android:launchMode="1"`,
+  `android:configChanges="0x40003fb4"`, `android:windowSoftInputMode="0x10"`. Those four literal
+  assertions therefore could never pass against that rendering, which explains why the block has
+  failed identically since it was introduced in `1a4902c`. The Android source manifest is correct;
+  the **assertion target** was wrong. This is a workflow defect, not a product defect.
+- Fix in `.github/workflows/build-android.yml` (no token removed, no check optionalised):
+  - literal tokens `@drawable/tv_banner`, `android:launchMode="singleTop"`, the full
+    `android:configChanges="…"` flag list and `android:windowSoftInputMode="adjustResize"` are now
+    asserted against the merged release manifest that aapt2 compiled into this APK, resolved from
+    known AGP intermediate locations with a bounded `find` fallback and a hard failure if no such
+    artifact exists;
+  - the decoded APK manifest still asserts every attribute's **presence** (`android:launchMode=`,
+    `android:configChanges=`, `android:windowSoftInputMode=`, `android:banner=`) plus the values it
+    renders faithfully, so an attribute dropped from the shipped package still fails;
+  - the portrait prohibition is now real in both directions: `android:screenOrientation="portrait"`
+    is rejected in the merged declaration, and any `android:screenOrientation=` is rejected in the
+    shipped package (the previous literal grep against the decoded manifest was vacuous because the
+    value is an enum);
+  - `require_token` now also dumps the specific artifact it checked.
+- Confirmed from the same decoded manifest that no plugin contributes an orientation lock (only
+  `com.ccloud.ccloud.MainActivity` and `io.flutter.plugins.urllauncher.WebViewActivity` appear, and
+  `android:screenOrientation` occurs nowhere in it), so the new absence gate is safe for this tree.
+- Independent review: the scoped re-review of `7b2db7b..6fb03bf` was requested through the Team and
+  this time the delegation was **accepted** (`COLLABORATION_MCP_TEAM_LEADER_REQUIRED` from earlier
+  attempts was transient session shape, not a permanent block).
+- New recovery checkpoint created: `docs/reports/OVERNIGHT_EXECUTION_STATE.md`.
+- Local runtime/build/test status for this slice: **NOT VERIFIED** by mandate. The corrected Android
+  assertion has not yet run on a runner; it is **PUSHED, NOT YET HOSTED VERIFIED** until the next
+  `Build all platforms` run.

@@ -305,3 +305,36 @@ done, and the remaining critical path is the two defects below.
 Phase B still may not start until N1 and N2 have hosted evidence at one SHA and the
 Code Reviewer re-approves that head. The dependency graph in section 4 is unchanged; only
 the P0 completion states moved.
+
+## 8. Dated update — 2026-11-28 (hosted ledger at `6fb03bf`)
+
+Section 7 stays as written; this section records what its items became.
+
+### 8.1 Item outcomes
+
+| # | Then | Now | Evidence |
+| --- | --- | --- | --- |
+| N1 | IN PROGRESS | **HOSTED VERIFIED** | CI `46085379959` success at `6fb03bf`; `webOS static JS/JSON/service validation` ran all eight transport regressions green on the pinned Node `20` runner |
+| N2 | IN PROGRESS | **DIAGNOSED AND FIXED IN WORKTREE — NOT YET HOSTED VERIFIED** | Build Platforms `46085379924` / Android job `140793625386` step 15 reported `::error::APK manifest is missing the expected token: @drawable/tv_banner`, i.e. exactly one attributable condition instead of a silent abort |
+| N3 | RESOLVED in worktree | **HOSTED VERIFIED (documents)** | Quality `46085379874` success: Required NOTICE files, Repository hygiene and Version consistency green after the rewording |
+| N4 | RESOLVED in worktree | **HOLDS** | `EXECUTION_LOG.md` gained only dated addenda, including the retraction of the earlier SIGPIPE theory |
+
+### 8.2 What N2 actually was
+
+The Android manifest block never passed since it was introduced because it asserted **source
+literals** against `apkanalyzer manifest print` output, which decodes binary resources and renders
+references and flag enumerations opaquely (`@ref/0x7f070077`, `launchMode="1"`,
+`configChanges="0x40003fb4"`, `windowSoftInputMode="0x10"`). The app manifest was correct; the
+assertion target was wrong. The corrected step asserts the literals against the merged release
+manifest that aapt2 compiles into the APK, keeps presence checks on the decoded shipped manifest,
+and makes the orientation-lock prohibition enforceable in both artifacts. No token was dropped, no
+gate was relaxed, and a missing merged-manifest artifact fails the job rather than skipping checks.
+
+### 8.3 Consequence for sequencing
+
+Phase B may start once this Android fix is green on a runner and the pending independent re-review
+is integrated; the review was requested for `7b2db7b..6fb03bf` and must be extended to the Android
+assertion commit. The section 4 dependency graph is otherwise unchanged. Platform acceptance still
+lacks device/runtime evidence for Android phone/TV, Windows, macOS and webOS, and the four
+distribution labels stay `INTERNAL-ONLY-*`; production release remains blocked by the native-media
+provenance, relinking, signing/notarization and device-acceptance items in section 6.
